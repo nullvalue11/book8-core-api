@@ -31,46 +31,32 @@ app.get("/health", (req, res) => {
   res.json({ ok: true, service: "book8-core-api" });
 });
 
-// ---------- RESOLVE BUSINESS FOR AN INCOMING CALL ----------
-// Usage: /api/resolve?to=+16477882883
-// (Optionally support /api/resolve?phone=... for convenience)
+// ---------- RESOLVE BUSINESS BY PHONE NUMBER ----------
 app.get("/api/resolve", async (req, res) => {
   try {
-    const rawTo = req.query.to || req.query.phone || "";
-    const to = String(rawTo).trim();
+    const { to } = req.query;
 
     if (!to) {
       return res.status(400).json({
         ok: false,
-        error: "Query param 'to' is required (E.164 like +1647...)"
+        error: "Missing 'to' phone number"
       });
     }
 
-    // Normalize: remove spaces/dashes/parentheses
-    const normalizedTo = to.replace(/[^\d+]/g, "");
-
-    // Find by phoneNumber (your Business schema should store E.164 like +1647...)
-    const business = await Business.findOne({
-      phoneNumber: normalizedTo
-    }).lean();
+    const business = await Business.findOne({ phoneNumber: to }).lean();
 
     if (!business) {
       return res.status(404).json({
         ok: false,
         error: "No business found for this phone number",
-        to: normalizedTo
+        to
       });
     }
 
-    // Return businessId (your internal handle/id) and the business profile
-    return res.json({
-      ok: true,
-      businessId: business.id,
-      business
-    });
+    res.json({ ok: true, business });
   } catch (err) {
     console.error("Error in GET /api/resolve:", err);
-    return res.status(500).json({ ok: false, error: "Internal server error" });
+    res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
 
