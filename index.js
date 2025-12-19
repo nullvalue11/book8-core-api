@@ -49,6 +49,18 @@ const requireApiKey = (req, res, next) => {
   next();
 };
 
+// ---------- HELPER: Generate slug from business name ----------
+function generateSlug(name) {
+  if (!name) return null;
+  return String(name)
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "") // Remove special characters
+    .replace(/\s+/g, "-") // Replace spaces with hyphens
+    .replace(/-+/g, "-") // Replace multiple hyphens with single hyphen
+    .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
+}
+
 // ---------- HELPER: Normalize phone number to E.164 format ----------
 function normalizePhoneNumber(phone) {
   if (!phone) return null;
@@ -99,6 +111,90 @@ app.get("/api/resolve", async (req, res) => {
     res.json({ ok: true, business });
   } catch (err) {
     console.error("Error in GET /api/resolve:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- ONBOARD BUSINESS ----------
+app.post("/api/onboard", requireApiKey, async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      category,
+      timezone,
+      phoneNumber,
+      email,
+      greetingOverride,
+      services,
+      bookingSettings
+    } = req.body;
+
+    if (!name) {
+      return res.status(400).json({
+        ok: false,
+        error: "Field 'name' is required"
+      });
+    }
+
+    // Generate slug from name
+    let businessId = generateSlug(name);
+    if (!businessId) {
+      return res.status(400).json({
+        ok: false,
+        error: "Unable to generate business ID from name"
+      });
+    }
+
+    // Ensure unique ID - if exists, append number
+    let counter = 1;
+    let finalId = businessId;
+    while (await Business.findOne({ id: finalId })) {
+      finalId = `${businessId}-${counter}`;
+      counter++;
+    }
+
+    // Classify category if missing
+    let finalCategory = category;
+    if (!finalCategory) {
+      finalCategory = await classifyBusinessCategory({ name, description });
+    }
+
+    // Normalize phone number to E.164 format
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+
+    // Create business
+    const business = new Business({
+      id: finalId,
+      name,
+      description,
+      category: finalCategory,
+      timezone: timezone || "America/Toronto",
+      phoneNumber: normalizedPhoneNumber,
+      email,
+      greetingOverride,
+      services,
+      bookingSettings
+    });
+
+    await business.save();
+
+    res.json({
+      ok: true,
+      businessId: finalId,
+      business: business.toObject()
+    });
+  } catch (err) {
+    console.error("Error in POST /api/onboard:", err);
+    
+    // Handle duplicate key errors (e.g., duplicate phone number)
+    if (err.code === 11000) {
+      return res.status(400).json({
+        ok: false,
+        error: "Business with this phone number already exists"
+      });
+    }
+
     res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
