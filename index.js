@@ -26,6 +26,29 @@ mongoose
 app.use(cors());
 app.use(express.json());
 
+// ---------- API KEY MIDDLEWARE (for write routes) ----------
+const requireApiKey = (req, res, next) => {
+  const apiKey = req.headers["x-book8-api-key"];
+  const expectedKey = process.env.BOOK8_CORE_API_KEY;
+
+  if (!expectedKey) {
+    console.error("BOOK8_CORE_API_KEY environment variable is not set");
+    return res.status(500).json({
+      ok: false,
+      error: "Server configuration error"
+    });
+  }
+
+  if (!apiKey || apiKey !== expectedKey) {
+    return res.status(401).json({
+      ok: false,
+      error: "Unauthorized: Invalid or missing API key"
+    });
+  }
+
+  next();
+};
+
 // ---------- HELPER: Normalize phone number to E.164 format ----------
 function normalizePhoneNumber(phone) {
   if (!phone) return null;
@@ -113,7 +136,7 @@ app.get("/api/businesses", async (req, res) => {
 });
 
 // ---------- CREATE/UPDATE BUSINESS ----------
-app.post("/api/businesses", async (req, res) => {
+app.post("/api/businesses", requireApiKey, async (req, res) => {
   try {
     const {
       id,
