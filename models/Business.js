@@ -29,7 +29,7 @@ const BusinessSchema = new mongoose.Schema(
     description: { type: String },
     timezone: { type: String, default: "America/Toronto" },
 
-    phoneNumber: { type: String },
+    phoneNumber: { type: String, index: true, unique: true, sparse: true },
     email: { type: String },
 
     greetingOverride: { type: String },
