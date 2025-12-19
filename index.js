@@ -26,6 +26,17 @@ mongoose
 app.use(cors());
 app.use(express.json());
 
+// ---------- HELPER: Normalize phone number to E.164 format ----------
+function normalizePhoneNumber(phone) {
+  if (!phone) return null;
+  const str = String(phone).trim();
+  if (!str) return null;
+  // Remove all non-digit characters except leading +
+  const normalized = str.replace(/[^\d+]/g, "");
+  // Ensure it starts with + for E.164 format
+  return normalized.startsWith("+") ? normalized : `+${normalized}`;
+}
+
 // ---------- HEALTH CHECK ----------
 app.get("/health", (req, res) => {
   res.json({ ok: true, service: "book8-core-api" });
@@ -43,13 +54,22 @@ app.get("/api/resolve", async (req, res) => {
       });
     }
 
-    const business = await Business.findOne({ phoneNumber: to }).lean();
+    // Normalize phone number to E.164 format for consistent lookup
+    const normalizedTo = normalizePhoneNumber(to);
+    if (!normalizedTo) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid phone number format"
+      });
+    }
+
+    const business = await Business.findOne({ phoneNumber: normalizedTo }).lean();
 
     if (!business) {
       return res.status(404).json({
         ok: false,
         error: "No business found for this phone number",
-        to
+        to: normalizedTo
       });
     }
 
@@ -120,13 +140,16 @@ app.post("/api/businesses", async (req, res) => {
       finalCategory = await classifyBusinessCategory({ name, description });
     }
 
+    // Normalize phone number to E.164 format
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+
     const update = {
       id,
       name,
       description,
       category: finalCategory,
       timezone,
-      phoneNumber,
+      phoneNumber: normalizedPhoneNumber,
       email,
       greetingOverride,
       services,
