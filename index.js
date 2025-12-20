@@ -202,6 +202,108 @@ app.post("/api/onboard", requireApiKey, async (req, res) => {
   }
 });
 
+// ---------- PROVISION BUSINESS (SaaS-style onboarding) ----------
+app.post("/api/provision", requireApiKey, async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      category,
+      timezone,
+      email,
+      phoneNumber,
+      services
+    } = req.body;
+
+    if (!name) {
+      return res.status(400).json({
+        ok: false,
+        error: "Field 'name' is required"
+      });
+    }
+
+    // Generate slug from name
+    let businessId = generateSlug(name);
+    if (!businessId) {
+      return res.status(400).json({
+        ok: false,
+        error: "Unable to generate business ID from name"
+      });
+    }
+
+    // Ensure unique ID - if exists, append number
+    let counter = 1;
+    let finalId = businessId;
+    while (await Business.findOne({ id: finalId })) {
+      finalId = `${businessId}-${counter}`;
+      counter++;
+    }
+
+    // Classify category if missing
+    let finalCategory = category;
+    if (!finalCategory) {
+      finalCategory = await classifyBusinessCategory({ name, description });
+    }
+
+    // Normalize phone number to E.164 format if provided
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+
+    // Create business
+    const business = new Business({
+      id: finalId,
+      name,
+      description,
+      category: finalCategory,
+      timezone: timezone || "America/Toronto",
+      phoneNumber: normalizedPhoneNumber,
+      email,
+      services
+    });
+
+    await business.save();
+
+    // Return clean payload with next steps
+    res.json({
+      ok: true,
+      businessId: finalId,
+      business: {
+        id: business.id,
+        name: business.name,
+        category: business.category,
+        timezone: business.timezone,
+        email: business.email
+      },
+      nextSteps: {
+        connectNumber: {
+          endpoint: `/api/businesses/${finalId}/assign-number`,
+          method: "POST",
+          description: "Connect your Twilio phone number to start receiving calls",
+          example: {
+            assignedTwilioNumber: "+16471234567"
+          }
+        },
+        updateProfile: {
+          endpoint: `/api/businesses`,
+          method: "POST",
+          description: "Update business details, services, and settings"
+        }
+      }
+    });
+  } catch (err) {
+    console.error("Error in POST /api/provision:", err);
+    
+    // Handle duplicate key errors
+    if (err.code === 11000) {
+      return res.status(400).json({
+        ok: false,
+        error: "Business with this phone number already exists"
+      });
+    }
+
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
 // ---------- GET BUSINESS BY ID ----------
 app.get("/api/businesses/:id", async (req, res) => {
   try {
