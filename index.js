@@ -98,17 +98,20 @@ app.get("/api/resolve", async (req, res) => {
       });
     }
 
-    const business = await Business.findOne({ phoneNumber: normalizedTo }).lean();
+    // Query by assignedTwilioNumber (exact match)
+    const business = await Business.findOne({
+      assignedTwilioNumber: normalizedTo
+    }).lean();
 
     if (!business) {
       return res.status(404).json({
         ok: false,
-        error: "No business found for this phone number",
-        to: normalizedTo
+        error: "No business found for this phone number"
       });
     }
 
-    res.json({ ok: true, business });
+    // Return only businessId
+    res.json({ ok: true, businessId: business.id });
   } catch (err) {
     console.error("Error in GET /api/resolve:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
@@ -212,6 +215,63 @@ app.get("/api/businesses/:id", async (req, res) => {
     res.json({ ok: true, business });
   } catch (err) {
     console.error("Error in GET /api/businesses/:id:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- ASSIGN TWILIO NUMBER TO BUSINESS ----------
+app.post("/api/businesses/:id/assign-number", requireApiKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { assignedTwilioNumber } = req.body;
+
+    if (!assignedTwilioNumber) {
+      return res.status(400).json({
+        ok: false,
+        error: "Field 'assignedTwilioNumber' is required"
+      });
+    }
+
+    // Normalize phone number to E.164 format
+    const normalizedNumber = normalizePhoneNumber(assignedTwilioNumber);
+    if (!normalizedNumber) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid phone number format"
+      });
+    }
+
+    // Find business and update
+    const business = await Business.findOneAndUpdate(
+      { id },
+      { $set: { assignedTwilioNumber: normalizedNumber } },
+      { new: true }
+    ).lean();
+
+    if (!business) {
+      return res.status(404).json({
+        ok: false,
+        error: "Business not found"
+      });
+    }
+
+    res.json({
+      ok: true,
+      businessId: business.id,
+      assignedTwilioNumber: normalizedNumber,
+      business
+    });
+  } catch (err) {
+    console.error("Error in POST /api/businesses/:id/assign-number:", err);
+    
+    // Handle duplicate key errors (e.g., number already assigned to another business)
+    if (err.code === 11000) {
+      return res.status(400).json({
+        ok: false,
+        error: "This Twilio number is already assigned to another business"
+      });
+    }
+
     res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });

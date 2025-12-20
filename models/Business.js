@@ -32,6 +32,10 @@ const BusinessSchema = new mongoose.Schema(
     phoneNumber: { type: String, index: true, unique: true, sparse: true },
     email: { type: String },
 
+    assignedTwilioNumber: { type: String, index: true, unique: true, sparse: true },
+    forwardingEnabled: { type: Boolean, default: false },
+    forwardingFrom: [String],
+
     greetingOverride: { type: String },
 
     services: [ServiceSchema],
