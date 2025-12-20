@@ -302,6 +302,7 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
       timezone,
       phoneNumber,
       email,
+      assignedTwilioNumber,
       greetingOverride,
       services,
       bookingSettings
@@ -319,8 +320,9 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
       finalCategory = await classifyBusinessCategory({ name, description });
     }
 
-    // Normalize phone number to E.164 format
+    // Normalize phone numbers to E.164 format
     const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+    const normalizedAssignedTwilioNumber = normalizePhoneNumber(assignedTwilioNumber);
 
     const update = {
       id,
@@ -330,6 +332,7 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
       timezone,
       phoneNumber: normalizedPhoneNumber,
       email,
+      assignedTwilioNumber: normalizedAssignedTwilioNumber,
       greetingOverride,
       services,
       bookingSettings
@@ -344,6 +347,16 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
     res.json({ ok: true, business });
   } catch (err) {
     console.error("Error in POST /api/businesses:", err);
+    
+    // Handle duplicate key errors (e.g., duplicate phone number or assignedTwilioNumber)
+    if (err.code === 11000) {
+      const field = err.keyPattern ? Object.keys(err.keyPattern)[0] : 'field';
+      return res.status(400).json({
+        ok: false,
+        error: `Business with this ${field} already exists`
+      });
+    }
+
     res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
