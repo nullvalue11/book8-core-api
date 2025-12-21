@@ -5,8 +5,9 @@ import cors from "cors";
 import mongoose from "mongoose";
 
 import { Business } from "./models/Business.js";
-import { Call } from "./models/Call.js";
 import { classifyBusinessCategory } from "./services/categoryClassifier.js";
+import { requireInternalAuth } from "./src/middleware/internalAuth.js";
+import internalCallsRouter from "./src/routes/internalCalls.js";
 
 const app = express();
 
@@ -44,32 +45,6 @@ const requireApiKey = (req, res, next) => {
     return res.status(401).json({
       ok: false,
       error: "Unauthorized: Invalid or missing API key"
-    });
-  }
-
-  next();
-};
-
-// ---------- INTERNAL AUTH MIDDLEWARE (for internal read endpoints) ----------
-const requireInternalAuth = (req, res, next) => {
-  const authHeader = req.headers["x-internal-auth"] || req.headers["authorization"];
-  const expectedAuth = process.env.INTERNAL_AUTH_SECRET;
-
-  if (!expectedAuth) {
-    console.error("INTERNAL_AUTH_SECRET environment variable is not set");
-    return res.status(500).json({
-      ok: false,
-      error: "Server configuration error"
-    });
-  }
-
-  // Support both x-internal-auth header or Bearer token
-  const providedAuth = authHeader?.replace("Bearer ", "") || req.headers["x-internal-auth"];
-
-  if (!providedAuth || providedAuth !== expectedAuth) {
-    return res.status(401).json({
-      ok: false,
-      error: "Unauthorized: Invalid or missing internal auth"
     });
   }
 
@@ -490,141 +465,9 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
   }
 });
 
-// ---------- GET CALL BY SID (internal only) ----------
-app.get("/internal/calls/:callSid", requireInternalAuth, async (req, res) => {
-  try {
-    const { callSid } = req.params;
-    
-    const call = await Call.findOne({ callSid }).lean();
-    
-    if (!call) {
-      return res.status(404).json({
-        ok: false,
-        error: "Call not found"
-      });
-    }
-    
-    res.json({ ok: true, call });
-  } catch (err) {
-    console.error("Error in GET /internal/calls/:callSid:", err);
-    res.status(500).json({ ok: false, error: "Internal server error" });
-  }
-});
+// ---------- MOUNT INTERNAL ROUTES ----------
+app.use("/internal/calls", requireInternalAuth, internalCallsRouter);
 
-// ---------- ADD TRANSCRIPT ENTRY (with idempotency) ----------
-app.post("/api/calls/:callSid/transcript", requireApiKey, async (req, res) => {
-  try {
-    const { callSid } = req.params;
-    const { turnId, role, content } = req.body;
-
-    if (!turnId || !role || !content) {
-      return res.status(400).json({
-        ok: false,
-        error: "Fields 'turnId', 'role', and 'content' are required"
-      });
-    }
-
-    // Pre-check: If turnId already exists, return 200 (no-op)
-    const existingCall = await Call.findOne({
-      callSid,
-      "transcript.turnId": turnId
-    });
-
-    if (existingCall) {
-      return res.status(200).json({
-        ok: true,
-        message: "Transcript entry already exists (idempotent)",
-        turnId
-      });
-    }
-
-    // Add transcript entry with $push
-    const call = await Call.findOneAndUpdate(
-      { callSid },
-      {
-        $push: {
-          transcript: {
-            turnId,
-            role,
-            content,
-            timestamp: new Date()
-          }
-        }
-      },
-      { new: true, upsert: false }
-    );
-
-    if (!call) {
-      return res.status(404).json({
-        ok: false,
-        error: "Call not found"
-      });
-    }
-
-    res.json({ ok: true, turnId });
-  } catch (err) {
-    console.error("Error in POST /api/calls/:callSid/transcript:", err);
-    res.status(500).json({ ok: false, error: "Internal server error" });
-  }
-});
-
-// ---------- ADD TOOL CALL (with idempotency) ----------
-app.post("/api/calls/:callSid/tools", requireApiKey, async (req, res) => {
-  try {
-    const { callSid } = req.params;
-    const { eventId, toolName, args, result } = req.body;
-
-    if (!eventId || !toolName) {
-      return res.status(400).json({
-        ok: false,
-        error: "Fields 'eventId' and 'toolName' are required"
-      });
-    }
-
-    // Pre-check: If eventId already exists, return 200 (no-op)
-    const existingCall = await Call.findOne({
-      callSid,
-      "toolCalls.eventId": eventId
-    });
-
-    if (existingCall) {
-      return res.status(200).json({
-        ok: true,
-        message: "Tool call already exists (idempotent)",
-        eventId
-      });
-    }
-
-    // Add tool call with $push
-    const call = await Call.findOneAndUpdate(
-      { callSid },
-      {
-        $push: {
-          toolCalls: {
-            eventId,
-            toolName,
-            args,
-            result,
-            timestamp: new Date()
-          }
-        }
-      },
-      { new: true, upsert: false }
-    );
-
-    if (!call) {
-      return res.status(404).json({
-        ok: false,
-        error: "Call not found"
-      });
-    }
-
-    res.json({ ok: true, eventId });
-  } catch (err) {
-    console.error("Error in POST /api/calls/:callSid/tools:", err);
-    res.status(500).json({ ok: false, error: "Internal server error" });
-  }
-});
 
 // ---------- START SERVER ----------
 app.listen(PORT, () => {
