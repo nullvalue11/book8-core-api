@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 
 const TranscriptEntrySchema = new mongoose.Schema(
   {
-    turnId: { type: String }, // optional, but recommended for idempotency
+    turnId: { type: String }, // optional but recommended
     role: { type: String, enum: ["caller", "agent"], required: true },
     text: { type: String, required: true },
     timestamp: { type: Date, default: Date.now }
@@ -13,7 +13,7 @@ const TranscriptEntrySchema = new mongoose.Schema(
 
 const ToolEventSchema = new mongoose.Schema(
   {
-    eventId: { type: String }, // optional, but recommended for idempotency
+    eventId: { type: String }, // optional but recommended
     name: { type: String, required: true },
     success: { type: Boolean, default: true },
     timestamp: { type: Date, default: Date.now }
@@ -25,7 +25,7 @@ const CallSchema = new mongoose.Schema(
   {
     callSid: { type: String, required: true, unique: true, index: true },
 
-    // IMPORTANT: string handle (waismofit, cutzbarber, etc.)
+    // IMPORTANT: business handle string (waismofit, cutzbarber, etc.)
     businessId: { type: String, required: true, index: true },
 
     fromNumber: { type: String },
@@ -47,18 +47,18 @@ const CallSchema = new mongoose.Schema(
     usage: {
       llmTokens: { type: Number, default: 0 },
       ttsCharacters: { type: Number, default: 0 },
-      // optional placeholder; don't rely on it yet
+      // placeholder; do not rely on it yet
       sttSeconds: { type: Number, default: 0 }
     }
   },
   { timestamps: true }
 );
 
-// Helpful query patterns
+// Query patterns we'll actually use later
 CallSchema.index({ businessId: 1, startTime: -1 });
 CallSchema.index({ startTime: -1 });
 
-// Optional but recommended to speed idempotency checks
+// Speeds idempotency checks (optional but recommended)
 CallSchema.index({ callSid: 1, "transcript.turnId": 1 });
 CallSchema.index({ callSid: 1, "toolsUsed.eventId": 1 });
 
