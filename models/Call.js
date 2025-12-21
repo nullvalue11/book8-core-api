@@ -29,7 +29,12 @@ const CallSchema = new mongoose.Schema(
     from: { type: String }, // Caller's phone number
     to: { type: String }, // Called number (Twilio number)
     status: { type: String, default: "ringing" }, // ringing, in-progress, completed, failed
-    duration: { type: Number }, // seconds
+    
+    // MVP metering fields
+    durationSeconds: { type: Number }, // Twilio call duration
+    llmTokens: { type: Number }, // OpenAI usage (input + output tokens)
+    ttsCharacters: { type: Number }, // Reply length (TTS characters)
+    sttSeconds: { type: Number }, // Optional/unused - don't block on it
     
     transcript: [TranscriptEntrySchema],
     toolCalls: [ToolCallSchema]

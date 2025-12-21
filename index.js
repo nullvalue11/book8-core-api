@@ -50,6 +50,32 @@ const requireApiKey = (req, res, next) => {
   next();
 };
 
+// ---------- INTERNAL AUTH MIDDLEWARE (for internal read endpoints) ----------
+const requireInternalAuth = (req, res, next) => {
+  const authHeader = req.headers["x-internal-auth"] || req.headers["authorization"];
+  const expectedAuth = process.env.INTERNAL_AUTH_SECRET;
+
+  if (!expectedAuth) {
+    console.error("INTERNAL_AUTH_SECRET environment variable is not set");
+    return res.status(500).json({
+      ok: false,
+      error: "Server configuration error"
+    });
+  }
+
+  // Support both x-internal-auth header or Bearer token
+  const providedAuth = authHeader?.replace("Bearer ", "") || req.headers["x-internal-auth"];
+
+  if (!providedAuth || providedAuth !== expectedAuth) {
+    return res.status(401).json({
+      ok: false,
+      error: "Unauthorized: Invalid or missing internal auth"
+    });
+  }
+
+  next();
+};
+
 // ---------- HELPER: Generate slug from business name ----------
 function generateSlug(name) {
   if (!name) return null;
@@ -460,6 +486,27 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
       });
     }
 
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- GET CALL BY SID (internal only) ----------
+app.get("/internal/calls/:callSid", requireInternalAuth, async (req, res) => {
+  try {
+    const { callSid } = req.params;
+    
+    const call = await Call.findOne({ callSid }).lean();
+    
+    if (!call) {
+      return res.status(404).json({
+        ok: false,
+        error: "Call not found"
+      });
+    }
+    
+    res.json({ ok: true, call });
+  } catch (err) {
+    console.error("Error in GET /internal/calls/:callSid:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
