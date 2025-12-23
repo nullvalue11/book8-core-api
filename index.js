@@ -8,6 +8,7 @@ import { Business } from "./models/Business.js";
 import { classifyBusinessCategory } from "./services/categoryClassifier.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
+import internalUsageRouter from "./src/routes/internalUsage.js";
 
 const app = express();
 
@@ -467,7 +468,7 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
 
 // ---------- MOUNT INTERNAL ROUTES ----------
 app.use("/internal/calls", requireInternalAuth, internalCallsRouter);
-
+app.use("/internal/usage", requireInternalAuth, internalUsageRouter);
 
 // ---------- START SERVER ----------
 app.listen(PORT, () => {
