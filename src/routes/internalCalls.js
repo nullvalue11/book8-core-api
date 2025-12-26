@@ -9,7 +9,10 @@ router.post("/start", async (req, res) => {
   try {
     const { callSid, businessId, from, to } = req.body;
 
+    console.log("[CALL_START] Request received:", { callSid, businessId, from, to });
+
     if (!callSid || !businessId) {
+      console.warn("[CALL_START] Missing required fields:", { hasCallSid: !!callSid, hasBusinessId: !!businessId });
       return res.status(400).json({
         ok: false,
         error: "Fields 'callSid' and 'businessId' are required"
@@ -34,10 +37,18 @@ router.post("/start", async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).lean();
 
+    console.log("[CALL_START] Success:", { callSid, callId: updated._id });
     return res.json({ ok: true, call: updated });
   } catch (err) {
-    console.error("Error in POST /internal/calls/start:", err);
-    return res.status(500).json({ ok: false, error: "Internal server error" });
+    console.error("[CALL_START] Error:", err);
+    console.error("[CALL_START] Error stack:", err.stack);
+    console.error("[CALL_START] Error name:", err.name);
+    console.error("[CALL_START] Error message:", err.message);
+    return res.status(500).json({
+      ok: false,
+      error: "Internal server error",
+      details: process.env.NODE_ENV === "development" ? err.message : undefined
+    });
   }
 });
 
