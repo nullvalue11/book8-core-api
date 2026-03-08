@@ -9,6 +9,9 @@ import { classifyBusinessCategory } from "./services/categoryClassifier.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
+import calendarRouter from "./src/routes/calendar.js";
+import bookingsRouter from "./src/routes/bookings.js";
+import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
 
 const app = express();
 
@@ -466,11 +469,20 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
   }
 });
 
+// ---------- CALENDAR & BOOKINGS ----------
+app.use("/api/calendar", calendarRouter);
+app.use("/api/bookings", bookingsRouter);
+
 // ---------- MOUNT INTERNAL ROUTES ----------
 app.use("/internal/calls", requireInternalAuth, internalCallsRouter);
 app.use("/internal/usage", requireInternalAuth, internalUsageRouter);
+app.use("/internal/execute-tool", requireInternalAuth, internalExecuteToolRouter);
 
 // ---------- START SERVER ----------
-app.listen(PORT, () => {
-  console.log(`[book8-core-api] Listening on port ${PORT}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  app.listen(PORT, () => {
+    console.log(`[book8-core-api] Listening on port ${PORT}`);
+  });
+}
+
+export { app };
