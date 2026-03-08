@@ -5,6 +5,7 @@
 
 import { Business } from "../models/Business.js";
 import { classifyBusinessCategory } from "./categoryClassifier.js";
+import { getDefaultServices, getDefaultWeeklySchedule } from "./bootstrapDefaults.js";
 
 function normalizePhone(phone) {
   if (!phone) return null;
@@ -35,6 +36,9 @@ export async function ensureTenant(input) {
 
   const finalCategory = category || (await classifyBusinessCategory({ name, description }));
   const normalizedPhone = normalizePhone(phoneNumber);
+  const tz = timezone || "America/Toronto";
+  const servicesToUse = Array.isArray(services) && services.length > 0 ? services : getDefaultServices();
+  const weeklyScheduleToUse = getDefaultWeeklySchedule(tz);
 
   try {
     const business = new Business({
@@ -42,10 +46,11 @@ export async function ensureTenant(input) {
       name,
       description: description || undefined,
       category: finalCategory,
-      timezone: timezone || "America/Toronto",
+      timezone: tz,
       email: email || undefined,
       phoneNumber: normalizedPhone || undefined,
-      services: Array.isArray(services) ? services : undefined
+      services: servicesToUse,
+      weeklySchedule: weeklyScheduleToUse
     });
 
     await business.save();

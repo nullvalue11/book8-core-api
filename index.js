@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 
 import { Business } from "./models/Business.js";
 import { classifyBusinessCategory } from "./services/categoryClassifier.js";
+import { getDefaultServices, getDefaultWeeklySchedule } from "./services/bootstrapDefaults.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
@@ -177,18 +178,23 @@ app.post("/api/onboard", requireApiKey, async (req, res) => {
     // Normalize phone number to E.164 format
     const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
 
+    const tz = timezone || "America/Toronto";
+    const servicesToUse = Array.isArray(services) && services.length > 0 ? services : getDefaultServices();
+    const weeklyScheduleToUse = getDefaultWeeklySchedule(tz);
+
     // Create business
     const business = new Business({
       id: finalId,
       name,
       description,
       category: finalCategory,
-      timezone: timezone || "America/Toronto",
+      timezone: tz,
       phoneNumber: normalizedPhoneNumber,
       email,
       greetingOverride,
-      services,
-      bookingSettings
+      services: servicesToUse,
+      bookingSettings,
+      weeklySchedule: weeklyScheduleToUse
     });
 
     await business.save();
@@ -259,16 +265,21 @@ app.post("/api/provision", requireApiKey, async (req, res) => {
     // Normalize phone number to E.164 format if provided
     const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
 
+    const tz = timezone || "America/Toronto";
+    const servicesToUse = Array.isArray(services) && services.length > 0 ? services : getDefaultServices();
+    const weeklyScheduleToUse = getDefaultWeeklySchedule(tz);
+
     // Create business
     const business = new Business({
       id: finalId,
       name,
       description,
       category: finalCategory,
-      timezone: timezone || "America/Toronto",
+      timezone: tz,
       phoneNumber: normalizedPhoneNumber,
       email,
-      services
+      services: servicesToUse,
+      weeklySchedule: weeklyScheduleToUse
     });
 
     await business.save();

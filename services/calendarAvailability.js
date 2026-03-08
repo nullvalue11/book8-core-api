@@ -32,7 +32,11 @@ export async function getAvailability(params) {
 
   // TODO: When calendar integration is available, call provider here using business.calendarProvider / business.calendarCredentials.
   // if (business.calendarProvider === 'google') { return await googleCalendar.getSlots(...); }
-  const slots = await getStubSlots({ from, to, timezone: tz, durationMinutes: duration });
+  const scheduleTz = business.weeklySchedule?.timezone || tz;
+  const weeklyHours = business.weeklySchedule?.weeklyHours;
+  const slots = weeklyHours && typeof weeklyHours === "object"
+    ? getSlotsFromWeeklySchedule({ from, to, timezone: scheduleTz, durationMinutes: duration, weeklyHours })
+    : await getStubSlots({ from, to, timezone: tz, durationMinutes: duration });
 
   return {
     ok: true,
@@ -41,6 +45,83 @@ export async function getAvailability(params) {
     timezone: tz,
     slots
   };
+}
+
+function getLocalDatePartsInTz(date, timezone) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "long"
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (name) => parts.find((p) => p.type === name)?.value || "";
+  const weekday = get("weekday").toLowerCase();
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    weekday
+  };
+}
+
+/**
+ * Generate slots from business weekly schedule (e.g. Mon–Fri 09:00–17:00).
+ */
+function getSlotsFromWeeklySchedule({ from, to, timezone, durationMinutes, weeklyHours }) {
+  const start = new Date(from);
+  const end = new Date(to);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
+    return [];
+  }
+
+  const slots = [];
+  const pad = (n) => String(n).padStart(2, "0");
+  const seen = new Set();
+  let cursor = new Date(start);
+
+  while (cursor < end && slots.length < 50) {
+    const { year, month, day, weekday } = getLocalDatePartsInTz(cursor, timezone);
+    const key = `${year}-${month}-${day}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      const blocks = weeklyHours[weekday];
+      if (Array.isArray(blocks)) {
+        for (const block of blocks) {
+          const [startH = 0, startM = 0] = (block.start || "").split(":").map(Number);
+          const [endH = 17, endM = 0] = (block.end || "").split(":").map(Number);
+          const startMinutes = startH * 60 + startM;
+          const endMinutes = endH * 60 + endM;
+          for (let m = startMinutes; m + durationMinutes <= endMinutes; m += durationMinutes) {
+            const h = Math.floor(m / 60);
+            const min = m % 60;
+            const slotStartStr = `${year}-${month}-${day}T${pad(h)}:${pad(min)}:00`;
+            const slotStart = new Date(slotStartStr);
+            if (Number.isNaN(slotStart.getTime())) continue;
+            const offset = getOffsetForTimezone(slotStart, timezone);
+            const slotStartIso = `${year}-${month}-${day}T${pad(h)}:${pad(min)}:00${offset}`;
+            const endMin = m + durationMinutes;
+            const endH2 = Math.floor(endMin / 60);
+            const endMin2 = endMin % 60;
+            const slotEndIso = `${year}-${month}-${day}T${pad(endH2)}:${pad(endMin2)}:00${offset}`;
+            const slotStartDate = new Date(slotStartIso);
+            const slotEndDate = new Date(slotEndIso);
+            if (!Number.isNaN(slotStartDate.getTime()) && !Number.isNaN(slotEndDate.getTime()) && slotStartDate >= start && slotEndDate <= end) {
+              slots.push({
+                start: slotStartIso,
+                end: slotEndIso,
+                display: formatSlotDisplay(slotStartIso, timezone)
+              });
+            }
+          }
+        }
+      }
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return slots;
 }
 
 /**
