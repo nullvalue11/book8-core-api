@@ -27,12 +27,14 @@ const WeeklyScheduleSchema = new mongoose.Schema(
     timezone: { type: String, default: "America/Toronto" },
     weeklyHours: {
       type: mongoose.Schema.Types.Mixed,
-      default: () => ({
-        monday: [{ start: "09:00", end: "17:00" }],
-        tuesday: [{ start: "09:00", end: "17:00" }],
-        wednesday: [{ start: "09:00", end: "17:00" }],
-        thursday: [{ start: "09:00", end: "17:00" }],
-        friday: [{ start: "09:00", end: "17:00" }]
+      default: function () {
+        return {
+          monday: [{ start: "09:00", end: "17:00" }],
+          tuesday: [{ start: "09:00", end: "17:00" }],
+          wednesday: [{ start: "09:00", end: "17:00" }],
+          thursday: [{ start: "09:00", end: "17:00" }],
+          friday: [{ start: "09:00", end: "17:00" }]
+        };
       }
     }
   },
