@@ -1,5 +1,5 @@
 /**
- * Execution-layer tests for internal execute-tool: calendar.availability, booking.create
+ * Execution-layer tests for internal execute-tool: tenant.ensure, calendar.availability, booking.create
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert";
@@ -47,6 +47,50 @@ describe("POST /internal/execute-tool", () => {
     assert.strictEqual(res.status, 400);
     assert.strictEqual(res.body.ok, false);
     assert.strictEqual(res.body.status, "failed");
+  });
+
+  it("tenant.ensure: succeeded when business already exists", async () => {
+    const res = await internalAuth(
+      request(app).post("/internal/execute-tool").send({
+        tool: "tenant.ensure",
+        input: { businessId: TEST_BUSINESS_ID, name: "Execute Tool Gym" }
+      })
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.strictEqual(res.body.status, "succeeded");
+    assert.strictEqual(res.body.tool, "tenant.ensure");
+    assert.strictEqual(res.body.result.existed, true);
+    assert.strictEqual(res.body.result.created, false);
+  });
+
+  it("tenant.ensure: succeeded when creating new business", async () => {
+    const newId = "test-tenant-ensure-new-" + Date.now();
+    const res = await internalAuth(
+      request(app).post("/internal/execute-tool").send({
+        tool: "tenant.ensure",
+        input: { businessId: newId, name: "New Tenant Business" }
+      })
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.strictEqual(res.body.result.existed, false);
+    assert.strictEqual(res.body.result.created, true);
+    assert.strictEqual(res.body.result.businessId, newId);
+    await Business.deleteOne({ id: newId });
+  });
+
+  it("tenant.ensure: failed when businessId or name missing", async () => {
+    const res = await internalAuth(
+      request(app).post("/internal/execute-tool").send({
+        tool: "tenant.ensure",
+        input: { businessId: "some-id" }
+      })
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, false);
+    assert.strictEqual(res.body.status, "failed");
+    assert.ok(res.body.error?.message?.includes("name"));
   });
 
   it("calendar.availability: succeeded with valid input", async () => {

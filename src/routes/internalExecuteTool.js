@@ -7,6 +7,7 @@
 import express from "express";
 import { getAvailability } from "../../services/calendarAvailability.js";
 import { createBooking } from "../../services/bookingService.js";
+import { ensureTenant } from "../../services/tenantEnsure.js";
 
 const router = express.Router();
 
@@ -36,6 +37,49 @@ router.post("/", async (req, res) => {
 
     let outcome;
     switch (tool) {
+      case "tenant.ensure": {
+        const { businessId, name, description, category, timezone, email, phoneNumber, services } = payload;
+        if (!businessId || !name) {
+          outcome = {
+            ok: false,
+            status: "failed",
+            result: null,
+            error: { message: "businessId and name are required" }
+          };
+        } else {
+          const result = await ensureTenant({
+            businessId,
+            name,
+            description,
+            category,
+            timezone,
+            email,
+            phoneNumber,
+            services
+          });
+          if (!result.ok) {
+            outcome = {
+              ok: false,
+              status: "failed",
+              result: null,
+              error: { message: result.error }
+            };
+          } else {
+            outcome = {
+              ok: true,
+              status: "succeeded",
+              result: {
+                ok: result.ok,
+                businessId: result.businessId,
+                existed: result.existed,
+                created: result.created
+              },
+              error: null
+            };
+          }
+        }
+        break;
+      }
       case "calendar.availability": {
         const { businessId, serviceId, from, to, timezone, durationMinutes } = payload;
         if (!businessId || !from || !to) {
