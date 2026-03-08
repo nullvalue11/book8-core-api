@@ -78,6 +78,11 @@ function normalizePhoneNumber(phone) {
   return normalized.startsWith("+") ? normalized : `+${normalized}`;
 }
 
+// ---------- ROOT (for load balancer / health probes) ----------
+app.get("/", (req, res) => {
+  res.json({ ok: true, service: "book8-core-api" });
+});
+
 // ---------- HEALTH CHECK ----------
 app.get("/health", (req, res) => {
   res.json({ ok: true, service: "book8-core-api" });
