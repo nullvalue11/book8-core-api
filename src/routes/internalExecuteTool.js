@@ -72,7 +72,8 @@ router.post("/", async (req, res) => {
                 ok: result.ok,
                 businessId: result.businessId,
                 existed: result.existed,
-                created: result.created
+                created: result.created,
+                ...(result.defaultsEnsured !== undefined && { defaultsEnsured: result.defaultsEnsured })
               },
               error: null
             };
@@ -82,12 +83,12 @@ router.post("/", async (req, res) => {
       }
       case "calendar.availability": {
         const { businessId, serviceId, from, to, timezone, durationMinutes } = payload;
-        if (!businessId || !from || !to) {
+        if (!businessId || !serviceId || !from || !to) {
           outcome = {
             ok: false,
             status: "failed",
             result: null,
-            error: { message: "businessId, from, and to are required" }
+            error: { message: "businessId, serviceId, from, and to are required" }
           };
         } else {
           const result = await getAvailability({
@@ -123,12 +124,12 @@ router.post("/", async (req, res) => {
       }
       case "booking.create": {
         const { businessId, serviceId, customer, slot, notes, source } = payload;
-        if (!businessId || !customer || !slot) {
+        if (!businessId || !serviceId || !customer || !slot) {
           outcome = {
             ok: false,
             status: "failed",
             result: null,
-            error: { message: "businessId, customer, and slot are required" }
+            error: { message: "businessId, serviceId, customer, and slot are required" }
           };
         } else {
           const result = await createBooking({
@@ -158,6 +159,15 @@ router.post("/", async (req, res) => {
             };
           }
         }
+        break;
+      }
+      case "ops.getResult": {
+        outcome = {
+          ok: true,
+          status: "succeeded",
+          result: payload.result ?? {},
+          error: null
+        };
         break;
       }
       default:

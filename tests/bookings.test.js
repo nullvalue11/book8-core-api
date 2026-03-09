@@ -7,6 +7,7 @@ import request from "supertest";
 import mongoose from "mongoose";
 import { app } from "../index.js";
 import { Business } from "../models/Business.js";
+import { Service } from "../models/Service.js";
 import { Booking } from "../models/Booking.js";
 
 const TEST_BUSINESS_ID = "test-bookings-gym";
@@ -20,12 +21,18 @@ describe("POST /api/bookings", () => {
   before(async () => {
     await Business.findOneAndUpdate(
       { id: TEST_BUSINESS_ID },
+      { $set: { id: TEST_BUSINESS_ID, name: "Test Bookings Gym", timezone: "America/Toronto" } },
+      { upsert: true, new: true }
+    );
+    await Service.findOneAndUpdate(
+      { businessId: TEST_BUSINESS_ID, serviceId: "personal-training-60" },
       {
         $set: {
-          id: TEST_BUSINESS_ID,
-          name: "Test Bookings Gym",
-          timezone: "America/Toronto",
-          services: [{ id: "personal-training-60", name: "PT", duration: 60, price: 80 }]
+          businessId: TEST_BUSINESS_ID,
+          serviceId: "personal-training-60",
+          name: "PT",
+          durationMinutes: 60,
+          active: true
         }
       },
       { upsert: true, new: true }
@@ -34,6 +41,7 @@ describe("POST /api/bookings", () => {
 
   after(async () => {
     await Booking.deleteMany({ businessId: TEST_BUSINESS_ID });
+    await Service.deleteMany({ businessId: TEST_BUSINESS_ID });
     await Business.deleteOne({ id: TEST_BUSINESS_ID });
     await mongoose.connection.close();
   });
@@ -79,6 +87,7 @@ describe("POST /api/bookings", () => {
       .post("/api/bookings")
       .send({
         businessId: "non-existent-business-xyz",
+        serviceId: "personal-training-60",
         customer: { name: "Jane", phone: "+16475551234", email: "j@example.com" },
         slot: SLOT,
         notes: "First session",
@@ -87,6 +96,21 @@ describe("POST /api/bookings", () => {
     assert.strictEqual(res.status, 404);
     assert.strictEqual(res.body.ok, false);
     assert.strictEqual(res.body.error, "Business not found");
+  });
+
+  it("returns 404 when service not found", async () => {
+    const res = await request(app)
+      .post("/api/bookings")
+      .send({
+        businessId: TEST_BUSINESS_ID,
+        serviceId: "nonexistent-service",
+        customer: { name: "Jane", phone: "+16475551234", email: "j@example.com" },
+        slot: SLOT,
+        source: "voice-agent"
+      });
+    assert.strictEqual(res.status, 404);
+    assert.strictEqual(res.body.ok, false);
+    assert.strictEqual(res.body.error, "Service not found");
   });
 
   it("returns 201 and booking + summary for valid request (happy path)", async () => {

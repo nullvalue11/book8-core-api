@@ -5,8 +5,11 @@ import cors from "cors";
 import mongoose from "mongoose";
 
 import { Business } from "./models/Business.js";
+import { Service } from "./models/Service.js";
+import { Schedule } from "./models/Schedule.js";
 import { classifyBusinessCategory } from "./services/categoryClassifier.js";
 import { getDefaultServices, getDefaultWeeklySchedule } from "./services/bootstrapDefaults.js";
+import { ensureBookableDefaultsForBusiness } from "./services/bookableBootstrap.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
@@ -199,10 +202,13 @@ app.post("/api/onboard", requireApiKey, async (req, res) => {
 
     await business.save();
 
+    const bootstrap = await ensureBookableDefaultsForBusiness(finalId, { timezone: tz });
+
     res.json({
       ok: true,
       businessId: finalId,
-      business: business.toObject()
+      business: business.toObject(),
+      defaultsEnsured: bootstrap.defaultsEnsured
     });
   } catch (err) {
     console.error("Error in POST /api/onboard:", err);
@@ -284,6 +290,8 @@ app.post("/api/provision", requireApiKey, async (req, res) => {
 
     await business.save();
 
+    const bootstrap = await ensureBookableDefaultsForBusiness(finalId, { timezone: tz });
+
     // Return clean payload with next steps
     res.json({
       ok: true,
@@ -295,6 +303,7 @@ app.post("/api/provision", requireApiKey, async (req, res) => {
         timezone: business.timezone,
         email: business.email
       },
+      defaultsEnsured: bootstrap.defaultsEnsured,
       nextSteps: {
         connectNumber: {
           endpoint: `/api/businesses/${finalId}/assign-number`,
@@ -322,6 +331,114 @@ app.post("/api/provision", requireApiKey, async (req, res) => {
       });
     }
 
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- GET BUSINESS SERVICES ----------
+app.get("/api/businesses/:id/services", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const business = await Business.findOne({ id }).lean();
+    if (!business) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+    const services = await Service.find({ businessId: id }).lean();
+    res.json({ ok: true, businessId: id, services });
+  } catch (err) {
+    console.error("Error in GET /api/businesses/:id/services:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- POST BUSINESS SERVICE ----------
+app.post("/api/businesses/:id/services", requireApiKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { serviceId, name, durationMinutes, active } = req.body;
+    const business = await Business.findOne({ id }).lean();
+    if (!business) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+    if (!serviceId || !name || durationMinutes == null) {
+      return res.status(400).json({
+        ok: false,
+        error: "serviceId, name, and durationMinutes are required"
+      });
+    }
+    const doc = await Service.create({
+      businessId: id,
+      serviceId,
+      name,
+      durationMinutes: Number(durationMinutes),
+      active: active !== false
+    });
+    res.status(201).json({ ok: true, businessId: id, service: doc.toObject() });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({
+        ok: false,
+        error: "Service with this serviceId already exists for this business"
+      });
+    }
+    console.error("Error in POST /api/businesses/:id/services:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- GET BUSINESS SCHEDULE ----------
+app.get("/api/businesses/:id/schedule", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const business = await Business.findOne({ id }).lean();
+    if (!business) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+    let schedule = await Schedule.findOne({ businessId: id }).lean();
+    if (!schedule) {
+      schedule = {
+        businessId: id,
+        timezone: business.timezone || "America/Toronto",
+        weeklyHours: business.weeklySchedule?.weeklyHours || {
+          monday: [], tuesday: [], wednesday: [], thursday: [], friday: [], saturday: [], sunday: []
+        }
+      };
+    }
+    res.json({ ok: true, businessId: id, schedule });
+  } catch (err) {
+    console.error("Error in GET /api/businesses/:id/schedule:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- PUT BUSINESS SCHEDULE ----------
+app.put("/api/businesses/:id/schedule", requireApiKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { timezone, weeklyHours } = req.body;
+    const business = await Business.findOne({ id }).lean();
+    if (!business) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+    if (!weeklyHours || typeof weeklyHours !== "object") {
+      return res.status(400).json({
+        ok: false,
+        error: "weeklyHours (object) is required"
+      });
+    }
+    const schedule = await Schedule.findOneAndUpdate(
+      { businessId: id },
+      {
+        $set: {
+          timezone: timezone || "America/Toronto",
+          weeklyHours
+        }
+      },
+      { new: true, upsert: true }
+    ).lean();
+    res.json({ ok: true, businessId: id, schedule });
+  } catch (err) {
+    console.error("Error in PUT /api/businesses/:id/schedule:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });

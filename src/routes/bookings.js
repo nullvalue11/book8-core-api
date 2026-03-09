@@ -9,10 +9,10 @@ router.post("/", async (req, res) => {
   try {
     const { businessId, serviceId, customer, slot, notes, source } = req.body;
 
-    if (!businessId) {
+    if (!businessId || !serviceId) {
       return res.status(400).json({
         ok: false,
-        error: "Field 'businessId' is required"
+        error: "Fields 'businessId' and 'serviceId' are required"
       });
     }
     if (!customer || typeof customer !== "object") {
@@ -21,10 +21,10 @@ router.post("/", async (req, res) => {
         error: "Field 'customer' (object with name) is required"
       });
     }
-    if (!slot || typeof slot !== "object") {
+    if (!slot || typeof slot !== "object" || !slot.start || !slot.end || !slot.timezone) {
       return res.status(400).json({
         ok: false,
-        error: "Field 'slot' (object with start, end) is required"
+        error: "Field 'slot' (object with start, end, timezone) is required"
       });
     }
 
@@ -38,7 +38,8 @@ router.post("/", async (req, res) => {
     });
 
     if (!result.ok) {
-      const status = result.error === "Business not found" ? 404 : 400;
+      const notFound = result.error === "Business not found" || result.error === "Service not found";
+      const status = notFound ? 404 : 400;
       const conflict = result.error === "Selected slot is no longer available";
       const code = conflict ? 409 : status;
       return res.status(code).json({ ok: false, error: result.error });

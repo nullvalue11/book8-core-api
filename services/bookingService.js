@@ -3,6 +3,7 @@
  */
 
 import { Business } from "../models/Business.js";
+import { Service } from "../models/Service.js";
 import { Booking } from "../models/Booking.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { randomBytes } from "crypto";
@@ -43,16 +44,36 @@ export async function isSlotAvailable(businessId, slot) {
 export async function createBooking(input) {
   const { businessId, serviceId, customer, slot, notes, source } = input;
 
+  if (!businessId || !serviceId) {
+    return { ok: false, error: "businessId and serviceId are required" };
+  }
+  if (!customer?.name) {
+    return { ok: false, error: "Customer name is required" };
+  }
+  if (!slot?.start || !slot?.end || !slot?.timezone) {
+    return { ok: false, error: "Slot start, end, and timezone are required" };
+  }
+
   const business = await Business.findOne({ id: businessId }).lean();
   if (!business) {
     return { ok: false, error: "Business not found" };
   }
 
-  if (!customer?.name) {
-    return { ok: false, error: "Customer name is required" };
+  const service = await Service.findOne({ businessId, serviceId }).lean();
+  if (!service) {
+    return { ok: false, error: "Service not found" };
   }
-  if (!slot?.start || !slot?.end) {
-    return { ok: false, error: "Slot start and end are required" };
+  if (!service.active) {
+    return { ok: false, error: "Service is not active" };
+  }
+
+  const slotDurationMs = new Date(slot.end) - new Date(slot.start);
+  const slotDurationMinutes = Math.round(slotDurationMs / 60000);
+  if (slotDurationMinutes < service.durationMinutes) {
+    return { ok: false, error: "Slot duration is shorter than service duration" };
+  }
+  if (slotDurationMinutes > service.durationMinutes + 15) {
+    return { ok: false, error: "Slot duration does not match service duration" };
   }
 
   const available = await isSlotAvailable(businessId, slot);

@@ -6,6 +6,7 @@
 import { Business } from "../models/Business.js";
 import { classifyBusinessCategory } from "./categoryClassifier.js";
 import { getDefaultServices, getDefaultWeeklySchedule } from "./bootstrapDefaults.js";
+import { ensureBookableDefaultsForBusiness } from "./bookableBootstrap.js";
 
 function normalizePhone(phone) {
   if (!phone) return null;
@@ -55,11 +56,14 @@ export async function ensureTenant(input) {
 
     await business.save();
 
+    const bootstrap = await ensureBookableDefaultsForBusiness(business.id, { timezone: tz });
+
     return {
       ok: true,
       businessId,
       existed: false,
-      created: true
+      created: true,
+      defaultsEnsured: bootstrap.defaultsEnsured
     };
   } catch (err) {
     if (err.code === 11000) {

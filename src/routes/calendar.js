@@ -9,10 +9,10 @@ router.post("/availability", async (req, res) => {
   try {
     const { businessId, serviceId, from, to, timezone, durationMinutes } = req.body;
 
-    if (!businessId || !from || !to) {
+    if (!businessId || !serviceId || !from || !to) {
       return res.status(400).json({
         ok: false,
-        error: "Fields 'businessId', 'from', and 'to' are required"
+        error: "Fields 'businessId', 'serviceId', 'from', and 'to' are required"
       });
     }
 
@@ -21,12 +21,12 @@ router.post("/availability", async (req, res) => {
       serviceId,
       from,
       to,
-      timezone,
-      durationMinutes: durationMinutes ?? 60
+      timezone
     });
 
     if (!result.ok) {
-      const status = result.error === "Business not found" ? 404 : 400;
+      const status =
+        result.error === "Business not found" || result.error === "Service not found" ? 404 : 400;
       return res.status(status).json({ ok: false, error: result.error });
     }
 

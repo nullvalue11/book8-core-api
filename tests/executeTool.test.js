@@ -7,6 +7,8 @@ import request from "supertest";
 import mongoose from "mongoose";
 import { app } from "../index.js";
 import { Business } from "../models/Business.js";
+import { Service } from "../models/Service.js";
+import { Schedule } from "../models/Schedule.js";
 import { Booking } from "../models/Booking.js";
 
 const TEST_BUSINESS_ID = "test-execute-tool-gym";
@@ -22,12 +24,37 @@ describe("POST /internal/execute-tool", () => {
     if (!process.env.INTERNAL_API_SECRET) process.env.INTERNAL_API_SECRET = INTERNAL_SECRET;
     await Business.findOneAndUpdate(
       { id: TEST_BUSINESS_ID },
+      { $set: { id: TEST_BUSINESS_ID, name: "Execute Tool Gym", timezone: "America/Toronto" } },
+      { upsert: true, new: true }
+    );
+    await Service.findOneAndUpdate(
+      { businessId: TEST_BUSINESS_ID, serviceId: "pt-60" },
       {
         $set: {
-          id: TEST_BUSINESS_ID,
-          name: "Execute Tool Gym",
+          businessId: TEST_BUSINESS_ID,
+          serviceId: "pt-60",
+          name: "PT",
+          durationMinutes: 60,
+          active: true
+        }
+      },
+      { upsert: true, new: true }
+    );
+    await Schedule.findOneAndUpdate(
+      { businessId: TEST_BUSINESS_ID },
+      {
+        $set: {
+          businessId: TEST_BUSINESS_ID,
           timezone: "America/Toronto",
-          services: [{ id: "pt-60", name: "PT", duration: 60, price: 80 }]
+          weeklyHours: {
+            monday: [{ start: "09:00", end: "17:00" }],
+            tuesday: [{ start: "09:00", end: "17:00" }],
+            wednesday: [{ start: "09:00", end: "17:00" }],
+            thursday: [{ start: "09:00", end: "17:00" }],
+            friday: [{ start: "09:00", end: "17:00" }],
+            saturday: [],
+            sunday: []
+          }
         }
       },
       { upsert: true, new: true }
@@ -36,6 +63,8 @@ describe("POST /internal/execute-tool", () => {
 
   after(async () => {
     await Booking.deleteMany({ businessId: TEST_BUSINESS_ID });
+    await Service.deleteMany({ businessId: TEST_BUSINESS_ID });
+    await Schedule.deleteOne({ businessId: TEST_BUSINESS_ID });
     await Business.deleteOne({ id: TEST_BUSINESS_ID });
     await mongoose.connection.close();
   });
@@ -64,7 +93,7 @@ describe("POST /internal/execute-tool", () => {
     assert.strictEqual(res.body.result.created, false);
   });
 
-  it("tenant.ensure: succeeded when creating new business", async () => {
+  it("tenant.ensure: succeeded when creating new business and ensures defaults", async () => {
     const newId = "test-tenant-ensure-new-" + Date.now();
     const res = await internalAuth(
       request(app).post("/internal/execute-tool").send({
@@ -77,6 +106,9 @@ describe("POST /internal/execute-tool", () => {
     assert.strictEqual(res.body.result.existed, false);
     assert.strictEqual(res.body.result.created, true);
     assert.strictEqual(res.body.result.businessId, newId);
+    assert.strictEqual(res.body.result.defaultsEnsured, true);
+    await Service.deleteMany({ businessId: newId });
+    await Schedule.deleteOne({ businessId: newId });
     await Business.deleteOne({ id: newId });
   });
 
@@ -120,7 +152,7 @@ describe("POST /internal/execute-tool", () => {
     assert.strictEqual(res.body.error, null);
   });
 
-  it("calendar.availability: failed when businessId missing", async () => {
+  it("calendar.availability: failed when businessId or serviceId missing", async () => {
     const res = await internalAuth(
       request(app).post("/internal/execute-tool").send({
         tool: "calendar.availability",
@@ -178,6 +210,20 @@ describe("POST /internal/execute-tool", () => {
     assert.strictEqual(res.body.status, "failed");
     assert.strictEqual(res.body.tool, "booking.create");
     assert.ok(res.body.error?.message);
+  });
+
+  it("ops.getResult: succeeded with result", async () => {
+    const res = await internalAuth(
+      request(app).post("/internal/execute-tool").send({
+        tool: "ops.getResult",
+        input: { result: { foo: "bar" } }
+      })
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.strictEqual(res.body.status, "succeeded");
+    assert.strictEqual(res.body.tool, "ops.getResult");
+    assert.deepStrictEqual(res.body.result, { foo: "bar" });
   });
 
   it("booking.create: failed on slot conflict", async () => {

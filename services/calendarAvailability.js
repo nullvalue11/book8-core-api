@@ -1,50 +1,95 @@
 /**
  * Calendar availability service.
- * TODO: Plug in real calendar provider (Google Calendar, Cal.com, etc.) when connected.
- * For now returns stub slots so the voice/booking flow can run end-to-end.
+ * Schedule is the primary source of truth; existing bookings exclude conflicting slots.
+ * TODO: Real calendar provider (Google Calendar, Cal.com, etc.) can be overlaid later.
  */
 
 import { Business } from "../models/Business.js";
+import { Service } from "../models/Service.js";
+import { Schedule } from "../models/Schedule.js";
+import { Booking } from "../models/Booking.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 
 /**
  * Get available appointment slots for a business/service in a date range.
- * Uses business's calendar provider if configured; otherwise stub.
+ * Requires: businessId, serviceId, from, to. timezone optional (defaults from business).
+ * Uses service.durationMinutes; if durationMinutes is passed explicitly it is ignored (service defines duration).
  * @param {object} params
- * @param {string} params.businessId
- * @param {string} params.serviceId
- * @param {string} params.from - ISO 8601
- * @param {string} params.to - ISO 8601
- * @param {string} params.timezone - IANA
- * @param {number} params.durationMinutes
  * @returns {Promise<{ ok: boolean, error?: string, businessId?: string, serviceId?: string, timezone?: string, slots?: Array<{ start: string, end: string, display: string }> }>}
  */
 export async function getAvailability(params) {
-  const { businessId, serviceId, from, to, timezone, durationMinutes } = params;
+  const { businessId, serviceId, from, to, timezone } = params;
+
+  if (!businessId || !serviceId || !from || !to) {
+    return { ok: false, error: "businessId, serviceId, from, and to are required" };
+  }
 
   const business = await Business.findOne({ id: businessId }).lean();
   if (!business) {
     return { ok: false, error: "Business not found" };
   }
 
-  const tz = timezone || business.timezone || "America/Toronto";
-  const duration = Number(durationMinutes) || 60;
+  const service = await Service.findOne({ businessId, serviceId }).lean();
+  if (!service) {
+    return { ok: false, error: "Service not found" };
+  }
+  if (!service.active) {
+    return { ok: false, error: "Service is not active" };
+  }
 
-  // TODO: When calendar integration is available, call provider here using business.calendarProvider / business.calendarCredentials.
-  // if (business.calendarProvider === 'google') { return await googleCalendar.getSlots(...); }
-  const scheduleTz = business.weeklySchedule?.timezone || tz;
-  const weeklyHours = business.weeklySchedule?.weeklyHours;
-  const slots = weeklyHours && typeof weeklyHours === "object"
-    ? getSlotsFromWeeklySchedule({ from, to, timezone: scheduleTz, durationMinutes: duration, weeklyHours })
-    : await getStubSlots({ from, to, timezone: tz, durationMinutes: duration });
+  const duration = service.durationMinutes;
+
+  let schedule = await Schedule.findOne({ businessId }).lean();
+  let scheduleTz = timezone || business.timezone || "America/Toronto";
+  let weeklyHours = schedule?.weeklyHours;
+
+  if (!weeklyHours || typeof weeklyHours !== "object") {
+    weeklyHours = business.weeklySchedule?.weeklyHours;
+    scheduleTz = business.weeklySchedule?.timezone || scheduleTz;
+  }
+  if (!weeklyHours || typeof weeklyHours !== "object") {
+    return { ok: true, businessId, serviceId, timezone: scheduleTz, slots: [] };
+  }
+
+  const candidateSlots = getSlotsFromWeeklySchedule({
+    from,
+    to,
+    timezone: scheduleTz,
+    durationMinutes: duration,
+    weeklyHours
+  });
+
+  const conflictingStarts = await getBookedSlotStarts(businessId, from, to);
+  const slots = candidateSlots.filter(
+    (s) => !conflictingStarts.some((booked) => slotsOverlap(s, booked))
+  );
 
   return {
     ok: true,
     businessId,
     serviceId,
-    timezone: tz,
-    slots
+    timezone: scheduleTz,
+    slots: slots.slice(0, 50).map((s) => ({
+      ...s,
+      display: formatSlotDisplay(s.start, scheduleTz)
+    }))
   };
+}
+
+function slotsOverlap(slot, booked) {
+  return slot.start < booked.end && slot.end > booked.start;
+}
+
+async function getBookedSlotStarts(businessId, from, to) {
+  const bookings = await Booking.find({
+    businessId,
+    status: "confirmed",
+    "slot.start": { $lt: to },
+    "slot.end": { $gt: from }
+  })
+    .select("slot.start slot.end")
+    .lean();
+  return bookings.map((b) => ({ start: b.slot.start, end: b.slot.end }));
 }
 
 function getLocalDatePartsInTz(date, timezone) {
