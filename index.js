@@ -17,6 +17,7 @@ import calendarRouter from "./src/routes/calendar.js";
 import bookingsRouter from "./src/routes/bookings.js";
 import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
 import internalProvisionRouter from "./src/routes/internalProvision.js";
+import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
 
 const app = express();
 
@@ -606,6 +607,8 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
 // ---------- CALENDAR & BOOKINGS ----------
 app.use("/api/calendar", calendarRouter);
 app.use("/api/bookings", bookingsRouter);
+// ElevenLabs Conversation Initiation Webhook (public — authenticated via ElevenLabs secrets)
+app.use("/api/elevenlabs", elevenLabsWebhookRouter);
 
 // ---------- MOUNT INTERNAL ROUTES ----------
 app.use("/internal/calls", requireInternalAuth, internalCallsRouter);
