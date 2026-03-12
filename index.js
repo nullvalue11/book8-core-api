@@ -16,6 +16,7 @@ import internalUsageRouter from "./src/routes/internalUsage.js";
 import calendarRouter from "./src/routes/calendar.js";
 import bookingsRouter from "./src/routes/bookings.js";
 import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
+import internalProvisionRouter from "./src/routes/internalProvision.js";
 
 const app = express();
 
@@ -610,6 +611,7 @@ app.use("/api/bookings", bookingsRouter);
 app.use("/internal/calls", requireInternalAuth, internalCallsRouter);
 app.use("/internal/usage", requireInternalAuth, internalUsageRouter);
 app.use("/internal/execute-tool", requireInternalAuth, internalExecuteToolRouter);
+app.use("/internal/provision-from-stripe", requireInternalAuth, internalProvisionRouter);
 
 // ---------- START SERVER ----------
 if (process.env.NODE_ENV !== "test") {
