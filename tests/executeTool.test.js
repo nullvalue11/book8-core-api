@@ -237,6 +237,7 @@ describe("POST /internal/execute-tool", () => {
         tool: "booking.create",
         input: {
           businessId: TEST_BUSINESS_ID,
+          serviceId: "pt-60",
           customer: { name: "First", phone: "+16475550001" },
           slot,
           source: "voice-agent"
@@ -251,6 +252,7 @@ describe("POST /internal/execute-tool", () => {
         tool: "booking.create",
         input: {
           businessId: TEST_BUSINESS_ID,
+          serviceId: "pt-60",
           customer: { name: "Second", phone: "+16475550002" },
           slot,
           source: "voice-agent"
