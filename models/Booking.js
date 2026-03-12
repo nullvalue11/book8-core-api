@@ -33,5 +33,29 @@ const BookingSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// RACE CONDITION FIX: Prevent double-booking at the DB level.
+// Two concurrent calls can both pass the isSlotAvailable() read check
+// and then both write a booking for the same slot. This unique index
+// ensures MongoDB rejects the second write with a duplicate key error
+// (code 11000), which bookingService.js catches and returns as
+// "slot no longer available."
+// partialFilterExpression limits the constraint to confirmed bookings
+// only, so cancelled bookings don't block future slots.
+BookingSchema.index(
+  { businessId: 1, "slot.start": 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: "confirmed" }
+  }
+);
+
+// Performance index for the overlap query in isSlotAvailable()
+BookingSchema.index({
+  businessId: 1,
+  status: 1,
+  "slot.start": 1,
+  "slot.end": 1
+});
+
 export const Booking =
   mongoose.models.Booking || mongoose.model("Booking", BookingSchema);

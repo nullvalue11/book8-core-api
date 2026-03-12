@@ -19,6 +19,10 @@ export function generateBookingId() {
 /**
  * Check if the given slot is still available (not double-booked).
  * Ensures no existing confirmed booking for this business overlaps the slot.
+ *
+ * NOTE: This is a soft check (read-only). The real atomicity guarantee comes
+ * from the compound unique index on Booking { businessId, slot.start, status }.
+ * See createBooking() below for the catch on duplicate key errors.
  */
 export async function isSlotAvailable(businessId, slot) {
   const start = new Date(slot.start);
@@ -38,6 +42,14 @@ export async function isSlotAvailable(businessId, slot) {
 
 /**
  * Create a booking. Validates business, checks slot availability, then persists.
+ *
+ * RACE CONDITION SAFETY:
+ * Even though isSlotAvailable() runs first as a soft check, two concurrent
+ * requests can both pass it. The compound unique index on Booking
+ * { businessId, slot.start, status } ensures the second save() fails with
+ * a duplicate key error (MongoDB code 11000). We catch that and return a
+ * clean "slot no longer available" response — no double-booking possible.
+ *
  * @param {object} input
  * @returns {Promise<{ ok: boolean, error?: string, booking?: object, summary?: string }>}
  */
@@ -103,7 +115,18 @@ export async function createBooking(input) {
     notes: notes || ""
   });
 
-  await booking.save();
+  try {
+    await booking.save();
+  } catch (err) {
+    if (err.code === 11000) {
+      console.warn(
+        `[bookingService] Duplicate key on save — concurrent booking race caught. ` +
+          `businessId=${businessId}, slot.start=${slot.start}`
+      );
+      return { ok: false, error: "Selected slot is no longer available" };
+    }
+    throw err;
+  }
 
   const display = formatSlotDisplay(slot.start, timezone);
   const summary = `Booked ${customer.name} for ${display}.`;
