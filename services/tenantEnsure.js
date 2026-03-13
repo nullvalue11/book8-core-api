@@ -27,11 +27,14 @@ export async function ensureTenant(input) {
 
   const existing = await Business.findOne({ id: businessId }).lean();
   if (existing) {
+    const tz = timezone || existing.timezone || "America/Toronto";
+    const bootstrap = await ensureBookableDefaultsForBusiness(businessId, { timezone: tz });
     return {
       ok: true,
       businessId,
       existed: true,
-      created: false
+      created: false,
+      defaultsEnsured: bootstrap.defaultsEnsured
     };
   }
 

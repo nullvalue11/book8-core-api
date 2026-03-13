@@ -55,6 +55,11 @@ const BusinessSchema = new mongoose.Schema(
     assignedTwilioNumber: { type: String, index: true, unique: true, sparse: true },
     forwardingEnabled: { type: Boolean, default: false },
     forwardingFrom: [String],
+    // Phone number setup method chosen during onboarding
+    // "forwarding" = business keeps their number, forwards to Book8 Twilio number
+    // "direct" = business uses the assigned Twilio number directly
+    // "pending" = hasn't completed setup yet
+    numberSetupMethod: { type: String, enum: ["forwarding", "direct", "pending"], default: "pending" },
 
     greetingOverride: { type: String },
 
