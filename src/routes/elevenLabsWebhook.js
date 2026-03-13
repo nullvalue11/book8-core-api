@@ -3,6 +3,7 @@ import express from "express";
 import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { Schedule } from "../../models/Schedule.js";
+import { Call } from "../models/Call.js";
 
 const router = express.Router();
 
@@ -211,6 +212,210 @@ router.post("/conversation-init", async (req, res) => {
     });
   }
 });
+
+/**
+ * POST /api/elevenlabs/post-call
+ *
+ * ElevenLabs Post-Call Webhook.
+ * Called after every completed call with transcript, duration, and analysis.
+ * This is the primary source of call data for billing and ops.
+ *
+ * Must return 200 quickly — ElevenLabs auto-disables webhooks after 10
+ * consecutive failures.
+ */
+router.post("/post-call", async (req, res) => {
+  const startTime = Date.now();
+
+  try {
+    const { type, event_timestamp, data } = req.body;
+
+    if (!type || !data) {
+      console.warn("[elevenlabs-post-call] Missing type or data in webhook payload");
+      return res.status(200).json({ status: "ignored", reason: "missing type or data" });
+    }
+
+    console.log("[elevenlabs-post-call] Received:", {
+      type,
+      conversationId: data.conversation_id,
+      agentId: data.agent_id,
+      eventTimestamp: event_timestamp
+    });
+
+    if (type === "post_call_transcription") {
+      await handleTranscription(data);
+    } else if (type === "call_initiation_failure") {
+      await handleInitiationFailure(data);
+    } else if (type === "post_call_audio") {
+      console.log("[elevenlabs-post-call] Ignoring audio webhook for:", data.conversation_id);
+    } else {
+      console.log("[elevenlabs-post-call] Unknown webhook type:", type);
+    }
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[elevenlabs-post-call] Processed in ${elapsed}ms`);
+
+    return res.status(200).json({ status: "ok" });
+  } catch (err) {
+    console.error("[elevenlabs-post-call] Error processing webhook:", err);
+    return res.status(200).json({ status: "error", message: "Processing failed but acknowledged" });
+  }
+});
+
+/**
+ * Handle post_call_transcription webhook.
+ * Extracts call data and upserts into the Call collection.
+ */
+async function handleTranscription(data) {
+  const {
+    agent_id,
+    conversation_id,
+    status,
+    transcript,
+    metadata,
+    analysis,
+    conversation_initiation_client_data
+  } = data;
+
+  const dynamicVars = conversation_initiation_client_data?.dynamic_variables || {};
+  const businessId = dynamicVars.business_id || "unknown";
+  const callerPhone = dynamicVars.caller_phone || "";
+  const callSid = dynamicVars.call_sid || "";
+
+  const callDurationSecs = metadata?.call_duration_secs || 0;
+  const startTimeUnix = metadata?.start_time_unix_secs || 0;
+  const cost = metadata?.cost || 0;
+  const terminationReason = metadata?.termination_reason || "";
+
+  const callSuccessful = analysis?.call_successful || "unknown";
+  const transcriptSummary = analysis?.transcript_summary || "";
+
+  const formattedTranscript = Array.isArray(transcript)
+    ? transcript.map((turn, index) => ({
+        turnId: `${conversation_id}:${turn.role}:${index}`,
+        role: turn.role === "agent" ? "agent" : "caller",
+        text: turn.message || "",
+        timestamp: startTimeUnix
+          ? new Date((startTimeUnix + (turn.time_in_call_secs || 0)) * 1000)
+          : new Date()
+      }))
+    : [];
+
+  const agentChars = formattedTranscript
+    .filter(t => t.role === "agent")
+    .reduce((sum, t) => sum + (t.text?.length || 0), 0);
+
+  console.log("[elevenlabs-post-call] Transcription data:", {
+    businessId,
+    conversationId: conversation_id,
+    callSid: callSid || "(no callSid)",
+    durationSecs: callDurationSecs,
+    transcriptTurns: formattedTranscript.length,
+    callSuccessful,
+    agentTtsChars: agentChars
+  });
+
+  const callIdentifier = callSid || `el_${conversation_id}`;
+
+  try {
+    const update = {
+      $set: {
+        businessId,
+        status: "completed",
+        durationSeconds: callDurationSecs,
+        endTime: startTimeUnix
+          ? new Date((startTimeUnix + callDurationSecs) * 1000)
+          : new Date(),
+        transcript: formattedTranscript,
+        elevenLabs: {
+          conversationId: conversation_id,
+          agentId: agent_id,
+          callSuccessful,
+          transcriptSummary,
+          cost,
+          terminationReason
+        }
+      },
+      $setOnInsert: {
+        callSid: callIdentifier,
+        fromNumber: callerPhone,
+        startTime: startTimeUnix ? new Date(startTimeUnix * 1000) : new Date()
+      },
+      $inc: {
+        "usage.ttsCharacters": agentChars
+      }
+    };
+
+    await Call.findOneAndUpdate(
+      { callSid: callIdentifier },
+      update,
+      { upsert: true, new: true }
+    );
+
+    console.log("[elevenlabs-post-call] Call record saved:", callIdentifier);
+  } catch (err) {
+    console.error("[elevenlabs-post-call] Error saving call record:", err);
+  }
+}
+
+/**
+ * Handle call_initiation_failure webhook.
+ * Logs failed call attempts for monitoring.
+ */
+async function handleInitiationFailure(data) {
+  const {
+    agent_id,
+    conversation_id,
+    failure_reason,
+    metadata
+  } = data;
+
+  const providerType = metadata?.type || "unknown";
+  const providerBody = metadata?.body || {};
+
+  const callSid = providerBody.CallSid || providerBody.call_sid || `el_fail_${conversation_id}`;
+  const callerNumber = providerBody.From || providerBody.from_number || "";
+  const calledNumber = providerBody.To || providerBody.to_number || "";
+
+  console.error("[elevenlabs-post-call] Call initiation failed:", {
+    conversationId: conversation_id,
+    agentId: agent_id,
+    failureReason: failure_reason,
+    providerType,
+    callSid,
+    from: callerNumber,
+    to: calledNumber
+  });
+
+  try {
+    await Call.findOneAndUpdate(
+      { callSid },
+      {
+        $set: {
+          status: "failed",
+          endTime: new Date(),
+          elevenLabs: {
+            conversationId: conversation_id,
+            agentId: agent_id,
+            failureReason: failure_reason,
+            providerType
+          }
+        },
+        $setOnInsert: {
+          callSid,
+          fromNumber: callerNumber,
+          toNumber: calledNumber,
+          startTime: new Date(),
+          businessId: "unknown"
+        }
+      },
+      { upsert: true, new: true }
+    );
+
+    console.log("[elevenlabs-post-call] Failed call record saved:", callSid);
+  } catch (err) {
+    console.error("[elevenlabs-post-call] Error saving failed call record:", err);
+  }
+}
 
 /**
  * Format "09:00" or "17:00" to "9 AM" or "5 PM" for spoken-friendly output.

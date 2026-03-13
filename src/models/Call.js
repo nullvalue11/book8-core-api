@@ -49,6 +49,17 @@ const CallSchema = new mongoose.Schema(
       ttsCharacters: { type: Number, default: 0 },
       // placeholder; do not rely on it yet
       sttSeconds: { type: Number, default: 0 }
+    },
+
+    // ElevenLabs call data (populated by post-call webhook)
+    elevenLabs: {
+      conversationId: { type: String },
+      agentId: { type: String },
+      callSuccessful: { type: String }, // "success", "failure", "unknown"
+      transcriptSummary: { type: String },
+      cost: { type: Number }, // ElevenLabs credit cost
+      terminationReason: { type: String },
+      failureReason: { type: String } // For call_initiation_failure events
     }
   },
   { timestamps: true }
@@ -57,6 +68,7 @@ const CallSchema = new mongoose.Schema(
 // Query patterns we'll actually use later
 CallSchema.index({ businessId: 1, startTime: -1 });
 CallSchema.index({ startTime: -1 });
+CallSchema.index({ "elevenLabs.conversationId": 1 }, { sparse: true });
 
 // Speeds idempotency checks (optional but recommended)
 CallSchema.index({ callSid: 1, "transcript.turnId": 1 });
