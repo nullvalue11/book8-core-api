@@ -54,7 +54,7 @@ export async function isSlotAvailable(businessId, slot) {
  * @returns {Promise<{ ok: boolean, error?: string, booking?: object, summary?: string }>}
  */
 export async function createBooking(input) {
-  const { businessId, serviceId, customer, slot, notes, source } = input;
+  const { businessId, serviceId, customer, slot: rawSlot, notes, source, timezone: inputTimezone } = input;
 
   if (!businessId || !serviceId) {
     return { ok: false, error: "businessId and serviceId are required" };
@@ -62,8 +62,17 @@ export async function createBooking(input) {
   if (!customer?.name) {
     return { ok: false, error: "Customer name is required" };
   }
-  if (!slot?.start || !slot?.end || !slot?.timezone) {
+
+  // Normalize slot: voice agent may send only start (string) or { start } without end
+  let slot = rawSlot;
+  if (typeof slot === "string") {
+    slot = { start: slot, end: undefined, timezone: inputTimezone || "America/Toronto" };
+  }
+  if (!slot || !slot.start) {
     return { ok: false, error: "Slot start, end, and timezone are required" };
+  }
+  if (!slot.timezone) {
+    slot.timezone = inputTimezone || "America/Toronto";
   }
 
   const business = await Business.findOne({ id: businessId }).lean();
@@ -77,6 +86,15 @@ export async function createBooking(input) {
   }
   if (!service.active) {
     return { ok: false, error: "Service is not active" };
+  }
+
+  // Voice agent often sends only slot start; derive end from service duration
+  if (!slot.end) {
+    const startMs = new Date(slot.start).getTime();
+    if (Number.isNaN(startMs)) {
+      return { ok: false, error: "Slot start must be a valid date/time" };
+    }
+    slot.end = new Date(startMs + service.durationMinutes * 60000).toISOString();
   }
 
   const slotDurationMs = new Date(slot.end) - new Date(slot.start);
