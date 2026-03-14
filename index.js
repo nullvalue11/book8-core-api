@@ -25,14 +25,16 @@ const PORT = process.env.PORT || 5050;
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/book8_core";
 
-// ---------- DB CONNECTION ----------
-mongoose
-  .connect(MONGODB_URI)
-  .then(() => console.log("[book8-core-api] Connected to MongoDB"))
-  .catch((err) => {
-    console.error("[book8-core-api] MongoDB connection error:", err);
-    process.exit(1);
-  });
+// In test, connect immediately so test setup can use the DB; in production, connect after listen (see START SERVER).
+if (process.env.NODE_ENV === "test") {
+  mongoose
+    .connect(MONGODB_URI)
+    .then(() => console.log("[book8-core-api] Connected to MongoDB"))
+    .catch((err) => {
+      console.error("[book8-core-api] MongoDB connection error:", err);
+      process.exit(1);
+    });
+}
 
 // ---------- MIDDLEWARE ----------
 app.use(cors());
@@ -617,9 +619,17 @@ app.use("/internal/execute-tool", requireInternalAuth, internalExecuteToolRouter
 app.use("/internal/provision-from-stripe", requireInternalAuth, internalProvisionRouter);
 
 // ---------- START SERVER ----------
+// Bind port first so Render's port scan succeeds; then connect to MongoDB.
 if (process.env.NODE_ENV !== "test") {
   app.listen(PORT, () => {
     console.log(`[book8-core-api] Listening on port ${PORT}`);
+    mongoose
+      .connect(MONGODB_URI)
+      .then(() => console.log("[book8-core-api] Connected to MongoDB"))
+      .catch((err) => {
+        console.error("[book8-core-api] MongoDB connection error:", err);
+        process.exit(1);
+      });
   });
 }
 
