@@ -91,13 +91,13 @@ router.post("/conversation-init", async (req, res) => {
       console.error("[elevenlabs-webhook] Error loading services:", err);
     }
 
-    // Format services as a spoken-friendly list
+    // Format services as a spoken-friendly list (include serviceId for tool calls)
     let servicesList = "appointments";
     if (services.length > 0) {
       servicesList = services
         .map((s) => {
           const duration = s.durationMinutes ? `${s.durationMinutes}-minute ` : "";
-          return `${duration}${s.name}`;
+          return `${duration}${s.name} (serviceId: ${s.serviceId})`;
         })
         .join(", ");
     }
