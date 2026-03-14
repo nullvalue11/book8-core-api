@@ -20,7 +20,10 @@ import { formatSlotDisplay } from "./slotDisplay.js";
 export async function getAvailability(params) {
   const { businessId, serviceId, from, to, timezone } = params;
 
-  if (!businessId || !serviceId || !from || !to) {
+  const normalizedFrom = ensureTimezoneOffset(from, timezone || "America/Toronto");
+  const normalizedTo = ensureTimezoneOffset(to, timezone || "America/Toronto");
+
+  if (!businessId || !serviceId || !normalizedFrom || !normalizedTo) {
     return { ok: false, error: "businessId, serviceId, from, and to are required" };
   }
 
@@ -52,14 +55,14 @@ export async function getAvailability(params) {
   }
 
   const candidateSlots = getSlotsFromWeeklySchedule({
-    from,
-    to,
+    from: normalizedFrom,
+    to: normalizedTo,
     timezone: scheduleTz,
     durationMinutes: duration,
     weeklyHours
   });
 
-  const conflictingStarts = await getBookedSlotStarts(businessId, from, to);
+  const conflictingStarts = await getBookedSlotStarts(businessId, normalizedFrom, normalizedTo);
   const slots = candidateSlots.filter(
     (s) => !conflictingStarts.some((booked) => slotsOverlap(s, booked))
   );
@@ -234,4 +237,18 @@ function getOffsetForTimezone(date, timezone) {
     }
   } catch (_) {}
   return "-05:00";
+}
+
+function ensureTimezoneOffset(dateStr, timezone) {
+  if (!dateStr || typeof dateStr !== "string") return dateStr;
+  // Already has offset (contains +, - after T, or Z)
+  if (/[Tt]\d{2}:\d{2}(:\d{2})?\s*[Zz]/.test(dateStr)) return dateStr;
+  if (/[Tt]\d{2}:\d{2}(:\d{2})?\s*[+-]\d{2}/.test(dateStr)) return dateStr;
+  // No time component — add midnight
+  if (!dateStr.includes("T")) {
+    dateStr = dateStr + "T00:00:00";
+  }
+  // Append timezone offset
+  const offset = getOffsetForTimezone(new Date(dateStr + "Z"), timezone);
+  return dateStr + offset;
 }
