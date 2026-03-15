@@ -6,14 +6,7 @@
 import { Business } from "../models/Business.js";
 import { Service } from "../models/Service.js";
 import { Schedule } from "../models/Schedule.js";
-
-const DEFAULT_SERVICE_ID = "intro-session-60";
-const DEFAULT_SERVICE = {
-  serviceId: DEFAULT_SERVICE_ID,
-  name: "Intro Session",
-  durationMinutes: 60,
-  active: true
-};
+import { getDefaultsForCategory } from "./categoryDefaults.js";
 
 const DEFAULT_WEEKLY_HOURS = {
   monday: [{ start: "09:00", end: "17:00" }],
@@ -26,21 +19,38 @@ const DEFAULT_WEEKLY_HOURS = {
 };
 
 /**
- * Ensure at least one default active service exists for the business.
- * Idempotent: if any service already exists for businessId, does nothing.
+ * Ensure default services exist for the business based on its category.
+ * Idempotent: if any services already exist for businessId, does nothing.
  * @param {string} businessId
- * @param {string} [timezone] - for consistency, not used on Service
- * @returns {{ ensured: boolean }}
+ * @param {string} [category] - business category (e.g. "barber", "dental", "fitness")
+ * @returns {{ ensured: boolean, servicesCreated: number }}
  */
-export async function ensureDefaultServicesForBusiness(businessId, timezone) {
+export async function ensureDefaultServicesForBusiness(businessId, category) {
   const count = await Service.countDocuments({ businessId });
-  if (count > 0) return { ensured: false };
+  if (count > 0) return { ensured: false, servicesCreated: 0 };
 
-  await Service.create({
-    businessId,
-    ...DEFAULT_SERVICE
-  });
-  return { ensured: true };
+  const defaults = getDefaultsForCategory(category);
+
+  let created = 0;
+  for (const svc of defaults.services) {
+    try {
+      await Service.create({
+        businessId,
+        serviceId: svc.serviceId,
+        name: svc.name,
+        durationMinutes: svc.durationMinutes,
+        active: true
+      });
+      created++;
+    } catch (err) {
+      if (err.code !== 11000) {
+        console.error(`[bookableBootstrap] Error creating service ${svc.serviceId} for ${businessId}:`, err);
+      }
+    }
+  }
+
+  console.log(`[bookableBootstrap] Created ${created} default services for ${businessId} (category: ${category || "other"})`);
+  return { ensured: true, servicesCreated: created };
 }
 
 /**
@@ -64,24 +74,27 @@ export async function ensureDefaultScheduleForBusiness(businessId, timezone) {
 }
 
 /**
- * Ensure default bookable state: one default service and default schedule.
+ * Ensure default bookable state: category-aware default services and default schedule.
  * Idempotent and safe to call multiple times.
  * @param {string} businessId
- * @param {{ timezone?: string }} [opts]
- * @returns {{ defaultsEnsured: boolean, servicesEnsured: boolean, scheduleEnsured: boolean }}
+ * @param {{ timezone?: string, category?: string }} [opts]
+ * @returns {{ defaultsEnsured: boolean, servicesEnsured: boolean, scheduleEnsured: boolean, servicesCreated?: number }}
  */
 export async function ensureBookableDefaultsForBusiness(businessId, opts = {}) {
   const business = await Business.findOne({ id: businessId }).lean();
   if (!business) return { defaultsEnsured: false, servicesEnsured: false, scheduleEnsured: false };
 
   const tz = opts.timezone || business.timezone || "America/Toronto";
-  const servicesResult = await ensureDefaultServicesForBusiness(businessId, tz);
+  const category = opts.category || business.category || "other";
+
+  const servicesResult = await ensureDefaultServicesForBusiness(businessId, category);
   const scheduleResult = await ensureDefaultScheduleForBusiness(businessId, tz);
 
   const defaultsEnsured = servicesResult.ensured || scheduleResult.ensured;
   return {
     defaultsEnsured,
     servicesEnsured: servicesResult.ensured,
+    servicesCreated: servicesResult.servicesCreated || 0,
     scheduleEnsured: scheduleResult.ensured
   };
 }

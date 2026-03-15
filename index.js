@@ -10,6 +10,7 @@ import { Schedule } from "./models/Schedule.js";
 import { classifyBusinessCategory } from "./services/categoryClassifier.js";
 import { getDefaultServices, getDefaultWeeklySchedule } from "./services/bootstrapDefaults.js";
 import { ensureBookableDefaultsForBusiness } from "./services/bookableBootstrap.js";
+import { listCategories } from "./services/categoryDefaults.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
@@ -575,6 +576,12 @@ app.post("/api/businesses/:id/assign-number", requireApiKey, async (req, res) =>
 
     res.status(500).json({ ok: false, error: "Internal server error" });
   }
+});
+
+// ---------- LIST CATEGORIES (for signup / dropdown) ----------
+app.get("/api/categories", (req, res) => {
+  const categories = listCategories();
+  res.json({ ok: true, categories });
 });
 
 // ---------- LIST BUSINESSES (optional helper) ----------
