@@ -1,8 +1,38 @@
 // src/routes/bookings.js
 import express from "express";
 import { createBooking } from "../../services/bookingService.js";
+import { Booking } from "../../models/Booking.js";
 
 const router = express.Router();
+
+// GET /api/bookings?businessId=xxx
+// Returns bookings for a business, sorted by slot start time
+router.get("/", async (req, res) => {
+  try {
+    const { businessId, status, limit: limitParam } = req.query;
+
+    if (!businessId) {
+      return res.status(400).json({ ok: false, error: "businessId query parameter is required" });
+    }
+
+    const limit = Math.min(parseInt(limitParam) || 50, 100);
+    const filter = { businessId };
+
+    if (status) {
+      filter.status = status;
+    }
+
+    const bookings = await Booking.find(filter)
+      .sort({ "slot.start": -1 })
+      .limit(limit)
+      .lean();
+
+    return res.json({ ok: true, businessId, bookings });
+  } catch (err) {
+    console.error("Error in GET /api/bookings:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
 
 // POST /api/bookings
 router.post("/", async (req, res) => {

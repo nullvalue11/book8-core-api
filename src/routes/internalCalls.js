@@ -223,6 +223,29 @@ router.post("/end", async (req, res) => {
   }
 });
 
+// GET /internal/calls/by-business/:businessId
+// Returns recent calls for a business, sorted by most recent first
+router.get("/by-business/:businessId", async (req, res) => {
+  try {
+    const { businessId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+    if (!businessId) {
+      return res.status(400).json({ ok: false, error: "businessId is required" });
+    }
+
+    const calls = await Call.find({ businessId })
+      .sort({ startTime: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.json({ ok: true, businessId, calls });
+  } catch (err) {
+    console.error("Error in GET /internal/calls/by-business/:businessId:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
 // GET /internal/calls/:callSid (internal-only read)
 router.get("/:callSid", async (req, res) => {
   try {
