@@ -339,16 +339,28 @@ app.post("/api/provision", requireApiKey, async (req, res) => {
   }
 });
 
+// Resolve business by URL param: support both `id` and `businessId` (e.g. biz_xxx from Ops/n8n).
+async function findBusinessByParam(param) {
+  if (!param) return null;
+  const business = await Business.findOne({
+    $or: [{ id: param }, { businessId: param }]
+  }).lean();
+  if (!business) return null;
+  const businessId = business.id ?? business.businessId;
+  return { business: { ...business, id: businessId }, businessId };
+}
+
 // ---------- GET BUSINESS SERVICES ----------
 app.get("/api/businesses/:id/services", async (req, res) => {
   try {
     const { id } = req.params;
-    const business = await Business.findOne({ id }).lean();
-    if (!business) {
+    const resolved = await findBusinessByParam(id);
+    if (!resolved) {
       return res.status(404).json({ ok: false, error: "Business not found" });
     }
-    const services = await Service.find({ businessId: id }).lean();
-    res.json({ ok: true, businessId: id, services });
+    const { businessId } = resolved;
+    const services = await Service.find({ businessId }).lean();
+    res.json({ ok: true, businessId, services });
   } catch (err) {
     console.error("Error in GET /api/businesses/:id/services:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
@@ -360,10 +372,11 @@ app.post("/api/businesses/:id/services", requireApiKey, async (req, res) => {
   try {
     const { id } = req.params;
     const { serviceId, name, durationMinutes, active } = req.body;
-    const business = await Business.findOne({ id }).lean();
-    if (!business) {
+    const resolved = await findBusinessByParam(id);
+    if (!resolved) {
       return res.status(404).json({ ok: false, error: "Business not found" });
     }
+    const { businessId } = resolved;
     if (!serviceId || !name || durationMinutes == null) {
       return res.status(400).json({
         ok: false,
@@ -371,13 +384,13 @@ app.post("/api/businesses/:id/services", requireApiKey, async (req, res) => {
       });
     }
     const doc = await Service.create({
-      businessId: id,
+      businessId,
       serviceId,
       name,
       durationMinutes: Number(durationMinutes),
       active: active !== false
     });
-    res.status(201).json({ ok: true, businessId: id, service: doc.toObject() });
+    res.status(201).json({ ok: true, businessId, service: doc.toObject() });
   } catch (err) {
     if (err.code === 11000) {
       return res.status(400).json({
@@ -394,21 +407,22 @@ app.post("/api/businesses/:id/services", requireApiKey, async (req, res) => {
 app.get("/api/businesses/:id/schedule", async (req, res) => {
   try {
     const { id } = req.params;
-    const business = await Business.findOne({ id }).lean();
-    if (!business) {
+    const resolved = await findBusinessByParam(id);
+    if (!resolved) {
       return res.status(404).json({ ok: false, error: "Business not found" });
     }
-    let schedule = await Schedule.findOne({ businessId: id }).lean();
+    const { business, businessId } = resolved;
+    let schedule = await Schedule.findOne({ businessId }).lean();
     if (!schedule) {
       schedule = {
-        businessId: id,
+        businessId,
         timezone: business.timezone || "America/Toronto",
         weeklyHours: business.weeklySchedule?.weeklyHours || {
           monday: [], tuesday: [], wednesday: [], thursday: [], friday: [], saturday: [], sunday: []
         }
       };
     }
-    res.json({ ok: true, businessId: id, schedule });
+    res.json({ ok: true, businessId, schedule });
   } catch (err) {
     console.error("Error in GET /api/businesses/:id/schedule:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
@@ -420,10 +434,11 @@ app.put("/api/businesses/:id/schedule", requireApiKey, async (req, res) => {
   try {
     const { id } = req.params;
     const { timezone, weeklyHours } = req.body;
-    const business = await Business.findOne({ id }).lean();
-    if (!business) {
+    const resolved = await findBusinessByParam(id);
+    if (!resolved) {
       return res.status(404).json({ ok: false, error: "Business not found" });
     }
+    const { businessId } = resolved;
     if (!weeklyHours || typeof weeklyHours !== "object") {
       return res.status(400).json({
         ok: false,
@@ -431,7 +446,7 @@ app.put("/api/businesses/:id/schedule", requireApiKey, async (req, res) => {
       });
     }
     const schedule = await Schedule.findOneAndUpdate(
-      { businessId: id },
+      { businessId },
       {
         $set: {
           timezone: timezone || "America/Toronto",
@@ -440,7 +455,7 @@ app.put("/api/businesses/:id/schedule", requireApiKey, async (req, res) => {
       },
       { new: true, upsert: true }
     ).lean();
-    res.json({ ok: true, businessId: id, schedule });
+    res.json({ ok: true, businessId, schedule });
   } catch (err) {
     console.error("Error in PUT /api/businesses/:id/schedule:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
@@ -451,13 +466,13 @@ app.put("/api/businesses/:id/schedule", requireApiKey, async (req, res) => {
 app.get("/api/businesses/:id", async (req, res) => {
   try {
     const id = req.params.id;
-    const business = await Business.findOne({ id }).lean();
+    const resolved = await findBusinessByParam(id);
 
-    if (!business) {
+    if (!resolved) {
       return res.status(404).json({ ok: false, error: "Business not found" });
     }
 
-    res.json({ ok: true, business });
+    res.json({ ok: true, business: resolved.business });
   } catch (err) {
     console.error("Error in GET /api/businesses/:id:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
@@ -486,9 +501,17 @@ app.post("/api/businesses/:id/assign-number", requireApiKey, async (req, res) =>
       });
     }
 
-    // Find business and update
-    const business = await Business.findOneAndUpdate(
-      { id },
+    const resolved = await findBusinessByParam(id);
+    if (!resolved) {
+      return res.status(404).json({
+        ok: false,
+        error: "Business not found"
+      });
+    }
+
+    // Update by _id so we match the document whether it used id or businessId
+    const business = await Business.findByIdAndUpdate(
+      resolved.business._id,
       { $set: { assignedTwilioNumber: normalizedNumber } },
       { new: true }
     ).lean();
@@ -500,11 +523,12 @@ app.post("/api/businesses/:id/assign-number", requireApiKey, async (req, res) =>
       });
     }
 
+    const businessId = business.id ?? business.businessId;
     res.json({
       ok: true,
-      businessId: business.id,
+      businessId,
       assignedTwilioNumber: normalizedNumber,
-      business
+      business: { ...business, id: businessId }
     });
   } catch (err) {
     console.error("Error in POST /api/businesses/:id/assign-number:", err);
