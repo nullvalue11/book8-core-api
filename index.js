@@ -403,6 +403,38 @@ app.post("/api/businesses/:id/services", requireApiKey, async (req, res) => {
   }
 });
 
+// ---------- PUT BUSINESS SERVICE (update name, duration, active) ----------
+app.put("/api/businesses/:id/services/:serviceId", requireApiKey, async (req, res) => {
+  try {
+    const { id, serviceId } = req.params;
+    const { name, durationMinutes, active } = req.body;
+    const resolved = await findBusinessByParam(id);
+    if (!resolved) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+    const { businessId } = resolved;
+    const update = {};
+    if (name !== undefined) update.name = name;
+    if (durationMinutes !== undefined) update.durationMinutes = Number(durationMinutes);
+    if (active !== undefined) update.active = !!active;
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ ok: false, error: "At least one of name, durationMinutes, or active is required" });
+    }
+    const service = await Service.findOneAndUpdate(
+      { businessId, serviceId },
+      { $set: update },
+      { new: true }
+    ).lean();
+    if (!service) {
+      return res.status(404).json({ ok: false, error: "Service not found" });
+    }
+    res.json({ ok: true, businessId, service });
+  } catch (err) {
+    console.error("Error in PUT /api/businesses/:id/services/:serviceId:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
 // ---------- GET BUSINESS SCHEDULE ----------
 app.get("/api/businesses/:id/schedule", async (req, res) => {
   try {
