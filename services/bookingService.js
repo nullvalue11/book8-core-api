@@ -107,7 +107,13 @@ export async function createBooking(input) {
     return { ok: false, error: "Slot duration does not match service duration" };
   }
 
-  const available = await isSlotAvailable(businessId, slot);
+  // Normalize to UTC ISO strings so overlap check and unique index use consistent format.
+  // Mixed formats (e.g. "13:00:00-04:00" vs "17:00:00.000Z") break string comparison in MongoDB.
+  const normStart = new Date(slot.start).toISOString();
+  const normEnd = new Date(slot.end).toISOString();
+  const slotForQuery = { start: normStart, end: normEnd };
+
+  const available = await isSlotAvailable(businessId, slotForQuery);
   if (!available) {
     return { ok: false, error: "Selected slot is no longer available" };
   }
@@ -125,8 +131,8 @@ export async function createBooking(input) {
       email: customer.email || ""
     },
     slot: {
-      start: slot.start,
-      end: slot.end,
+      start: normStart,
+      end: normEnd,
       timezone
     },
     status: "confirmed",
@@ -140,7 +146,7 @@ export async function createBooking(input) {
     if (err.code === 11000) {
       console.warn(
         `[bookingService] Duplicate key on save — concurrent booking race caught. ` +
-          `businessId=${businessId}, slot.start=${slot.start}`
+          `businessId=${businessId}, slot.start=${normStart}`
       );
       return { ok: false, error: "Selected slot is no longer available" };
     }
@@ -164,7 +170,7 @@ export async function createBooking(input) {
         return;
       }
 
-      const slotDate = new Date(slot.start);
+      const slotDate = new Date(normStart);
       const dateStr = slotDate.toLocaleDateString("en-US", {
         weekday: "long",
         month: "long",
@@ -212,10 +218,10 @@ export async function createBooking(input) {
     } catch (smsErr) {
       console.error("[bookingService] Error in confirmation SMS flow:", smsErr);
     }
-  })();
+  })().catch(() => {});
   // ── END SMS BLOCK ────────────────────────────────────────
 
-  const display = formatSlotDisplay(slot.start, timezone);
+  const display = formatSlotDisplay(normStart, timezone);
   const summary = `Booked ${customer.name} for ${display}.`;
 
   return {
