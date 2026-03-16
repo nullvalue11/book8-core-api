@@ -28,7 +28,17 @@ const BookingSchema = new mongoose.Schema(
     slot: { type: SlotSchema, required: true },
     status: { type: String, default: "confirmed" },
     source: { type: String, default: "voice-agent" },
-    notes: { type: String }
+    notes: { type: String },
+
+    // SMS tracking
+    confirmationSentAt: { type: Date },
+    confirmationSid: { type: String },
+    reminderSentAt: { type: Date },
+    reminderSid: { type: String },
+    shortReminderSentAt: { type: Date },
+    shortReminderSid: { type: String },
+    lastMinuteReminderSentAt: { type: Date },
+    lastMinuteReminderSid: { type: String }
   },
   { timestamps: true }
 );

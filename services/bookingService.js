@@ -7,6 +7,7 @@ import { Service } from "../models/Service.js";
 import { Booking } from "../models/Booking.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { randomBytes } from "crypto";
+import { sendSMS, formatConfirmationSMS } from "./smsService.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -145,6 +146,74 @@ export async function createBooking(input) {
     }
     throw err;
   }
+
+  // ── SEND BOOKING CONFIRMATION SMS ────────────────────────
+  // Fire-and-forget: don't block the booking response on SMS delivery
+  // The booking is already saved — SMS is a best-effort notification
+  (async () => {
+    try {
+      if (!customer.phone) {
+        console.log("[bookingService] No customer phone — skipping confirmation SMS");
+        return;
+      }
+
+      const bizForSms = await Business.findOne({ id: businessId }).lean();
+      const fromNumber = bizForSms?.assignedTwilioNumber;
+      if (!fromNumber) {
+        console.log("[bookingService] No assignedTwilioNumber for business — skipping SMS");
+        return;
+      }
+
+      const slotDate = new Date(slot.start);
+      const dateStr = slotDate.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        timeZone: timezone
+      });
+      const timeStr = slotDate.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: timezone
+      });
+
+      let serviceName = serviceId || "Appointment";
+      try {
+        const svc = await Service.findOne({ businessId, serviceId }).lean();
+        if (svc) serviceName = svc.name;
+      } catch {
+        // fallback to serviceId
+      }
+
+      const smsBody = formatConfirmationSMS({
+        serviceName,
+        businessName: bizForSms.name || businessId,
+        date: dateStr,
+        time: timeStr,
+        customerName: customer.name?.split(" ")[0] || ""
+      });
+
+      const smsResult = await sendSMS({
+        to: customer.phone,
+        from: fromNumber,
+        body: smsBody
+      });
+
+      if (smsResult.ok) {
+        await Booking.findOneAndUpdate(
+          { id: bookingId },
+          { $set: { confirmationSentAt: new Date(), confirmationSid: smsResult.messageSid } }
+        );
+        console.log("[bookingService] Confirmation SMS sent for booking:", bookingId);
+      } else {
+        console.warn("[bookingService] Confirmation SMS failed for booking:", bookingId, smsResult.error);
+      }
+    } catch (smsErr) {
+      console.error("[bookingService] Error in confirmation SMS flow:", smsErr);
+    }
+  })();
+  // ── END SMS BLOCK ────────────────────────────────────────
 
   const display = formatSlotDisplay(slot.start, timezone);
   const summary = `Booked ${customer.name} for ${display}.`;

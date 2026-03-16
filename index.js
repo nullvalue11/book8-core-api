@@ -7,10 +7,12 @@ import mongoose from "mongoose";
 import { Business } from "./models/Business.js";
 import { Service } from "./models/Service.js";
 import { Schedule } from "./models/Schedule.js";
+import { Booking } from "./models/Booking.js";
 import { classifyBusinessCategory } from "./services/categoryClassifier.js";
 import { getDefaultServices, getDefaultWeeklySchedule } from "./services/bootstrapDefaults.js";
 import { ensureBookableDefaultsForBusiness } from "./services/bookableBootstrap.js";
 import { listCategories } from "./services/categoryDefaults.js";
+import { sendSMS, formatReminderSMS } from "./services/smsService.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
@@ -674,6 +676,234 @@ app.use("/api/calendar", calendarRouter);
 app.use("/api/bookings", bookingsRouter);
 // ElevenLabs Conversation Initiation Webhook (public — authenticated via ElevenLabs secrets)
 app.use("/api/elevenlabs", elevenLabsWebhookRouter);
+
+// ---------- CRON: Send appointment reminders ----------
+app.get("/api/cron/send-reminders", async (req, res) => {
+  try {
+    const secret = req.query.secret;
+    const expectedSecret = process.env.CRON_SECRET;
+    if (!expectedSecret || secret !== expectedSecret) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
+    const now = new Date();
+    const in24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const in25Hours = new Date(now.getTime() + 25 * 60 * 60 * 1000);
+
+    const bookingsToRemind = await Booking.find({
+      status: "confirmed",
+      reminderSentAt: { $exists: false },
+      "slot.start": { $gte: in24Hours.toISOString(), $lte: in25Hours.toISOString() }
+    }).lean();
+
+    console.log(`[send-reminders] Found ${bookingsToRemind.length} bookings to remind`);
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const booking of bookingsToRemind) {
+      try {
+        const customerPhone = booking.customer?.phone;
+        if (!customerPhone) {
+          console.log(`[send-reminders] No phone for booking ${booking.id} — skipping`);
+          continue;
+        }
+
+        const business = await Business.findOne({ id: booking.businessId }).lean();
+        const fromNumber = business?.assignedTwilioNumber;
+        if (!fromNumber) {
+          console.log(`[send-reminders] No Twilio number for business ${booking.businessId} — skipping`);
+          continue;
+        }
+
+        const tz = booking.slot?.timezone || business?.timezone || "America/Toronto";
+        const slotDate = new Date(booking.slot.start);
+        const dateStr = slotDate.toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          timeZone: tz
+        });
+        const timeStr = slotDate.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+          timeZone: tz
+        });
+
+        let serviceName = booking.serviceId || "Appointment";
+        try {
+          const svc = await Service.findOne({
+            businessId: booking.businessId,
+            serviceId: booking.serviceId
+          }).lean();
+          if (svc) serviceName = svc.name;
+        } catch {
+          // use fallback
+        }
+
+        const smsBody = formatReminderSMS({
+          serviceName,
+          businessName: business.name || booking.businessId,
+          date: dateStr,
+          time: timeStr,
+          isOneHour: false
+        });
+
+        const smsResult = await sendSMS({
+          to: customerPhone,
+          from: fromNumber,
+          body: smsBody
+        });
+
+        if (smsResult.ok) {
+          await Booking.findOneAndUpdate(
+            { id: booking.id },
+            { $set: { reminderSentAt: new Date(), reminderSid: smsResult.messageSid } }
+          );
+          sent++;
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        console.error(`[send-reminders] Error processing booking ${booking.id}:`, err);
+        failed++;
+      }
+    }
+
+    const in1Hour = new Date(now.getTime() + 60 * 60 * 1000);
+    const in90Min = new Date(now.getTime() + 90 * 60 * 1000);
+
+    const shortReminders = await Booking.find({
+      status: "confirmed",
+      shortReminderSentAt: { $exists: false },
+      "slot.start": { $gte: in1Hour.toISOString(), $lte: in90Min.toISOString() }
+    }).lean();
+
+    console.log(`[send-reminders] Found ${shortReminders.length} bookings for 1-hour reminder`);
+
+    for (const booking of shortReminders) {
+      try {
+        const customerPhone = booking.customer?.phone;
+        if (!customerPhone) continue;
+
+        const business = await Business.findOne({ id: booking.businessId }).lean();
+        const fromNumber = business?.assignedTwilioNumber;
+        if (!fromNumber) continue;
+
+        let serviceName = booking.serviceId || "Appointment";
+        try {
+          const svc = await Service.findOne({
+            businessId: booking.businessId,
+            serviceId: booking.serviceId
+          }).lean();
+          if (svc) serviceName = svc.name;
+        } catch {
+          // use fallback
+        }
+
+        const smsBody = formatReminderSMS({
+          serviceName,
+          businessName: business.name || booking.businessId,
+          date: "",
+          time: "",
+          isOneHour: true
+        });
+
+        const smsResult = await sendSMS({
+          to: customerPhone,
+          from: fromNumber,
+          body: smsBody
+        });
+
+        if (smsResult.ok) {
+          await Booking.findOneAndUpdate(
+            { id: booking.id },
+            { $set: { shortReminderSentAt: new Date(), shortReminderSid: smsResult.messageSid } }
+          );
+          sent++;
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        console.error(`[send-reminders] Error on 1-hour reminder for ${booking.id}:`, err);
+        failed++;
+      }
+    }
+
+    const in30Min = new Date(now.getTime() + 30 * 60 * 1000);
+    const in45Min = new Date(now.getTime() + 45 * 60 * 1000);
+
+    const lastMinuteReminders = await Booking.find({
+      status: "confirmed",
+      lastMinuteReminderSentAt: { $exists: false },
+      "slot.start": { $gte: in30Min.toISOString(), $lte: in45Min.toISOString() }
+    }).lean();
+
+    console.log(`[send-reminders] Found ${lastMinuteReminders.length} bookings for 30-minute reminder`);
+
+    for (const booking of lastMinuteReminders) {
+      try {
+        const customerPhone = booking.customer?.phone;
+        if (!customerPhone) continue;
+
+        const business = await Business.findOne({ id: booking.businessId }).lean();
+        const fromNumber = business?.assignedTwilioNumber;
+        if (!fromNumber) continue;
+
+        let serviceName = booking.serviceId || "Appointment";
+        try {
+          const svc = await Service.findOne({
+            businessId: booking.businessId,
+            serviceId: booking.serviceId
+          }).lean();
+          if (svc) serviceName = svc.name;
+        } catch {
+          // use fallback
+        }
+
+        const smsBody = formatReminderSMS({
+          serviceName,
+          businessName: business.name || booking.businessId,
+          date: "",
+          time: "",
+          isOneHour: false,
+          isThirtyMinutes: true
+        });
+
+        const smsResult = await sendSMS({
+          to: customerPhone,
+          from: fromNumber,
+          body: smsBody
+        });
+
+        if (smsResult.ok) {
+          await Booking.findOneAndUpdate(
+            { id: booking.id },
+            { $set: { lastMinuteReminderSentAt: new Date(), lastMinuteReminderSid: smsResult.messageSid } }
+          );
+          sent++;
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        console.error(`[send-reminders] Error on 30-minute reminder for ${booking.id}:`, err);
+        failed++;
+      }
+    }
+
+    console.log(`[send-reminders] Done: ${sent} sent, ${failed} failed`);
+    return res.json({
+      ok: true,
+      processed: bookingsToRemind.length + shortReminders.length,
+      sent,
+      failed
+    });
+  } catch (err) {
+    console.error("[send-reminders] Error:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
 
 // ---------- MOUNT INTERNAL ROUTES ----------
 app.use("/internal/calls", requireInternalAuth, internalCallsRouter);
