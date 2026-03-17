@@ -58,10 +58,14 @@ router.post(
     }
 
     const signature = req.headers["x-twilio-signature"];
-    const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+    // Use forwarded headers so signature matches the URL Twilio actually called (e.g. https on Render).
+    const protocol = req.get("x-forwarded-proto") || req.protocol;
+    const host = req.get("x-forwarded-host") || req.get("host");
+    const url = `${protocol}://${host}${req.originalUrl}`;
     const isValid = twilio.validateRequest(authToken, signature, url, req.body);
 
     if (!isValid) {
+      console.warn("[inbound-sms] Twilio signature validation failed — check URL/proxy and TWILIO_AUTH_TOKEN");
       return res.status(403).set("Content-Type", "text/plain").send("Forbidden");
     }
 
