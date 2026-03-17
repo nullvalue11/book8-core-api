@@ -22,6 +22,7 @@ import bookingsRouter from "./src/routes/bookings.js";
 import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
 import internalProvisionRouter from "./src/routes/internalProvision.js";
 import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
+import twilioInboundRouter from "./src/routes/twilioInbound.js";
 
 const app = express();
 
@@ -675,6 +676,7 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
 // ---------- CALENDAR & BOOKINGS ----------
 app.use("/api/calendar", calendarRouter);
 app.use("/api/bookings", bookingsRouter);
+app.use("/api/twilio", twilioInboundRouter);
 // ElevenLabs Conversation Initiation Webhook (public — authenticated via ElevenLabs secrets)
 app.use("/api/elevenlabs", elevenLabsWebhookRouter);
 

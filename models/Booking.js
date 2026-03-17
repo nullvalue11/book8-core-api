@@ -30,6 +30,9 @@ const BookingSchema = new mongoose.Schema(
     source: { type: String, default: "voice-agent" },
     notes: { type: String },
 
+    cancelledAt: { type: Date },
+    cancellationMethod: { type: String, enum: ["sms", "dashboard", "phone", "api"] },
+
     // SMS tracking
     confirmationSentAt: { type: Date },
     confirmationSid: { type: String },

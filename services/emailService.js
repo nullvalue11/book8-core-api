@@ -148,6 +148,45 @@ export async function sendReminder(booking, business, service, customer, type) {
   }
 }
 
+/**
+ * Send booking cancellation email. Fire-and-forget; no-op if Resend not configured or no email.
+ * @param {object} booking - booking doc (slot, serviceId, businessId, customer)
+ * @param {object} business - business doc (name, timezone, assignedTwilioNumber)
+ * @param {object} service - service doc (name)
+ * @param {object} customer - customer (name, email)
+ */
+export async function sendCancellation(booking, business, service, customer) {
+  if (!resend || !customer?.email) return;
+  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, business?.timezone);
+  const serviceName = service?.name || booking?.serviceId || "Appointment";
+  const businessName = business?.name || booking?.businessId || "Business";
+  const callNumber = business?.assignedTwilioNumber ? `call ${business.assignedTwilioNumber}` : "call us";
+
+  const subject = `Booking Cancelled — ${serviceName} at ${businessName}`;
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    <p style="margin:0 0 16px 0;color:#b91c1c;font-weight:600;">Booking cancelled</p>
+    <p style="margin:0 0 8px 0;">Your <strong>${escapeHtml(serviceName)}</strong> appointment at ${escapeHtml(businessName)} on ${dateStr} at ${timeStr} has been cancelled.</p>
+    <p style="margin:0 0 0 0;color:#666;font-size:14px;">To rebook or reschedule, ${callNumber}.</p>
+  `;
+
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject,
+      html: baseHtml(content)
+    });
+    if (error) {
+      console.warn("[emailService] Cancellation send failed:", error.message);
+      return;
+    }
+    return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] Cancellation error:", err.message);
+  }
+}
+
 function escapeHtml(s) {
   if (s == null) return "";
   return String(s)
