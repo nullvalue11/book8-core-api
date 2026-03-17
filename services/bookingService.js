@@ -224,6 +224,12 @@ export async function createBooking(input) {
   })().catch(() => {});
   // ── END SMS BLOCK ────────────────────────────────────────
 
+  console.log("[bookingService] Email check:", {
+    hasEmail: !!customer?.email,
+    email: customer?.email,
+    hasResendKey: !!process.env.RESEND_API_KEY
+  });
+
   if (customer.email) {
     sendConfirmationEmail(booking, business, service, customer)
       .then(async (result) => {
