@@ -184,4 +184,19 @@ describe("POST /api/calendar/availability", () => {
       assert.ok(res.body.slots[0].display);
     }
   });
+
+  it("returns 200 and slots when gcal-busy is unreachable (graceful degradation)", async () => {
+    const res = await request(app)
+      .post("/api/calendar/availability")
+      .send({
+        businessId: TEST_BUSINESS_ID,
+        serviceId: "personal-training-60",
+        from: "2026-03-08T00:00:00-05:00",
+        to: "2026-03-09T00:00:00-05:00",
+        timezone: "America/Toronto"
+      });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.ok(Array.isArray(res.body.slots));
+  });
 });

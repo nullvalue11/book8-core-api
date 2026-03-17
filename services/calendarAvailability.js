@@ -1,7 +1,6 @@
 /**
  * Calendar availability service.
- * Schedule is the primary source of truth; existing bookings exclude conflicting slots.
- * TODO: Real calendar provider (Google Calendar, Cal.com, etc.) can be overlaid later.
+ * Schedule is the primary source of truth; existing bookings and Google Calendar busy times exclude conflicting slots.
  */
 
 import { Business } from "../models/Business.js";
@@ -9,6 +8,7 @@ import { Service } from "../models/Service.js";
 import { Schedule } from "../models/Schedule.js";
 import { Booking } from "../models/Booking.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
+import { getGcalBusyPeriods } from "./gcalService.js";
 
 /**
  * Get available appointment slots for a business/service in a date range.
@@ -63,9 +63,21 @@ export async function getAvailability(params) {
   });
 
   const conflictingStarts = await getBookedSlotStarts(businessId, normalizedFrom, normalizedTo);
-  const slots = candidateSlots.filter(
+  let slots = candidateSlots.filter(
     (s) => !conflictingStarts.some((booked) => slotsOverlap(s, booked))
   );
+
+  const busyPeriods = await getGcalBusyPeriods({
+    businessId,
+    from: normalizedFrom,
+    to: normalizedTo,
+    timezone: scheduleTz
+  });
+  if (busyPeriods && busyPeriods.length > 0) {
+    slots = slots.filter(
+      (s) => !busyPeriods.some((busy) => slotOverlapsBusy(s, busy))
+    );
+  }
 
   return {
     ok: true,
@@ -81,6 +93,10 @@ export async function getAvailability(params) {
 
 function slotsOverlap(slot, booked) {
   return slot.start < booked.end && slot.end > booked.start;
+}
+
+function slotOverlapsBusy(slot, busy) {
+  return slot.start < busy.end && slot.end > busy.start;
 }
 
 async function getBookedSlotStarts(businessId, from, to) {
