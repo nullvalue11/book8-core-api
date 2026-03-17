@@ -9,6 +9,7 @@ const defaultFrom = "Book8 <noreply@book8.io>";
 let resend = null;
 if (apiKey) {
   resend = new Resend(apiKey);
+  console.log("[emailService] Resend initialized, sending from:", process.env.RESEND_FROM);
 } else {
   console.warn("[emailService] RESEND_API_KEY not set — emails disabled");
 }
@@ -59,6 +60,7 @@ ${content}
  */
 export async function sendConfirmation(booking, business, service, customer) {
   if (!resend || !customer?.email) return;
+  console.log("[emailService] Sending confirmation email to:", customer.email);
   const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, business?.timezone);
   const serviceName = service?.name || booking?.serviceId || "Appointment";
   const businessName = business?.name || booking?.businessId || "Business";
@@ -154,3 +156,4 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
