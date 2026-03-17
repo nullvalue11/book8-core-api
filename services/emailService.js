@@ -73,7 +73,7 @@ export async function sendConfirmation(booking, business, service, customer) {
     <p style="margin:0 0 8px 0;"><strong>${escapeHtml(serviceName)}</strong></p>
     <p style="margin:0 0 16px 0;">${dateStr} at ${timeStr}</p>
     <p style="margin:0 0 16px 0;">See you then${firstName ? `, ${escapeHtml(firstName)}` : ""}!</p>
-    <p style="margin:0 0 0 0;color:#666;font-size:14px;">Need to cancel or reschedule? Reply to this email.</p>
+    <p style="margin:0 0 0 0;color:#666;font-size:14px;">Need to cancel? Text CANCEL BOOKING to your booking number, or call us to reschedule.</p>
   `;
 
   try {
@@ -128,7 +128,8 @@ export async function sendReminder(booking, business, service, customer, type) {
   const content = `
     <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
     <p style="margin:0 0 16px 0;color:#2563eb;font-weight:600;">${headerText}</p>
-    <p style="margin:0 0 0 0;">${escapeHtml(bodyText)}</p>
+    <p style="margin:0 0 16px 0;">${escapeHtml(bodyText)}</p>
+    <p style="margin:0 0 0 0;color:#666;font-size:14px;">Need to cancel? Text CANCEL BOOKING to your booking number, or call us to reschedule.</p>
   `;
 
   try {

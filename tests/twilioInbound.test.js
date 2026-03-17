@@ -12,7 +12,7 @@ describe("POST /api/twilio/inbound-sms", () => {
     const res = await request(app)
       .post("/api/twilio/inbound-sms")
       .type("form")
-      .send({ From: "+16132659661", To: "+16477882883", Body: "CANCEL" });
+      .send({ From: "+16132659661", To: "+16477882883", Body: "CANCEL BOOKING" });
     assert.ok([403, 503].includes(res.status), "expected 403 or 503, got " + res.status);
   });
 
@@ -21,7 +21,7 @@ describe("POST /api/twilio/inbound-sms", () => {
       .post("/api/twilio/inbound-sms")
       .set("X-Twilio-Signature", "invalid-signature")
       .type("form")
-      .send({ From: "+16132659661", To: "+16477882883", Body: "CANCEL" });
+      .send({ From: "+16132659661", To: "+16477882883", Body: "CANCEL BOOKING" });
     assert.ok([403, 503].includes(res.status), "expected 403 or 503, got " + res.status);
   });
 });

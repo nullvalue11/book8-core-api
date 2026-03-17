@@ -1,5 +1,5 @@
 /**
- * Twilio inbound SMS webhook: handle CANCEL replies and generic replies.
+ * Twilio inbound SMS webhook: handle CANCEL BOOKING replies and generic replies.
  * POST /api/twilio/inbound-sms (form-urlencoded: From, To, Body)
  */
 
@@ -85,7 +85,7 @@ router.post(
         return;
       }
 
-      if (body === "CANCEL") {
+      if (body === "CANCEL BOOKING") {
         const now = new Date().toISOString();
         const booking = await Booking.findOne({
           businessId: business.id,
@@ -134,12 +134,12 @@ router.post(
       }
 
       const defaultReply =
-        "Thanks for your message! To cancel your upcoming appointment, reply CANCEL. To book or reschedule, call " +
+        "Thanks for your message! To cancel your upcoming appointment, reply UNDO. To book or reschedule, call " +
         (to || "us") +
         ".";
       sendReply(defaultReply);
-      if (body && body !== "CANCEL") {
-        console.log("[inbound-sms] Inbound message (no CANCEL):", { from, to, body: req.body.Body });
+      if (body && body !== "CANCEL BOOKING") {
+        console.log("[inbound-sms] Inbound message (no CANCEL BOOKING):", { from, to, body: req.body.Body });
       }
     })().catch((err) => {
       console.error("[inbound-sms] Error:", err);

@@ -83,7 +83,7 @@ export function formatConfirmationSMS({ serviceName, businessName, date, time, c
     "",
     `See you then${customerName ? `, ${customerName}` : ""}!`,
     "",
-    `Reply CANCEL to cancel.`
+    `Reply CANCEL BOOKING to cancel your appointment.`
   ].join("\n");
 }
 
@@ -104,7 +104,7 @@ export function formatReminderSMS({ serviceName, businessName, date, time, isOne
     `${serviceName} with ${businessName}`,
     `📅 ${date} at ${time}`,
     "",
-    `Reply CANCEL to cancel.`
+    `Reply CANCEL BOOKING to cancel your appointment.`
   ].join("\n");
 }
 
