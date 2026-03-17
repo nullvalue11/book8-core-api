@@ -8,6 +8,7 @@ import { Booking } from "../models/Booking.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { randomBytes } from "crypto";
 import { sendSMS, formatConfirmationSMS } from "./smsService.js";
+import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -170,18 +171,20 @@ export async function createBooking(input) {
         return;
       }
 
+      const bizTz = bizForSms?.timezone || timezone || "America/Toronto";
       const slotDate = new Date(normStart);
       const dateStr = slotDate.toLocaleDateString("en-US", {
         weekday: "long",
+        year: "numeric",
         month: "long",
         day: "numeric",
-        timeZone: timezone
+        timeZone: bizTz
       });
       const timeStr = slotDate.toLocaleTimeString("en-US", {
         hour: "numeric",
         minute: "2-digit",
         hour12: true,
-        timeZone: timezone
+        timeZone: bizTz
       });
 
       let serviceName = serviceId || "Appointment";
@@ -220,6 +223,19 @@ export async function createBooking(input) {
     }
   })().catch(() => {});
   // ── END SMS BLOCK ────────────────────────────────────────
+
+  if (customer.email) {
+    sendConfirmationEmail(booking, business, service, customer)
+      .then(async (result) => {
+        if (result?.id) {
+          await Booking.findOneAndUpdate(
+            { id: bookingId },
+            { $set: { confirmationEmailSentAt: new Date(), confirmationEmailId: result.id } }
+          );
+        }
+      })
+      .catch((err) => console.error("[bookingService] Email failed:", err.message));
+  }
 
   const display = formatSlotDisplay(normStart, timezone);
   const summary = `Booked ${customer.name} for ${display}.`;

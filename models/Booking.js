@@ -38,7 +38,17 @@ const BookingSchema = new mongoose.Schema(
     shortReminderSentAt: { type: Date },
     shortReminderSid: { type: String },
     lastMinuteReminderSentAt: { type: Date },
-    lastMinuteReminderSid: { type: String }
+    lastMinuteReminderSid: { type: String },
+
+    // Email tracking
+    confirmationEmailSentAt: { type: Date },
+    confirmationEmailId: { type: String },
+    reminderEmailSentAt: { type: Date },
+    reminderEmailId: { type: String },
+    shortReminderEmailSentAt: { type: Date },
+    shortReminderEmailId: { type: String },
+    lastMinuteReminderEmailSentAt: { type: Date },
+    lastMinuteReminderEmailId: { type: String }
   },
   { timestamps: true }
 );

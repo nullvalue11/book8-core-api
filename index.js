@@ -13,6 +13,7 @@ import { getDefaultServices, getDefaultWeeklySchedule } from "./services/bootstr
 import { ensureBookableDefaultsForBusiness } from "./services/bookableBootstrap.js";
 import { listCategories } from "./services/categoryDefaults.js";
 import { sendSMS, formatReminderSMS } from "./services/smsService.js";
+import { sendReminder as sendReminderEmail } from "./services/emailService.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
@@ -716,10 +717,11 @@ app.get("/api/cron/send-reminders", async (req, res) => {
           continue;
         }
 
-        const tz = booking.slot?.timezone || business?.timezone || "America/Toronto";
+        const tz = business?.timezone || booking.slot?.timezone || "America/Toronto";
         const slotDate = new Date(booking.slot.start);
         const dateStr = slotDate.toLocaleDateString("en-US", {
           weekday: "long",
+          year: "numeric",
           month: "long",
           day: "numeric",
           timeZone: tz
@@ -764,6 +766,20 @@ app.get("/api/cron/send-reminders", async (req, res) => {
           sent++;
         } else {
           failed++;
+        }
+
+        if (booking.customer?.email && !booking.reminderEmailSentAt) {
+          const svcForEmail = await Service.findOne({ businessId: booking.businessId, serviceId: booking.serviceId }).lean();
+          sendReminderEmail(booking, business, svcForEmail || { name: serviceName }, booking.customer, "24h")
+            .then(async (result) => {
+              if (result?.id) {
+                await Booking.findOneAndUpdate(
+                  { id: booking.id },
+                  { $set: { reminderEmailSentAt: new Date(), reminderEmailId: result.id } }
+                );
+              }
+            })
+            .catch((err) => console.error("[send-reminders] Reminder email failed:", err.message));
         }
       } catch (err) {
         console.error(`[send-reminders] Error processing booking ${booking.id}:`, err);
@@ -825,6 +841,20 @@ app.get("/api/cron/send-reminders", async (req, res) => {
         } else {
           failed++;
         }
+
+        if (booking.customer?.email && !booking.shortReminderEmailSentAt) {
+          const svcForEmail = await Service.findOne({ businessId: booking.businessId, serviceId: booking.serviceId }).lean();
+          sendReminderEmail(booking, business, svcForEmail || { name: serviceName }, booking.customer, "1h")
+            .then(async (result) => {
+              if (result?.id) {
+                await Booking.findOneAndUpdate(
+                  { id: booking.id },
+                  { $set: { shortReminderEmailSentAt: new Date(), shortReminderEmailId: result.id } }
+                );
+              }
+            })
+            .catch((err) => console.error("[send-reminders] 1h reminder email failed:", err.message));
+        }
       } catch (err) {
         console.error(`[send-reminders] Error on 1-hour reminder for ${booking.id}:`, err);
         failed++;
@@ -885,6 +915,20 @@ app.get("/api/cron/send-reminders", async (req, res) => {
           sent++;
         } else {
           failed++;
+        }
+
+        if (booking.customer?.email && !booking.lastMinuteReminderEmailSentAt) {
+          const svcForEmail = await Service.findOne({ businessId: booking.businessId, serviceId: booking.serviceId }).lean();
+          sendReminderEmail(booking, business, svcForEmail || { name: serviceName }, booking.customer, "30min")
+            .then(async (result) => {
+              if (result?.id) {
+                await Booking.findOneAndUpdate(
+                  { id: booking.id },
+                  { $set: { lastMinuteReminderEmailSentAt: new Date(), lastMinuteReminderEmailId: result.id } }
+                );
+              }
+            })
+            .catch((err) => console.error("[send-reminders] 30min reminder email failed:", err.message));
         }
       } catch (err) {
         console.error(`[send-reminders] Error on 30-minute reminder for ${booking.id}:`, err);
