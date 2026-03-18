@@ -8,6 +8,8 @@ import { Business } from "./models/Business.js";
 import { Service } from "./models/Service.js";
 import { Schedule } from "./models/Schedule.js";
 import { Booking } from "./models/Booking.js";
+import { TwilioNumber } from "./models/TwilioNumber.js";
+import twilio from "twilio";
 import { classifyBusinessCategory } from "./services/categoryClassifier.js";
 import { getDefaultServices, getDefaultWeeklySchedule } from "./services/bootstrapDefaults.js";
 import { ensureBookableDefaultsForBusiness } from "./services/bookableBootstrap.js";
@@ -23,6 +25,7 @@ import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
 import internalProvisionRouter from "./src/routes/internalProvision.js";
 import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
 import twilioInboundRouter from "./src/routes/twilioInbound.js";
+import twilioPoolRouter from "./src/routes/twilioPool.js";
 
 const app = express();
 
@@ -951,11 +954,68 @@ app.get("/api/cron/send-reminders", async (req, res) => {
   }
 });
 
+// ---------- CRON: Replenish Twilio number pool ----------
+app.get("/api/cron/replenish-pool", async (req, res) => {
+  try {
+    const secret = req.query.secret;
+    const expectedSecret = process.env.CRON_SECRET;
+    if (!expectedSecret || secret !== expectedSecret) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
+    const availableCount = await TwilioNumber.countDocuments({ status: "available" });
+    if (availableCount >= 3) {
+      return res.json({ ok: true, available: availableCount, purchased: 0 });
+    }
+
+    const needed = 5 - availableCount;
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (!accountSid || !authToken) {
+      return res.status(503).json({ ok: false, error: "Twilio not configured" });
+    }
+
+    const twilioClient = twilio(accountSid, authToken);
+    const available = await twilioClient.availablePhoneNumbers("CA").local.list({
+      smsEnabled: true,
+      voiceEnabled: true,
+      limit: needed
+    });
+
+    let purchasedCount = 0;
+    for (const num of available) {
+      try {
+        const purchased = await twilioClient.incomingPhoneNumbers.create({
+          phoneNumber: num.phoneNumber
+        });
+        await TwilioNumber.create({
+          phoneNumber: purchased.phoneNumber,
+          twilioSid: purchased.sid,
+          areaCode: purchased.phoneNumber.slice(2, 5),
+          status: "available",
+          capabilities: { voice: true, sms: true }
+        });
+        purchasedCount++;
+        console.warn("[replenish] Purchased", purchased.phoneNumber, "— register in ElevenLabs dashboard!");
+      } catch (err) {
+        console.error("[replenish] Failed to purchase", num.phoneNumber, err.message);
+      }
+    }
+
+    const newAvailable = await TwilioNumber.countDocuments({ status: "available" });
+    return res.json({ ok: true, available: newAvailable, purchased: purchasedCount });
+  } catch (err) {
+    console.error("[replenish-pool] Error:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
 // ---------- MOUNT INTERNAL ROUTES ----------
 app.use("/internal/calls", requireInternalAuth, internalCallsRouter);
 app.use("/internal/usage", requireInternalAuth, internalUsageRouter);
 app.use("/internal/execute-tool", requireInternalAuth, internalExecuteToolRouter);
 app.use("/internal/provision-from-stripe", requireInternalAuth, internalProvisionRouter);
+app.use("/internal/twilio-pool", requireInternalAuth, twilioPoolRouter);
 
 // ---------- START SERVER ----------
 // Bind port first so Render's port scan succeeds; then connect to MongoDB.

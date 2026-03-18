@@ -1,9 +1,14 @@
 // src/routes/internalProvision.js
 import express from "express";
+import twilio from "twilio";
 import { ensureTenant } from "../../services/tenantEnsure.js";
 import { Business } from "../../models/Business.js";
+import { TwilioNumber } from "../../models/TwilioNumber.js";
 
 const router = express.Router();
+const SMS_WEBHOOK_URL = process.env.BOOK8_CORE_API_URL
+  ? `${process.env.BOOK8_CORE_API_URL.replace(/\/$/, "")}/api/twilio/inbound-sms`
+  : "https://book8-core-api.onrender.com/api/twilio/inbound-sms";
 
 /**
  * POST /internal/provision-from-stripe
@@ -100,6 +105,60 @@ router.post("/", async (req, res) => {
         // Log but don't fail — the tenant is provisioned, billing linkage can be fixed later
         console.error("[provision-from-stripe] Failed to save Stripe fields:", stripeErr);
       }
+    }
+
+    // Auto-assign a Twilio number from the pool (best-effort; never crash provisioning)
+    try {
+      const business = await Business.findOne({ id: businessId }).lean();
+      if (business?.assignedTwilioNumber) {
+        // Already has a number — skip
+      } else {
+        const number = await TwilioNumber.findOneAndUpdate(
+          { status: "available" },
+          {
+            status: "assigned",
+            assignedToBusinessId: businessId,
+            assignedAt: new Date(),
+            updatedAt: new Date()
+          },
+          { new: true, sort: { createdAt: 1 } }
+        );
+
+        if (!number) {
+          console.error("[provisioning] No available Twilio numbers in pool!");
+          await Business.findOneAndUpdate(
+            { id: businessId },
+            { $set: { numberSetupMethod: "pending" } }
+          );
+        } else {
+          await Business.findOneAndUpdate(
+            { id: businessId },
+            {
+              $set: {
+                assignedTwilioNumber: number.phoneNumber,
+                numberSetupMethod: "direct"
+              }
+            }
+          );
+
+          const accountSid = process.env.TWILIO_ACCOUNT_SID;
+          const authToken = process.env.TWILIO_AUTH_TOKEN;
+          if (accountSid && authToken) {
+            const twilioClient = twilio(accountSid, authToken);
+            await twilioClient.incomingPhoneNumbers(number.twilioSid).update({
+              smsUrl: SMS_WEBHOOK_URL,
+              smsMethod: "POST"
+            });
+          }
+          console.log("[provisioning] Assigned", number.phoneNumber, "to", businessId);
+        }
+      }
+    } catch (numberErr) {
+      console.error("[provisioning] Number assignment failed:", numberErr);
+      await Business.findOneAndUpdate(
+        { id: businessId },
+        { $set: { numberSetupMethod: "pending" } }
+      ).catch(() => {});
     }
 
     console.log("[provision-from-stripe] Success:", {
