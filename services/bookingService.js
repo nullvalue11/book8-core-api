@@ -243,6 +243,39 @@ export async function createBooking(input) {
       .catch((err) => console.error("[bookingService] Email failed:", err.message));
   }
 
+  // Google Calendar sync (fire-and-forget)
+  try {
+    const gcalService = await import("./gcalService.js");
+    if (gcalService.createGcalEvent) {
+      gcalService
+        .createGcalEvent({
+          businessId: booking.businessId,
+          bookingId: booking.id,
+          title: `${service?.name || "Appointment"} — ${customer.name}`,
+          description: [
+            `Service: ${service?.name || "Appointment"}`,
+            `Customer: ${customer.name}`,
+            customer.phone ? `Phone: ${customer.phone}` : null,
+            customer.email ? `Email: ${customer.email}` : null,
+            "Booked via Book8 AI"
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          start: booking.slot.start,
+          end: booking.slot.end,
+          timezone: booking.slot.timezone || business.timezone || "America/Toronto",
+          customer: {
+            name: customer.name,
+            phone: customer.phone,
+            email: customer.email
+          }
+        })
+        .catch((err) => console.error("[bookingService] GCal sync failed:", err.message));
+    }
+  } catch (err) {
+    console.error("[bookingService] GCal sync setup error:", err.message);
+  }
+
   const display = formatSlotDisplay(normStart, timezone);
   const summary = `Booked ${customer.name} for ${display}.`;
 
