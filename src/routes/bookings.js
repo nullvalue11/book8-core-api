@@ -2,6 +2,10 @@
 import express from "express";
 import { createBooking } from "../../services/bookingService.js";
 import { Booking } from "../../models/Booking.js";
+import { deleteGcalEvent } from "../../services/gcalService.js";
+import { Business } from "../../models/Business.js";
+import { Service } from "../../models/Service.js";
+import { sendCancellation } from "../../services/emailService.js";
 
 const router = express.Router();
 
@@ -82,6 +86,68 @@ router.post("/", async (req, res) => {
     });
   } catch (err) {
     console.error("Error in POST /api/bookings:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// PATCH /api/bookings/:bookingId/cancel
+router.patch("/:bookingId/cancel", async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { reason } = req.body || {};
+
+    if (!bookingId) {
+      return res.status(400).json({ ok: false, error: "bookingId is required" });
+    }
+
+    const booking = await Booking.findOneAndUpdate(
+      { $or: [{ id: bookingId }, { _id: bookingId }] },
+      {
+        $set: {
+          status: "cancelled",
+          cancelledAt: new Date(),
+          cancellationMethod: "api"
+        }
+      },
+      { new: true }
+    ).lean();
+
+    if (!booking) {
+      return res.status(404).json({ ok: false, error: "Booking not found" });
+    }
+
+    // Fire-and-forget: delete Google Calendar event
+    deleteGcalEvent({
+      businessId: booking.businessId,
+      bookingId: booking.id || booking._id?.toString()
+    }).catch((err) => console.error("[bookings.cancel] GCal delete failed:", err.message));
+
+    // Fire-and-forget: send cancellation email if we have customer email
+    if (booking.customer?.email) {
+      (async () => {
+        try {
+          const business = await Business.findOne({ id: booking.businessId }).lean();
+          let serviceDisplay = booking.serviceId || "Appointment";
+          let serviceForEmail = { name: serviceDisplay };
+          try {
+            const svc = await Service.findOne({ businessId: booking.businessId, serviceId: booking.serviceId }).lean();
+            if (svc?.name) {
+              serviceDisplay = svc.name;
+              serviceForEmail = svc;
+            }
+          } catch {
+            // keep fallback
+          }
+          await sendCancellation(booking, business || { id: booking.businessId, name: booking.businessId }, serviceForEmail, booking.customer);
+        } catch (err) {
+          console.error("[bookings.cancel] Cancellation email failed:", err.message);
+        }
+      })().catch(() => {});
+    }
+
+    return res.json({ ok: true, booking });
+  } catch (err) {
+    console.error("Error in PATCH /api/bookings/:bookingId/cancel:", err);
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
