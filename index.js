@@ -33,7 +33,13 @@ const app = express();
 
 const PORT = process.env.PORT || 5050;
 const MONGODB_URI =
-  process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/book8_core";
+  process.env.MONGODB_URI ||
+  process.env.MONGO_URI ||
+  "mongodb://127.0.0.1:27017/book8_core";
+
+if (!process.env.MONGODB_URI && !process.env.MONGO_URI) {
+  console.warn("[book8-core-api] MONGODB_URI not set — using local fallback");
+}
 
 // In test, connect immediately so test setup can use the DB; in production, connect after listen (see START SERVER).
 if (process.env.NODE_ENV === "test") {
