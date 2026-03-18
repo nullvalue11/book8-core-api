@@ -32,23 +32,8 @@ import twilioPoolRouter from "./src/routes/twilioPool.js";
 const app = express();
 
 const PORT = process.env.PORT || 5050;
-const RAW_MONGODB_URI =
+const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/book8_core";
-
-// If MONGODB_URI omits a database name (e.g. mongodb+srv://...mongodb.net/?...),
-// Mongoose defaults to the "test" DB, which can make Atlas look like "bookings disappeared".
-// Default to "book8" in that case to match the app's expected DB.
-let MONGODB_URI = RAW_MONGODB_URI;
-try {
-  const url = new URL(RAW_MONGODB_URI);
-  const path = url.pathname || "";
-  if (path === "" || path === "/") {
-    url.pathname = "/book8";
-    MONGODB_URI = url.toString();
-  }
-} catch {
-  // If it's not a valid URL (e.g. mongodb://127.0.0.1...), leave as-is.
-}
 
 // In test, connect immediately so test setup can use the DB; in production, connect after listen (see START SERVER).
 if (process.env.NODE_ENV === "test") {
