@@ -4,6 +4,7 @@ import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { Schedule } from "../../models/Schedule.js";
 import { Call } from "../models/Call.js";
+import { isFeatureAllowed } from "../../services/planLimits.js";
 
 const router = express.Router();
 
@@ -79,6 +80,29 @@ router.post("/conversation-init", async (req, res) => {
     }
 
     const businessId = business.id;
+
+    // 2b) Gate AI phone agent based on plan
+    const plan = business.plan || "starter";
+    if (!isFeatureAllowed(plan, "aiPhoneAgent")) {
+      console.log("[elevenlabs-webhook] AI agent not available on plan:", plan);
+      const businessName = business.name || "this business";
+      const tz = business.timezone || "America/Toronto";
+      const today = new Date().toLocaleDateString("en-US");
+      return res.json({
+        type: "conversation_initiation_client_data",
+        dynamic_variables: {
+          business_name: businessName,
+          business_id: businessId,
+          services_list: "",
+          business_hours: "",
+          timezone: tz,
+          today_date: today,
+          caller_phone: caller_id || "",
+          business_category: "",
+          greeting: `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`
+        }
+      });
+    }
 
     // 3) Load services for this business
     let services = [];

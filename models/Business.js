@@ -63,10 +63,14 @@ const BusinessSchema = new mongoose.Schema(
 
     greetingOverride: { type: String },
 
-    // Stripe billing linkage
+    // Stripe billing linkage + plan
     stripeCustomerId: { type: String, index: true, sparse: true },
     stripeSubscriptionId: { type: String, sparse: true },
-    plan: { type: String }, // e.g. "starter", "growth", "enterprise"
+    plan: {
+      type: String,
+      enum: ["starter", "growth", "enterprise"],
+      default: "starter"
+    },
 
     services: [ServiceSchema],
     bookingSettings: BookingSettingsSchema,

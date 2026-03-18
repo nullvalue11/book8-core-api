@@ -17,6 +17,7 @@ import { listCategories } from "./services/categoryDefaults.js";
 import { sendSMS, formatReminderSMS } from "./services/smsService.js";
 import { sendReminder as sendReminderEmail } from "./services/emailService.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
+import { getPlanLimits } from "./services/planLimits.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
 import calendarRouter from "./src/routes/calendar.js";
@@ -384,12 +385,22 @@ app.post("/api/businesses/:id/services", requireApiKey, async (req, res) => {
     if (!resolved) {
       return res.status(404).json({ ok: false, error: "Business not found" });
     }
-    const { businessId } = resolved;
+    const { business, businessId } = resolved;
     if (!serviceId || !name || durationMinutes == null) {
       return res.status(400).json({
         ok: false,
         error: "serviceId, name, and durationMinutes are required"
       });
+    }
+    const limits = getPlanLimits(business.plan);
+    if (limits.maxServices !== -1) {
+      const currentCount = await Service.countDocuments({ businessId });
+      if (currentCount >= limits.maxServices) {
+        return res.status(403).json({
+          ok: false,
+          error: `Your ${business.plan || "starter"} plan allows up to ${limits.maxServices} services. Upgrade to add more.`
+        });
+      }
     }
     const doc = await Service.create({
       businessId,
@@ -512,9 +523,38 @@ app.get("/api/businesses/:id", async (req, res) => {
       return res.status(404).json({ ok: false, error: "Business not found" });
     }
 
-    res.json({ ok: true, business: resolved.business });
+    const { business } = resolved;
+    const limits = getPlanLimits(business.plan);
+    res.json({ ok: true, business: { ...business }, planLimits: limits });
   } catch (err) {
     console.error("Error in GET /api/businesses/:id:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- GET BUSINESS PLAN ----------
+app.get("/api/businesses/:id/plan", requireApiKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resolved = await findBusinessByParam(id);
+    if (!resolved) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+    const { business, businessId } = resolved;
+    const limits = getPlanLimits(business.plan);
+    const servicesCount = await Service.countDocuments({ businessId });
+    const usage = {
+      services: servicesCount,
+      teamMembers: 0
+    };
+    res.json({
+      ok: true,
+      plan: business.plan || "starter",
+      limits,
+      usage
+    });
+  } catch (err) {
+    console.error("Error in GET /api/businesses/:id/plan:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
