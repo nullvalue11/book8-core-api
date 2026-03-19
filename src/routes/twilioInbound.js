@@ -136,7 +136,8 @@ router.post(
           }
           deleteGcalEvent({
             businessId: booking.businessId,
-            bookingId: booking.id || booking.bookingId
+            bookingId: booking.id || booking.bookingId,
+            calendarProvider: business.calendarProvider
           }).catch((err) => console.error("[inbound-sms] GCal delete failed:", err.message));
           return;
         }

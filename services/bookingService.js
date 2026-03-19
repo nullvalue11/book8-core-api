@@ -264,6 +264,7 @@ export async function createBooking(input) {
           start: booking.slot.start,
           end: booking.slot.end,
           timezone: booking.slot.timezone || business.timezone || "America/Toronto",
+          calendarProvider: business.calendarProvider,
           customer: {
             name: customer.name,
             phone: customer.phone,

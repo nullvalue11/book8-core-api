@@ -116,17 +116,19 @@ router.patch("/:bookingId/cancel", async (req, res) => {
       return res.status(404).json({ ok: false, error: "Booking not found" });
     }
 
+    const business = await Business.findOne({ id: booking.businessId }).lean();
+
     // Fire-and-forget: delete Google Calendar event
     deleteGcalEvent({
       businessId: booking.businessId,
-      bookingId: booking.id || booking._id?.toString()
+      bookingId: booking.id || booking._id?.toString(),
+      calendarProvider: business?.calendarProvider
     }).catch((err) => console.error("[bookings.cancel] GCal delete failed:", err.message));
 
     // Fire-and-forget: send cancellation email if we have customer email
     if (booking.customer?.email) {
       (async () => {
         try {
-          const business = await Business.findOne({ id: booking.businessId }).lean();
           let serviceDisplay = booking.serviceId || "Appointment";
           let serviceForEmail = { name: serviceDisplay };
           try {
@@ -138,7 +140,12 @@ router.patch("/:bookingId/cancel", async (req, res) => {
           } catch {
             // keep fallback
           }
-          await sendCancellation(booking, business || { id: booking.businessId, name: booking.businessId }, serviceForEmail, booking.customer);
+          await sendCancellation(
+            booking,
+            business || { id: booking.businessId, name: booking.businessId },
+            serviceForEmail,
+            booking.customer
+          );
         } catch (err) {
           console.error("[bookings.cancel] Cancellation email failed:", err.message);
         }

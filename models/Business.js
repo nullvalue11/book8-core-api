@@ -72,6 +72,10 @@ const BusinessSchema = new mongoose.Schema(
       default: "starter"
     },
 
+    // Calendar provider used for availability and booking sync.
+    // Book8-ai business record sets `calendar.provider` to "google" or "microsoft".
+    calendarProvider: { type: String, enum: ["google", "microsoft"], default: "google" },
+
     services: [ServiceSchema],
     bookingSettings: BookingSettingsSchema,
     weeklySchedule: WeeklyScheduleSchema

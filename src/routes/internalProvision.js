@@ -48,7 +48,9 @@ router.post("/", async (req, res) => {
       phoneNumber,
       stripeCustomerId,
       stripeSubscriptionId,
-      plan
+      plan,
+      calendarProvider,
+      calendar
     } = req.body;
 
     // Validate required fields
@@ -95,6 +97,10 @@ router.post("/", async (req, res) => {
         if (stripeCustomerId) update.stripeCustomerId = stripeCustomerId;
         if (stripeSubscriptionId) update.stripeSubscriptionId = stripeSubscriptionId;
         if (plan) update.plan = plan;
+        const providerFromBody = calendarProvider || calendar?.provider;
+        if (providerFromBody === "google" || providerFromBody === "microsoft") {
+          update.calendarProvider = providerFromBody;
+        }
 
         await Business.findOneAndUpdate(
           { id: businessId },

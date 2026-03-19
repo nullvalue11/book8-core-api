@@ -71,7 +71,8 @@ export async function getAvailability(params) {
     businessId,
     from: normalizedFrom,
     to: normalizedTo,
-    timezone: scheduleTz
+    timezone: scheduleTz,
+    calendarProvider: business.calendarProvider
   });
   if (busyPeriods && busyPeriods.length > 0) {
     slots = slots.filter(

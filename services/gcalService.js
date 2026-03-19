@@ -1,27 +1,57 @@
 /**
- * Fetch Google Calendar busy periods from book8-ai's gcal-busy endpoint.
- * Used to filter availability slots. On failure or timeout, returns null (graceful degradation).
+ * Calendar service for book8-ai provider routing.
+ * - Google provider: /api/internal/gcal-busy, gcal-create-event, gcal-delete-event
+ * - Microsoft provider: /api/internal/outlook-busy, outlook-create-event, outlook-delete-event
+ *
+ * Used to filter availability slots and to sync create/delete bookings.
+ * On failure or timeout, returns null (graceful degradation).
  */
 
 const BOOK8_AI_URL = process.env.BOOK8_AI_URL || "https://www.book8.io";
 const GCAL_BUSY_TIMEOUT_MS = 3000;
 
+function normalizeProvider(calendarProvider) {
+  return calendarProvider === "microsoft" ? "microsoft" : "google";
+}
+
+function getCalendarEndpoints(calendarProvider) {
+  const provider = normalizeProvider(calendarProvider);
+  if (provider === "microsoft") {
+    return {
+      busy: "/api/internal/outlook-busy",
+      create: "/api/internal/outlook-create-event",
+      delete: "/api/internal/outlook-delete-event"
+    };
+  }
+
+  return {
+    busy: "/api/internal/gcal-busy",
+    create: "/api/internal/gcal-create-event",
+    delete: "/api/internal/gcal-delete-event"
+  };
+}
+
 /**
- * Call book8-ai POST /api/internal/gcal-busy and return busy periods, or null on failure.
+ * Call book8-ai POST (provider busy) and return busy periods, or null on failure.
  * @param {object} params
  * @param {string} params.businessId
  * @param {string} params.from - ISO date range start
  * @param {string} params.to - ISO date range end
  * @param {string} params.timezone
+ * @param {"google"|"microsoft"} params.calendarProvider
  * @returns {Promise<Array<{ start: string, end: string }> | null>}
  */
-export async function getGcalBusyPeriods({ businessId, from, to, timezone }) {
+export async function getGcalBusyPeriods({ businessId, from, to, timezone, calendarProvider }) {
+  // Prevent provider network calls during test runs (avoids open handle issues).
+  if (process.env.NODE_ENV === "test") return null;
+
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) {
     return null;
   }
 
-  const url = `${BOOK8_AI_URL.replace(/\/$/, "")}/api/internal/gcal-busy`;
+  const endpoints = getCalendarEndpoints(calendarProvider);
+  const url = `${BOOK8_AI_URL.replace(/\/$/, "")}${endpoints.busy}`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GCAL_BUSY_TIMEOUT_MS);
 
@@ -38,7 +68,7 @@ export async function getGcalBusyPeriods({ businessId, from, to, timezone }) {
     clearTimeout(timeoutId);
 
     if (!res.ok) {
-      console.warn("[gcalService] gcal-busy non-200:", res.status, res.statusText);
+      console.warn("[gcalService] calendar busy non-200:", res.status, res.statusText);
       return null;
     }
 
@@ -51,19 +81,32 @@ export async function getGcalBusyPeriods({ businessId, from, to, timezone }) {
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === "AbortError") {
-      console.warn("[gcalService] gcal-busy timeout after", GCAL_BUSY_TIMEOUT_MS, "ms");
+      console.warn("[gcalService] calendar busy timeout after", GCAL_BUSY_TIMEOUT_MS, "ms");
     } else {
-      console.warn("[gcalService] gcal-busy error:", err.message);
+      console.warn("[gcalService] calendar busy error:", err.message);
     }
     return null;
   }
 }
 
 /**
- * Create a Google Calendar event via book8-ai's gcal-create-event endpoint.
+ * Create a calendar event via book8-ai's provider-specific create endpoint.
  * Fire-and-forget; logs and returns null on failure.
  */
-export async function createGcalEvent({ businessId, bookingId, title, description, start, end, timezone, customer }) {
+export async function createGcalEvent({
+  businessId,
+  bookingId,
+  title,
+  description,
+  start,
+  end,
+  timezone,
+  customer,
+  calendarProvider
+}) {
+  // Prevent provider network calls during test runs (avoids open handle issues).
+  if (process.env.NODE_ENV === "test") return null;
+
   const BOOK8_AI_URL = process.env.BOOK8_AI_URL || "https://www.book8.io";
   const secret = process.env.INTERNAL_API_SECRET;
 
@@ -75,8 +118,9 @@ export async function createGcalEvent({ businessId, bookingId, title, descriptio
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
+  const endpoints = getCalendarEndpoints(calendarProvider);
   try {
-    const response = await fetch(`${BOOK8_AI_URL.replace(/\/$/, "")}/api/internal/gcal-create-event`, {
+    const response = await fetch(`${BOOK8_AI_URL.replace(/\/$/, "")}${endpoints.create}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -89,7 +133,7 @@ export async function createGcalEvent({ businessId, bookingId, title, descriptio
     clearTimeout(timeout);
 
     if (!response.ok) {
-      console.warn("[gcalService] GCal create event returned:", response.status);
+      console.warn("[gcalService] Calendar create returned:", response.status);
       return null;
     }
 
@@ -104,17 +148,21 @@ export async function createGcalEvent({ businessId, bookingId, title, descriptio
 }
 
 /**
- * Delete a Google Calendar event via book8-ai's gcal-delete-event endpoint.
+ * Delete a calendar event via book8-ai's provider-specific delete endpoint.
  * Used when a booking is cancelled.
  */
-export async function deleteGcalEvent({ businessId, bookingId }) {
+export async function deleteGcalEvent({ businessId, bookingId, calendarProvider }) {
+  // Prevent provider network calls during test runs (avoids open handle issues).
+  if (process.env.NODE_ENV === "test") return null;
+
   const BOOK8_AI_URL = process.env.BOOK8_AI_URL || "https://www.book8.io";
   const secret = process.env.INTERNAL_API_SECRET;
 
   if (!secret) return null;
 
   try {
-    const response = await fetch(`${BOOK8_AI_URL.replace(/\/$/, "")}/api/internal/gcal-delete-event`, {
+    const endpoints = getCalendarEndpoints(calendarProvider);
+    const response = await fetch(`${BOOK8_AI_URL.replace(/\/$/, "")}${endpoints.delete}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
