@@ -8,7 +8,7 @@ import { Service } from "../models/Service.js";
 import { Schedule } from "../models/Schedule.js";
 import { Booking } from "../models/Booking.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
-import { getGcalBusyPeriods } from "./gcalService.js";
+import { getGcalBusyPeriods, resolveCalendarProviderForBusiness } from "./gcalService.js";
 
 /**
  * Get available appointment slots for a business/service in a date range.
@@ -72,7 +72,7 @@ export async function getAvailability(params) {
     from: normalizedFrom,
     to: normalizedTo,
     timezone: scheduleTz,
-    calendarProvider: business.calendarProvider
+    calendarProvider: resolveCalendarProviderForBusiness(business)
   });
   if (busyPeriods && busyPeriods.length > 0) {
     slots = slots.filter(

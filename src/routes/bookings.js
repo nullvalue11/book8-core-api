@@ -2,7 +2,7 @@
 import express from "express";
 import { createBooking } from "../../services/bookingService.js";
 import { Booking } from "../../models/Booking.js";
-import { deleteGcalEvent } from "../../services/gcalService.js";
+import { deleteGcalEvent, resolveCalendarProviderForBusiness } from "../../services/gcalService.js";
 import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { sendCancellation } from "../../services/emailService.js";
@@ -122,7 +122,7 @@ router.patch("/:bookingId/cancel", async (req, res) => {
     deleteGcalEvent({
       businessId: booking.businessId,
       bookingId: booking.id || booking._id?.toString(),
-      calendarProvider: business?.calendarProvider
+      calendarProvider: resolveCalendarProviderForBusiness(business)
     }).catch((err) => console.error("[bookings.cancel] GCal delete failed:", err.message));
 
     // Fire-and-forget: send cancellation email if we have customer email

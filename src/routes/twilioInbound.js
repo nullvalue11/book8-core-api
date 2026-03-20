@@ -9,7 +9,7 @@ import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { Booking } from "../../models/Booking.js";
 import { sendCancellation } from "../../services/emailService.js";
-import { deleteGcalEvent } from "../../services/gcalService.js";
+import { deleteGcalEvent, resolveCalendarProviderForBusiness } from "../../services/gcalService.js";
 
 const router = express.Router();
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -137,7 +137,7 @@ router.post(
           deleteGcalEvent({
             businessId: booking.businessId,
             bookingId: booking.id || booking.bookingId,
-            calendarProvider: business.calendarProvider
+            calendarProvider: resolveCalendarProviderForBusiness(business)
           }).catch((err) => console.error("[inbound-sms] GCal delete failed:", err.message));
           return;
         }

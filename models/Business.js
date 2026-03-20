@@ -41,6 +41,16 @@ const WeeklyScheduleSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/** Mirrors book8-ai business.calendar — must be in schema or paths can be omitted on read/write. */
+const CalendarSchema = new mongoose.Schema(
+  {
+    connected: { type: Boolean, default: false },
+    provider: { type: String, enum: ["google", "microsoft"] },
+    updatedAt: { type: Date }
+  },
+  { _id: false }
+);
+
 const BusinessSchema = new mongoose.Schema(
   {
     id: { type: String, unique: true, index: true }, // slug/handle e.g. "waismofit"
@@ -72,9 +82,10 @@ const BusinessSchema = new mongoose.Schema(
       default: "starter"
     },
 
-    // Calendar provider used for availability and booking sync.
-    // Book8-ai business record sets `calendar.provider` to "google" or "microsoft".
+    // Calendar provider used for availability and booking sync (top-level; may be set by provisioning).
     calendarProvider: { type: String, enum: ["google", "microsoft"], default: "google" },
+    // Nested calendar state (often synced from book8-ai).
+    calendar: CalendarSchema,
 
     services: [ServiceSchema],
     bookingSettings: BookingSettingsSchema,

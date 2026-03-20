@@ -9,6 +9,7 @@ import { formatSlotDisplay } from "./slotDisplay.js";
 import { randomBytes } from "crypto";
 import { sendSMS, formatConfirmationSMS } from "./smsService.js";
 import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
+import { createGcalEvent, resolveCalendarProviderForBusiness } from "./gcalService.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -243,36 +244,41 @@ export async function createBooking(input) {
       .catch((err) => console.error("[bookingService] Email failed:", err.message));
   }
 
-  // Google Calendar sync (fire-and-forget)
+  // Calendar sync (fire-and-forget) — provider from top-level or nested `calendar` (book8-ai shape)
   try {
-    const gcalService = await import("./gcalService.js");
-    if (gcalService.createGcalEvent) {
-      gcalService
-        .createGcalEvent({
-          businessId: booking.businessId,
-          bookingId: booking.id,
-          title: `${service?.name || "Appointment"} — ${customer.name}`,
-          description: [
-            `Service: ${service?.name || "Appointment"}`,
-            `Customer: ${customer.name}`,
-            customer.phone ? `Phone: ${customer.phone}` : null,
-            customer.email ? `Email: ${customer.email}` : null,
-            "Booked via Book8 AI"
-          ]
-            .filter(Boolean)
-            .join("\n"),
-          start: booking.slot.start,
-          end: booking.slot.end,
-          timezone: booking.slot.timezone || business.timezone || "America/Toronto",
-          calendarProvider: business.calendarProvider,
-          customer: {
-            name: customer.name,
-            phone: customer.phone,
-            email: customer.email
-          }
-        })
-        .catch((err) => console.error("[bookingService] GCal sync failed:", err.message));
+    const resolvedCalendarProvider = resolveCalendarProviderForBusiness(business);
+    if (process.env.NODE_ENV !== "test") {
+      console.log("[gcalService] Business calendar state:", {
+        businessId: business.id,
+        calendarProvider: business.calendarProvider,
+        calendarConnected: business.calendar?.connected,
+        calendarProviderNested: business.calendar?.provider,
+        resolved: resolvedCalendarProvider
+      });
     }
+    createGcalEvent({
+      businessId: booking.businessId,
+      bookingId: booking.id,
+      title: `${service?.name || "Appointment"} — ${customer.name}`,
+      description: [
+        `Service: ${service?.name || "Appointment"}`,
+        `Customer: ${customer.name}`,
+        customer.phone ? `Phone: ${customer.phone}` : null,
+        customer.email ? `Email: ${customer.email}` : null,
+        "Booked via Book8 AI"
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      start: booking.slot.start,
+      end: booking.slot.end,
+      timezone: booking.slot.timezone || business.timezone || "America/Toronto",
+      calendarProvider: resolvedCalendarProvider,
+      customer: {
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email
+      }
+    }).catch((err) => console.error("[bookingService] GCal sync failed:", err.message));
   } catch (err) {
     console.error("[bookingService] GCal sync setup error:", err.message);
   }

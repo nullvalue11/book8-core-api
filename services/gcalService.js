@@ -14,6 +14,20 @@ function normalizeProvider(calendarProvider) {
   return calendarProvider === "microsoft" ? "microsoft" : "google";
 }
 
+/**
+ * Effective provider for routing: prefer nested book8-ai `calendar.provider`, then top-level `calendarProvider`.
+ * @param {object} business - lean Business doc
+ * @returns {"google"|"microsoft"|undefined}
+ */
+export function resolveCalendarProviderForBusiness(business) {
+  if (!business) return undefined;
+  const nested = business.calendar?.provider;
+  if (nested === "microsoft" || nested === "google") return nested;
+  const top = business.calendarProvider;
+  if (top === "microsoft" || top === "google") return top;
+  return undefined;
+}
+
 function getCalendarEndpoints(calendarProvider) {
   const provider = normalizeProvider(calendarProvider);
   if (provider === "microsoft") {
@@ -138,7 +152,17 @@ export async function createGcalEvent({
     }
 
     const data = await response.json();
-    console.log("[gcalService] Calendar event created:", data.eventId || "skipped", data.reason || "");
+    // "skipped" in old logs was `data.eventId || "skipped"` — book8-ai often returns 200 with no eventId + reason.
+    if (data?.eventId) {
+      console.log("[gcalService] Calendar event created:", data.eventId, data.reason || "");
+    } else {
+      console.log(
+        "[gcalService] Calendar create: book8-ai returned no eventId (not a core-api skip before fetch). reason:",
+        data?.reason || data?.message || "(none)",
+        "raw:",
+        typeof data === "object" ? JSON.stringify(data) : data
+      );
+    }
     return data;
   } catch (err) {
     clearTimeout(timeout);
