@@ -21,6 +21,7 @@ import { getPlanLimits } from "./services/planLimits.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
 import internalBookingsRouter from "./src/routes/internalBookings.js";
+import internalBusinessRouter from "./src/routes/internalBusiness.js";
 import calendarRouter from "./src/routes/calendar.js";
 import bookingsRouter from "./src/routes/bookings.js";
 import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
@@ -1061,6 +1062,7 @@ app.get("/api/cron/replenish-pool", async (req, res) => {
 app.use("/internal/calls", requireInternalAuth, internalCallsRouter);
 app.use("/internal/usage", requireInternalAuth, internalUsageRouter);
 app.use("/internal/bookings", requireInternalAuth, internalBookingsRouter);
+app.use("/internal/business", requireInternalAuth, internalBusinessRouter);
 app.use("/internal/execute-tool", requireInternalAuth, internalExecuteToolRouter);
 app.use("/internal/provision-from-stripe", requireInternalAuth, internalProvisionRouter);
 app.use("/internal/twilio-pool", requireInternalAuth, twilioPoolRouter);

@@ -1,6 +1,7 @@
 // src/middleware/internalAuth.js
 export const requireInternalAuth = (req, res, next) => {
-  const authHeader = req.headers["x-book8-internal-secret"];
+  // Support both header names (older code uses x-book8-internal-secret; some callers use x-internal-secret)
+  const authHeader = req.headers["x-internal-secret"] || req.headers["x-book8-internal-secret"];
   const expectedSecret = process.env.INTERNAL_API_SECRET;
 
   if (!expectedSecret) {

@@ -45,7 +45,7 @@ const WeeklyScheduleSchema = new mongoose.Schema(
 const CalendarSchema = new mongoose.Schema(
   {
     connected: { type: Boolean, default: false },
-    provider: { type: String, enum: ["google", "microsoft"] },
+    provider: { type: String, enum: ["google", "microsoft", null], default: null },
     updatedAt: { type: Date }
   },
   { _id: false }
@@ -83,7 +83,7 @@ const BusinessSchema = new mongoose.Schema(
     },
 
     // Calendar provider used for availability and booking sync (top-level; may be set by provisioning).
-    calendarProvider: { type: String, enum: ["google", "microsoft"], default: "google" },
+    calendarProvider: { type: String, enum: ["google", "microsoft", null], default: null },
     // Nested calendar state (often synced from book8-ai).
     calendar: CalendarSchema,
 
