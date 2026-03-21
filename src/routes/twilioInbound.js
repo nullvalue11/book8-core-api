@@ -9,7 +9,11 @@ import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { Booking } from "../../models/Booking.js";
 import { sendCancellation } from "../../services/emailService.js";
-import { deleteGcalEvent, resolveCalendarProviderForBusiness } from "../../services/gcalService.js";
+import {
+  deleteGcalEvent,
+  resolveCalendarProviderForBusiness,
+  updateGcalEvent
+} from "../../services/gcalService.js";
 
 const router = express.Router();
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -134,11 +138,25 @@ router.post(
               console.error("[inbound-sms] Cancellation email failed:", err.message)
             );
           }
-          deleteGcalEvent({
-            businessId: booking.businessId,
-            bookingId: booking.id || booking.bookingId,
-            calendarProvider: resolveCalendarProviderForBusiness(business)
-          }).catch((err) => console.error("[inbound-sms] GCal delete failed:", err.message));
+          const calProvider = resolveCalendarProviderForBusiness(business);
+          if (booking.calendarEventId && calProvider) {
+            updateGcalEvent({
+              businessId: booking.businessId,
+              eventId: booking.calendarEventId,
+              bookingId: booking.id || booking.bookingId,
+              calendarProvider: calProvider,
+              updates: {
+                title: `CANCELLED — ${serviceDisplay}`,
+                showAs: "free"
+              }
+            }).catch((err) => console.error("[inbound-sms] Calendar update failed:", err.message));
+          } else {
+            deleteGcalEvent({
+              businessId: booking.businessId,
+              bookingId: booking.id || booking.bookingId,
+              calendarProvider: calProvider
+            }).catch((err) => console.error("[inbound-sms] GCal delete failed:", err.message));
+          }
           return;
         }
       }

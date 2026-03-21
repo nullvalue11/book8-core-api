@@ -2,7 +2,11 @@
 import express from "express";
 import { createBooking } from "../../services/bookingService.js";
 import { Booking } from "../../models/Booking.js";
-import { deleteGcalEvent, resolveCalendarProviderForBusiness } from "../../services/gcalService.js";
+import {
+  deleteGcalEvent,
+  resolveCalendarProviderForBusiness,
+  updateGcalEvent
+} from "../../services/gcalService.js";
 import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { sendCancellation } from "../../services/emailService.js";
@@ -117,13 +121,35 @@ router.patch("/:bookingId/cancel", async (req, res) => {
     }
 
     const business = await Business.findOne({ id: booking.businessId }).lean();
+    const calProvider = resolveCalendarProviderForBusiness(business);
 
-    // Fire-and-forget: delete Google Calendar event
-    deleteGcalEvent({
-      businessId: booking.businessId,
-      bookingId: booking.id || booking._id?.toString(),
-      calendarProvider: resolveCalendarProviderForBusiness(business)
-    }).catch((err) => console.error("[bookings.cancel] GCal delete failed:", err.message));
+    let serviceDisplay = booking.serviceId || "Appointment";
+    try {
+      const svc = await Service.findOne({ businessId: booking.businessId, serviceId: booking.serviceId }).lean();
+      if (svc?.name) serviceDisplay = svc.name;
+    } catch {
+      // keep fallback
+    }
+
+    // Fire-and-forget: mark calendar event cancelled (or delete if no stored event id)
+    if (booking.calendarEventId && calProvider) {
+      updateGcalEvent({
+        businessId: booking.businessId,
+        eventId: booking.calendarEventId,
+        bookingId: booking.id || booking._id?.toString(),
+        calendarProvider: calProvider,
+        updates: {
+          title: `CANCELLED — ${serviceDisplay}`,
+          showAs: "free"
+        }
+      }).catch((err) => console.error("[bookings.cancel] Calendar update failed:", err.message));
+    } else {
+      deleteGcalEvent({
+        businessId: booking.businessId,
+        bookingId: booking.id || booking._id?.toString(),
+        calendarProvider: calProvider
+      }).catch((err) => console.error("[bookings.cancel] GCal delete failed:", err.message));
+    }
 
     // Fire-and-forget: send cancellation email if we have customer email
     if (booking.customer?.email) {

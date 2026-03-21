@@ -278,7 +278,17 @@ export async function createBooking(input) {
         phone: customer.phone,
         email: customer.email
       }
-    }).catch((err) => console.error("[bookingService] GCal sync failed:", err.message));
+    })
+      .then(async (calResult) => {
+        if (calResult?.eventId) {
+          await Booking.findOneAndUpdate(
+            { id: bookingId },
+            { $set: { calendarEventId: calResult.eventId } }
+          );
+          console.log("[bookingService] Stored calendarEventId:", calResult.eventId, "on booking:", bookingId);
+        }
+      })
+      .catch((err) => console.error("[bookingService] GCal sync failed:", err.message));
   } catch (err) {
     console.error("[bookingService] GCal sync setup error:", err.message);
   }

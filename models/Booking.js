@@ -30,6 +30,9 @@ const BookingSchema = new mongoose.Schema(
     source: { type: String, default: "voice-agent" },
     notes: { type: String },
 
+    /** Google/Outlook calendar event id from book8-ai after successful create */
+    calendarEventId: { type: String, default: null },
+
     cancelledAt: { type: Date },
     cancellationMethod: { type: String, enum: ["sms", "dashboard", "phone", "api"] },
 

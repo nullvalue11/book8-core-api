@@ -1,7 +1,7 @@
 /**
  * Calendar service for book8-ai provider routing.
- * - Google provider: /api/internal/gcal-busy, gcal-create-event, gcal-delete-event
- * - Microsoft provider: /api/internal/outlook-busy, outlook-create-event, outlook-delete-event
+ * - Google provider: gcal-busy, gcal-create-event, gcal-delete-event, gcal-update-event
+ * - Microsoft provider: outlook-busy, outlook-create-event, outlook-delete-event, outlook-update-event
  *
  * Used to filter availability slots and to sync create/delete bookings.
  * On failure or timeout, returns null (graceful degradation).
@@ -34,14 +34,16 @@ function getCalendarEndpoints(calendarProvider) {
     return {
       busy: "/api/internal/outlook-busy",
       create: "/api/internal/outlook-create-event",
-      delete: "/api/internal/outlook-delete-event"
+      delete: "/api/internal/outlook-delete-event",
+      update: "/api/internal/outlook-update-event"
     };
   }
 
   return {
     busy: "/api/internal/gcal-busy",
     create: "/api/internal/gcal-create-event",
-    delete: "/api/internal/gcal-delete-event"
+    delete: "/api/internal/gcal-delete-event",
+    update: "/api/internal/gcal-update-event"
   };
 }
 
@@ -200,6 +202,79 @@ export async function deleteGcalEvent({ businessId, bookingId, calendarProvider 
     return data;
   } catch (err) {
     console.warn("[gcalService] GCal delete event failed:", err.message);
+    return null;
+  }
+}
+
+/**
+ * Update a calendar event (e.g. mark cancelled, show as free) via book8-ai.
+ * On non-OK response or network error, falls back to delete if bookingId is provided.
+ *
+ * @param {object} params
+ * @param {string} params.businessId
+ * @param {string} params.eventId - provider calendar event id (stored as booking.calendarEventId)
+ * @param {string} [params.bookingId] - for fallback delete
+ * @param {"google"|"microsoft"} params.calendarProvider
+ * @param {{ title?: string, showAs?: string }} [params.updates]
+ */
+export async function updateGcalEvent({
+  businessId,
+  eventId,
+  bookingId,
+  calendarProvider,
+  updates = {}
+}) {
+  if (process.env.NODE_ENV === "test") return null;
+
+  const BOOK8_AI_URL = process.env.BOOK8_AI_URL || "https://www.book8.io";
+  const secret = process.env.INTERNAL_API_SECRET;
+
+  if (!secret || !eventId) {
+    console.warn("[gcalService] Missing secret or eventId — skipping calendar update");
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  const endpoints = getCalendarEndpoints(calendarProvider);
+  const url = `${BOOK8_AI_URL.replace(/\/$/, "")}${endpoints.update}`;
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-book8-internal-secret": secret
+      },
+      body: JSON.stringify({ businessId, eventId, ...updates }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.warn("[gcalService] Calendar update returned:", response.status);
+      console.log("[gcalService] Falling back to delete");
+      if (bookingId) {
+        await deleteGcalEvent({ businessId, bookingId, calendarProvider });
+      }
+      return null;
+    }
+
+    const data = await response.json();
+    console.log("[gcalService] Calendar event updated:", data);
+    return data;
+  } catch (err) {
+    clearTimeout(timeout);
+    console.warn("[gcalService] Calendar update failed:", err.message);
+    if (bookingId) {
+      try {
+        await deleteGcalEvent({ businessId, bookingId, calendarProvider });
+      } catch (delErr) {
+        console.warn("[gcalService] Fallback delete also failed:", delErr.message);
+      }
+    }
     return null;
   }
 }
