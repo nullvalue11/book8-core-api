@@ -9,8 +9,14 @@ const ELEVENLABS_VOICE_URL =
 const ELEVENLABS_STATUS_CALLBACK_URL =
   process.env.ELEVENLABS_TWILIO_STATUS_URL || "https://api.us.elevenlabs.io/twilio/status-callback";
 
-const ELEVENLABS_PHONE_CREATE_URL =
-  process.env.ELEVENLABS_PHONE_CREATE_URL || "https://api.elevenlabs.io/v1/convai/phone-numbers/create";
+/** Import Twilio number — official API: POST /v1/convai/phone-numbers (not …/create). */
+const _elevenLabsPhoneBase =
+  process.env.ELEVENLABS_CONVAI_PHONE_NUMBERS_URL || process.env.ELEVENLABS_PHONE_CREATE_URL;
+const ELEVENLABS_CONVAI_PHONE_NUMBERS_URL = (
+  _elevenLabsPhoneBase
+    ? _elevenLabsPhoneBase.replace(/\/create\/?$/i, "")
+    : "https://api.elevenlabs.io/v1/convai/phone-numbers"
+).replace(/\/$/, "");
 
 /** Public base URL for this API (no trailing slash). Used for Twilio SMS webhook. */
 export function getCoreApiPublicBaseUrl() {
@@ -115,8 +121,80 @@ function elevenLabsErrorLooksLikeAlreadyRegistered(status, errorData) {
   return raw.includes("already") || raw.includes("exist") || raw.includes("duplicate");
 }
 
+function redactElevenLabsRequestBody(body) {
+  if (!body || typeof body !== "object") return body;
+  const copy = { ...body };
+  if (typeof copy.token === "string") copy.token = "[REDACTED]";
+  return copy;
+}
+
+async function parseFetchJson(response) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+
 /**
- * Register / link a Twilio number with ElevenLabs ConvAI agent.
+ * List ConvAI phone numbers (Twilio + SIP). See OpenAPI GET /v1/convai/phone-numbers.
+ */
+async function listConvaiPhoneNumbers(apiKey) {
+  const res = await fetch(ELEVENLABS_CONVAI_PHONE_NUMBERS_URL, {
+    method: "GET",
+    headers: { "xi-api-key": apiKey }
+  });
+  const data = await parseFetchJson(res);
+  if (!res.ok) {
+    console.warn("[provisioning] ElevenLabs list phone numbers failed:", res.status, data);
+    return [];
+  }
+  return Array.isArray(data) ? data : [];
+}
+
+async function findConvaiPhoneNumberId(apiKey, phoneNumber) {
+  const list = await listConvaiPhoneNumbers(apiKey);
+  const hit = list.find((x) => x && x.phone_number === phoneNumber);
+  return hit?.phone_number_id ?? null;
+}
+
+/**
+ * Assign agent to an imported number. PATCH /v1/convai/phone-numbers/{phone_number_id}
+ */
+async function assignConvaiAgentToPhoneNumber({ apiKey, phoneNumberId, agentId }) {
+  const base = ELEVENLABS_CONVAI_PHONE_NUMBERS_URL.replace(/\/$/, "");
+  const url = `${base}/${encodeURIComponent(phoneNumberId)}`;
+  const patchBody = { agent_id: agentId };
+  console.log("[provisioning] ElevenLabs request:", {
+    url,
+    method: "PATCH",
+    body: JSON.stringify(patchBody)
+  });
+
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      "xi-api-key": apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(patchBody)
+  });
+  const data = await parseFetchJson(res);
+  if (!res.ok) {
+    console.error("[provisioning] ElevenLabs assign agent failed:", res.status, data);
+    return false;
+  }
+  console.log("[provisioning] ElevenLabs agent assigned to phone:", phoneNumberId, data);
+  return true;
+}
+
+/**
+ * Register / import a Twilio number in ElevenLabs, then assign the Book8 agent.
+ * OpenAPI: POST /v1/convai/phone-numbers with CreateTwilioPhoneNumberRequest
+ * (required: phone_number, label, sid, token; provider must be "twilio").
+ *
  * @param {string} phoneNumber — E.164 e.g. +15064048251
  * @returns {Promise<boolean>}
  */
@@ -141,45 +219,88 @@ export async function registerNumberInElevenLabs(phoneNumber) {
     return false;
   }
 
+  const importUrl = ELEVENLABS_CONVAI_PHONE_NUMBERS_URL.replace(/\/$/, "");
+  /** CreateTwilioPhoneNumberRequest (ElevenLabs OpenAPI) */
+  const requestBody = {
+    phone_number: phoneNumber,
+    label: `Book8 - ${phoneNumber}`,
+    provider: "twilio",
+    sid: accountSid,
+    token: authToken
+  };
+
+  console.log("[provisioning] ElevenLabs request:", {
+    url: importUrl,
+    method: "POST",
+    body: JSON.stringify(redactElevenLabsRequestBody(requestBody))
+  });
+
   try {
-    const response = await fetch(ELEVENLABS_PHONE_CREATE_URL, {
+    let response = await fetch(importUrl, {
       method: "POST",
       headers: {
         "xi-api-key": apiKey,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        phone_number: phoneNumber,
-        provider: "twilio",
-        label: `Book8 - ${phoneNumber}`,
-        agent_id: agentId,
-        twilio_account_sid: accountSid,
-        twilio_auth_token: authToken
-      })
+      body: JSON.stringify(requestBody)
     });
 
-    const text = await response.text();
-    let body = {};
-    try {
-      body = text ? JSON.parse(text) : {};
-    } catch {
-      body = { raw: text };
-    }
+    let body = await parseFetchJson(response);
 
     if (!response.ok) {
-      if (elevenLabsErrorLooksLikeAlreadyRegistered(response.status, body)) {
-        console.log("[provisioning] Number already registered in ElevenLabs — continuing:", phoneNumber);
-        return true;
+      const detailStr = JSON.stringify(body || {}).toLowerCase();
+      const maybeDuplicate =
+        response.status === 409 ||
+        elevenLabsErrorLooksLikeAlreadyRegistered(response.status, body) ||
+        (response.status === 422 && (detailStr.includes("already") || detailStr.includes("exist")));
+
+      if (maybeDuplicate) {
+        const existingId = await findConvaiPhoneNumberId(apiKey, phoneNumber);
+        if (existingId) {
+          console.log(
+            "[provisioning] Number already in ElevenLabs — assigning agent:",
+            phoneNumber,
+            existingId
+          );
+          const assigned = await assignConvaiAgentToPhoneNumber({
+            apiKey,
+            phoneNumberId: existingId,
+            agentId
+          });
+          if (!assigned) {
+            console.warn(
+              `[provisioning] ⚠️ MANUAL STEP: Assign agent to ${phoneNumber} in ElevenLabs dashboard`
+            );
+          }
+          return assigned;
+        }
       }
-      console.error("[provisioning] ElevenLabs registration failed:", response.status, body);
+
+      if (response.status === 404 || response.status === 405) {
+        console.warn("[provisioning] ElevenLabs import URL rejected — check ELEVENLABS_CONVAI_PHONE_NUMBERS_URL");
+      }
+
+      console.error("[provisioning] ElevenLabs import failed:", response.status, body);
       console.warn(
         `[provisioning] ⚠️ MANUAL STEP: Add ${phoneNumber} to ElevenLabs agent in dashboard`
       );
       return false;
     }
 
-    console.log("[provisioning] Number registered in ElevenLabs:", phoneNumber, body);
-    return true;
+    const phoneNumberId = body?.phone_number_id;
+    if (!phoneNumberId) {
+      console.error("[provisioning] ElevenLabs import OK but missing phone_number_id:", body);
+      return false;
+    }
+
+    console.log("[provisioning] ElevenLabs imported phone:", phoneNumber, phoneNumberId);
+    const assigned = await assignConvaiAgentToPhoneNumber({ apiKey, phoneNumberId, agentId });
+    if (!assigned) {
+      console.warn(
+        `[provisioning] ⚠️ MANUAL STEP: Assign agent to ${phoneNumber} (${phoneNumberId}) in ElevenLabs dashboard`
+      );
+    }
+    return assigned;
   } catch (err) {
     console.error("[provisioning] ElevenLabs registration error:", err.message);
     console.warn(
