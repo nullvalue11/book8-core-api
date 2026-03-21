@@ -29,6 +29,7 @@ import internalProvisionRouter from "./src/routes/internalProvision.js";
 import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
 import twilioInboundRouter from "./src/routes/twilioInbound.js";
 import twilioPoolRouter from "./src/routes/twilioPool.js";
+import { configureTwilioVoiceForPoolNumber } from "./services/twilioNumberSetup.js";
 
 const app = express();
 
@@ -1044,7 +1045,14 @@ app.get("/api/cron/replenish-pool", async (req, res) => {
           capabilities: { voice: true, sms: true }
         });
         purchasedCount++;
-        console.warn("[replenish] Purchased", purchased.phoneNumber, "— register in ElevenLabs dashboard!");
+        const voiceOk = await configureTwilioVoiceForPoolNumber(purchased.sid);
+        if (!voiceOk) {
+          console.warn(
+            "[replenish] Purchased",
+            purchased.phoneNumber,
+            "— voice webhook not set; configure manually or re-run assignment flow"
+          );
+        }
       } catch (err) {
         console.error("[replenish] Failed to purchase", num.phoneNumber, err.message);
       }

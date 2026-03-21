@@ -1,14 +1,15 @@
 // src/routes/internalProvision.js
 import express from "express";
-import twilio from "twilio";
 import { ensureTenant } from "../../services/tenantEnsure.js";
 import { Business } from "../../models/Business.js";
 import { TwilioNumber } from "../../models/TwilioNumber.js";
+import {
+  configureTwilioWebhooksForNumber,
+  registerNumberInElevenLabs,
+  logProvisioningNumberSetup
+} from "../../services/twilioNumberSetup.js";
 
 const router = express.Router();
-const SMS_WEBHOOK_URL = process.env.BOOK8_CORE_API_URL
-  ? `${process.env.BOOK8_CORE_API_URL.replace(/\/$/, "")}/api/twilio/inbound-sms`
-  : "https://book8-core-api.onrender.com/api/twilio/inbound-sms";
 
 /**
  * POST /internal/provision-from-stripe
@@ -147,15 +148,24 @@ router.post("/", async (req, res) => {
             }
           );
 
-          const accountSid = process.env.TWILIO_ACCOUNT_SID;
-          const authToken = process.env.TWILIO_AUTH_TOKEN;
-          if (accountSid && authToken) {
-            const twilioClient = twilio(accountSid, authToken);
-            await twilioClient.incomingPhoneNumbers(number.twilioSid).update({
-              smsUrl: SMS_WEBHOOK_URL,
-              smsMethod: "POST"
-            });
+          const webhooksConfigured = await configureTwilioWebhooksForNumber({
+            twilioSid: number.twilioSid,
+            phoneNumber: number.phoneNumber
+          });
+          if (!webhooksConfigured) {
+            console.warn("[provisioning] ⚠️ Twilio webhooks not fully configured — manual setup may be needed");
           }
+
+          const elevenLabsRegistered = await registerNumberInElevenLabs(number.phoneNumber);
+          if (!elevenLabsRegistered) {
+            console.warn("[provisioning] ⚠️ ElevenLabs registration failed or skipped — manual setup may be needed");
+          }
+
+          logProvisioningNumberSetup({
+            phoneNumber: number.phoneNumber,
+            webhooksConfigured,
+            elevenLabsRegistered
+          });
           console.log("[provisioning] Assigned", number.phoneNumber, "to", businessId);
         }
       }
