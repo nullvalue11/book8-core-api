@@ -1,5 +1,5 @@
 /**
- * Twilio inbound SMS webhook: handle CANCEL BOOKING replies and generic replies.
+ * Twilio inbound SMS webhook: CANCEL / HELP / STATUS + two-way SMS booking (LLM).
  * POST /api/twilio/inbound-sms (form-urlencoded: From, To, Body)
  */
 
@@ -14,6 +14,13 @@ import {
   resolveCalendarProviderForBusiness,
   updateGcalEvent
 } from "../../services/gcalService.js";
+import { cancelUpcomingBookingForPhone } from "../../services/smsBookingCancellation.js";
+import {
+  normalizeE164,
+  handleSmsBookingMessage,
+  getHelpReply,
+  getStatusReply
+} from "../../services/smsBookingConversation.js";
 
 const router = express.Router();
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -35,25 +42,6 @@ function escapeXml(s) {
     .replace(/'/g, "&apos;");
 }
 
-function formatSlotInTz(slotStart, timezone) {
-  const tz = timezone || "America/Toronto";
-  const d = new Date(slotStart);
-  const dateStr = d.toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: tz
-  });
-  const timeStr = d.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: tz
-  });
-  return { dateStr, timeStr };
-}
-
 router.post(
   "/inbound-sms",
   express.urlencoded({ extended: false }),
@@ -63,7 +51,6 @@ router.post(
     }
 
     const signature = req.headers["x-twilio-signature"];
-    // Use forwarded headers so signature matches the URL Twilio actually called (e.g. https on Render).
     const protocol = req.get("x-forwarded-proto") || req.protocol;
     const host = req.get("x-forwarded-host") || req.get("host");
     const url = `${protocol}://${host}${req.originalUrl}`;
@@ -74,9 +61,10 @@ router.post(
       return res.status(403).set("Content-Type", "text/plain").send("Forbidden");
     }
 
-    const from = req.body.From;
-    const to = req.body.To;
-    const body = (req.body.Body || "").trim().toUpperCase();
+    const from = normalizeE164(req.body.From);
+    const to = normalizeE164(req.body.To);
+    const rawBody = (req.body.Body || "").trim();
+    const upper = rawBody.toUpperCase();
 
     const sendReply = (message) => {
       res.set("Content-Type", "text/xml").send(twiml(message));
@@ -94,80 +82,49 @@ router.post(
         return;
       }
 
-      if (body === "CANCEL BOOKING") {
-        const now = new Date().toISOString();
-        const booking = await Booking.findOne({
-          businessId: business.id,
-          "customer.phone": from,
-          status: "confirmed",
-          "slot.start": { $gt: now }
-        })
-          .sort({ "slot.start": 1 })
-          .lean();
+      // --- Legacy exact cancel phrase (kept for existing flows) ---
+      if (upper === "CANCEL BOOKING") {
+        const { reply } = await cancelUpcomingBookingForPhone(business, from);
+        sendReply(reply);
+        return;
+      }
 
-        if (booking) {
-          await Booking.updateOne(
-            { id: booking.id },
-            {
-              $set: {
-                status: "cancelled",
-                cancelledAt: new Date(),
-                cancellationMethod: "sms"
-              }
-            }
-          );
+      // --- Short commands (no LLM) ---
+      if (upper === "CANCEL") {
+        const { reply } = await cancelUpcomingBookingForPhone(business, from);
+        sendReply(reply);
+        return;
+      }
 
-          const tz = business.timezone || "America/Toronto";
-          const { dateStr, timeStr } = formatSlotInTz(booking.slot.start, tz);
-          let serviceDisplay = booking.serviceId || "Appointment";
-          try {
-            const svc = await Service.findOne({ businessId: business.id, serviceId: booking.serviceId }).lean();
-            if (svc?.name) serviceDisplay = svc.name;
-          } catch {
-            // keep serviceDisplay from booking
-          }
-          const businessName = business.name || business.id;
+      if (upper === "HELP" || upper === "INFO") {
+        sendReply(getHelpReply(business));
+        return;
+      }
 
-          const replyMsg = `Your ${serviceDisplay} appointment at ${businessName} on ${dateStr} at ${timeStr} has been cancelled. If you need to rebook, just call us!`;
-          sendReply(replyMsg);
-          console.log("[inbound-sms] Booking cancelled:", booking.id);
+      if (upper === "STATUS") {
+        sendReply(await getStatusReply(business, from));
+        return;
+      }
 
-          if (booking.customer?.email) {
-            const serviceForEmail = await Service.findOne({ businessId: business.id, serviceId: booking.serviceId }).lean();
-            sendCancellation(booking, business, serviceForEmail || { name: serviceDisplay }, booking.customer).catch((err) =>
-              console.error("[inbound-sms] Cancellation email failed:", err.message)
-            );
-          }
-          const calProvider = resolveCalendarProviderForBusiness(business);
-          if (booking.calendarEventId && calProvider) {
-            updateGcalEvent({
-              businessId: booking.businessId,
-              eventId: booking.calendarEventId,
-              bookingId: booking.id || booking.bookingId,
-              calendarProvider: calProvider,
-              updates: {
-                title: `CANCELLED — ${serviceDisplay}`,
-                showAs: "free"
-              }
-            }).catch((err) => console.error("[inbound-sms] Calendar update failed:", err.message));
-          } else {
-            deleteGcalEvent({
-              businessId: booking.businessId,
-              bookingId: booking.id || booking.bookingId,
-              calendarProvider: calProvider
-            }).catch((err) => console.error("[inbound-sms] GCal delete failed:", err.message));
-          }
+      // --- Two-way SMS booking (LLM) when configured ---
+      if (process.env.OPENAI_API_KEY && rawBody.length > 0) {
+        try {
+          const reply = await handleSmsBookingMessage(business, from, rawBody);
+          sendReply(reply);
+          return;
+        } catch (err) {
+          console.error("[inbound-sms] SMS booking error:", err);
+          sendReply("Sorry—something went wrong. Please call us to book.");
           return;
         }
       }
 
       const defaultReply =
-        "Thanks for your message! To cancel your upcoming appointment, reply UNDO. To book or reschedule, call " +
-        (to || "us") +
-        ".";
+        getHelpReply(business) +
+        (to ? ` Call: ${to}.` : "");
       sendReply(defaultReply);
-      if (body && body !== "CANCEL BOOKING") {
-        console.log("[inbound-sms] Inbound message (no CANCEL BOOKING):", { from, to, body: req.body.Body });
+      if (rawBody && upper !== "HELP") {
+        console.log("[inbound-sms] Inbound message (no OPENAI / fallback):", { from, to, body: rawBody });
       }
     })().catch((err) => {
       console.error("[inbound-sms] Error:", err);
