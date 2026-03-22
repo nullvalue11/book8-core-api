@@ -66,11 +66,23 @@ export async function getStatusReply(business, customerPhone) {
   return `Next booking: ${svc} on ${when} (${tz}). Reply CANCEL to cancel.`;
 }
 
-function formatDateNice(dateStr) {
+/**
+ * Format YYYY-MM-DD for display. Uses noon anchor (no Z) + business TZ so weekday matches local calendar.
+ */
+function formatDateNice(dateStr, businessOrTz) {
+  const tz =
+    typeof businessOrTz === "string"
+      ? businessOrTz
+      : businessOrTz?.weeklySchedule?.timezone || businessOrTz?.timezone || "America/Toronto";
   if (!dateStr || typeof dateStr !== "string") return dateStr;
-  const d = new Date(dateStr + "T12:00:00Z");
+  const d = new Date(`${dateStr}T12:00:00`);
   if (Number.isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  return d.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    timeZone: tz
+  });
 }
 
 function formatTimeShort(iso, timezone) {
@@ -130,17 +142,24 @@ function pickSlotFromSlots(slots, extracted, timezone) {
       return { start: s.start, end: s.end };
     }
   }
-  // try hour match
-  const hourMatch = t.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+  // try hour match (compare clock in business timezone, not server local)
+  const hourMatch = t.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
   if (hourMatch && slots.length) {
     let h = parseInt(hourMatch[1], 10);
     const m = hourMatch[2] ? parseInt(hourMatch[2], 10) : 0;
-    const ap = hourMatch[3];
+    const ap = (hourMatch[3] || "").toLowerCase();
     if (ap === "pm" && h < 12) h += 12;
     if (ap === "am" && h === 12) h = 0;
     for (const s of slots) {
-      const d = new Date(s.start);
-      if (d.getHours() === h && Math.abs(d.getMinutes() - m) <= 15) {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone || "America/Toronto",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(new Date(s.start));
+      const sh = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+      const sm = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+      if (sh === h && Math.abs(sm - m) <= 15) {
         return { start: s.start, end: s.end };
       }
     }
@@ -194,10 +213,12 @@ RULES:
   },
   "newState": string (greeting|selecting_service|selecting_time|collecting_name|collecting_email|confirming|complete)
 
-When user wants to book: first identify service + date; use action check_availability once you have serviceId and date.
-When user picks a time slot, set slotStart/slotEnd from CACHED slots or ask to clarify.
-When you have serviceId, slot times, customer name, and email, use action create_booking.
-If user wants to cancel, use action cancel_booking.
+FLOW:
+1) First time you have serviceId + date: action check_availability, newState selecting_time (server will list times).
+2) CRITICAL — When CURRENT STATE is selecting_time and CACHED slots exist: if the customer only sends a TIME (e.g. "10:00 am", "2pm", "10", "the first one") they are PICKING a slot, NOT asking for new availability. Then: action "none", set extracted.slotStart/slotEnd to match CACHED slots, newState "collecting_name", reply "Got it, [time] on [date]! What's your name?"
+3) Do NOT use check_availability again just because the user sent a time — that re-lists times and confuses the flow.
+4) When you have name + email + slot: action create_booking.
+5) If user wants to cancel: action cancel_booking.
 `;
 }
 
@@ -272,6 +293,10 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
     });
   }
 
+  const priorState = convo.state;
+  const priorCtx = { ...(convo.context || {}) };
+  const priorSlots = priorCtx.availableSlots || [];
+
   convo.messages.push({ role: "customer", text: messageText, timestamp: new Date() });
 
   const services = await Service.find({ businessId: bizId }).lean();
@@ -301,11 +326,38 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
 
   const action = result.action || "none";
   let reply = (result.reply || "Okay.").slice(0, 1600);
-  if (result.newState) convo.state = result.newState;
 
   let ctx = mergeExtracted(convo.context || {}, result.extracted);
 
-  if (action === "check_availability") {
+  let skipAvailabilityFetch = false;
+  let stateLocked = false;
+
+  // Server-side: user replied with a time after we showed slots; LLM may wrongly return check_availability again
+  if (
+    action === "check_availability" &&
+    priorState === "selecting_time" &&
+    priorSlots.length > 0
+  ) {
+    const slotPick = pickSlotFromSlots(
+      priorSlots,
+      { ...result.extracted, time: messageText.trim() },
+      tz
+    );
+    if (slotPick) {
+      ctx.serviceId = priorCtx.serviceId || ctx.serviceId;
+      ctx.date = priorCtx.date || ctx.date;
+      ctx.availableSlots = priorSlots;
+      ctx.pendingSlotStart = slotPick.start;
+      ctx.pendingSlotEnd = slotPick.end;
+      const dateForMsg = ctx.date || "";
+      reply = `Got it, ${formatTimeShort(slotPick.start, tz)} on ${formatDateNice(dateForMsg, business)}! What's your name?`;
+      convo.state = "collecting_name";
+      stateLocked = true;
+      skipAvailabilityFetch = true;
+    }
+  }
+
+  if (action === "check_availability" && !skipAvailabilityFetch) {
     const serviceId = resolveServiceId(services, ctx) || ctx.serviceId;
     let date =
       ctx.date ||
@@ -323,15 +375,20 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
         const labels = slotRes.slots.slice(0, 5).map((s) => formatTimeShort(s.start, tz));
         reply =
           labels.length > 0
-            ? `Times on ${formatDateNice(date)}: ${labels.join(", ")}. Reply with one, or pick another day.`
-            : `No openings on ${formatDateNice(date)}. Try another day?`;
+            ? `Times on ${formatDateNice(date, business)}: ${labels.join(", ")}. Reply with one, or pick another day.`
+            : `No openings on ${formatDateNice(date, business)}. Try another day?`;
+        convo.state = "selecting_time";
+        stateLocked = true;
       }
     }
   } else if (action === "create_booking") {
     const serviceId = resolveServiceId(services, ctx) || ctx.serviceId;
     const name = ctx.customerName || result.extracted?.customerName;
     const email = ctx.customerEmail || result.extracted?.customerEmail;
-    const slotPick = pickSlotFromSlots(ctx.availableSlots || [], result.extracted || {}, tz);
+    const slotPick =
+      ctx.pendingSlotStart && ctx.pendingSlotEnd
+        ? { start: ctx.pendingSlotStart, end: ctx.pendingSlotEnd }
+        : pickSlotFromSlots(ctx.availableSlots || [], result.extracted || {}, tz);
 
     if (!serviceId || !name || !email || !slotPick) {
       reply =
@@ -356,8 +413,11 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
 
       if (book.ok) {
         convo.state = "complete";
+        stateLocked = true;
         const ymd = slotPick.start.includes("T") ? slotPick.start.split("T")[0] : ctx.date;
-        reply = `Booked: ${svcName(services, serviceId)} ${formatDateNice(ymd || "")} ${formatTimeShort(slotPick.start, tz)}. Confirmations sent. Reply CANCEL to cancel.`;
+        reply = `Booked: ${svcName(services, serviceId)} ${formatDateNice(ymd || "", business)} ${formatTimeShort(slotPick.start, tz)}. Confirmations sent. Reply CANCEL to cancel.`;
+        delete ctx.pendingSlotStart;
+        delete ctx.pendingSlotEnd;
       } else {
         reply = book.error || "That slot may be taken—pick another time.";
       }
@@ -365,6 +425,11 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
   } else if (action === "cancel_booking") {
     const cancel = await cancelUpcomingBookingForPhone(business, phone);
     reply = cancel.reply;
+    stateLocked = true;
+  }
+
+  if (!stateLocked && result.newState) {
+    convo.state = result.newState;
   }
 
   convo.context = ctx;
