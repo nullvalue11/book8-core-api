@@ -75,6 +75,12 @@ router.post(
     };
 
     (async () => {
+      console.log("[inbound-sms] Received:", {
+        From: req.body.From,
+        To: req.body.To,
+        Body: req.body.Body != null ? String(req.body.Body).substring(0, 100) : undefined
+      });
+
       const business = await Business.findOne({ assignedTwilioNumber: to }).lean();
       if (!business) {
         console.warn("[inbound-sms] No business found for Twilio number:", to);

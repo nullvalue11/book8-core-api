@@ -12,7 +12,8 @@ import { cancelUpcomingBookingForPhone } from "./smsBookingCancellation.js";
 
 const SMS_CONVO_TTL_MS = 30 * 60 * 1000;
 const MAX_HISTORY = 24;
-const SMS_MODEL = process.env.OPENAI_SMS_MODEL || "gpt-4o";
+const SMS_MODEL = process.env.OPENAI_SMS_MODEL || "gpt-4o-mini";
+const LLM_TIMEOUT_MS = 10_000;
 
 let openaiClient = null;
 function getOpenAI() {
@@ -538,17 +539,25 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
     return fail;
   }
 
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("LLM timeout")), LLM_TIMEOUT_MS)
+  );
+
+  const llmStart = Date.now();
   let parsed;
   try {
-    parsed = await extractIntent(business, services, convo, msg);
+    parsed = await Promise.race([extractIntent(business, services, convo, msg), timeoutPromise]);
   } catch (err) {
-    console.error("[sms-booking] LLM error:", err.message);
-    const reply = "Sorry—something went wrong. Please try again in a moment or call us.";
+    console.error("[sms-booking] LLM timeout or error:", err.message);
+    const reply = REPLIES.greeting(business, services);
+    convo.state = "selecting_service";
     convo.messages.push({ role: "assistant", text: reply, timestamp: new Date() });
     convo.expiresAt = new Date(Date.now() + SMS_CONVO_TTL_MS);
     await convo.save();
+    console.log("[inbound-sms] LLM response time:", Date.now() - llmStart, "ms");
     return reply;
   }
+  console.log("[inbound-sms] LLM response time:", Date.now() - llmStart, "ms");
 
   const ex = parsed.extracted || {};
   const intent = parsed.intent || "unclear";
