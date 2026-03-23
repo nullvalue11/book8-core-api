@@ -77,13 +77,11 @@ export async function sendSMS({ to, from, body }) {
  */
 export function formatConfirmationSMS({ serviceName, businessName, date, time, customerName }) {
   return [
-    `✅ Booking Confirmed`,
-    `${serviceName} with ${businessName}`,
-    `📅 ${date} at ${time}`,
-    "",
+    `✅ Booked! ${serviceName} on ${date} at ${time} at ${businessName}.`,
+    `Add to calendar: check your confirmation email for Google, Outlook, or Apple links.`,
     `See you then${customerName ? `, ${customerName}` : ""}!`,
     "",
-    `Reply CANCEL BOOKING to cancel your appointment.`
+    `Need to cancel? Reply CANCEL BOOKING.`
   ].join("\n");
 }
 

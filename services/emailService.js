@@ -2,6 +2,7 @@
 // Resend-based email confirmations and reminders. Fire-and-forget; no-op if RESEND_API_KEY not set.
 
 import { Resend } from "resend";
+import { generateCalendarLinks } from "../utils/calendarLinks.js";
 
 const apiKey = process.env.RESEND_API_KEY;
 const defaultFrom = "Book8 <noreply@book8.io>";
@@ -47,7 +48,7 @@ function baseHtml(content) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;padding:24px;">
 <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
 ${content}
-<p style="margin-top:32px;font-size:12px;color:#888;">Powered by Book8</p>
+<p style="margin-top:32px;font-size:12px;color:#888;">Powered by Book8 AI</p>
 </div></body></html>`;
 }
 
@@ -67,12 +68,43 @@ export async function sendConfirmation(booking, business, service, customer) {
   const firstName = customer?.name?.split(" ")[0] || "";
 
   const subject = `✅ Booking Confirmed — ${serviceName} at ${businessName}`;
+  const slotStart = booking.slot?.start;
+  let slotEnd = booking.slot?.end;
+  if (slotStart && !slotEnd) {
+    slotEnd = new Date(new Date(slotStart).getTime() + 60 * 60 * 1000).toISOString();
+  }
+  const emailDescription = [
+    `${serviceName} at ${businessName}`,
+    `${dateStr} at ${timeStr}`,
+    booking.id ? `Booking ref: ${booking.id}` : null,
+    "Booked via Book8 AI"
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const { googleUrl, outlookUrl, icsDataUrl } = generateCalendarLinks({
+    title: `${serviceName} — ${businessName}`,
+    start: slotStart,
+    end: slotEnd,
+    description: emailDescription,
+    location: businessName
+  });
+
+  const btn =
+    "display:inline-block;padding:10px 20px;margin:6px;background:#1a1a2e;border:1px solid #333;border-radius:8px;color:#fff;text-decoration:none;font-size:14px;";
+
   const content = `
     <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
     <p style="margin:0 0 16px 0;color:#22c55e;font-weight:600;">Confirmed</p>
     <p style="margin:0 0 8px 0;"><strong>${escapeHtml(serviceName)}</strong></p>
     <p style="margin:0 0 16px 0;">${dateStr} at ${timeStr}</p>
     <p style="margin:0 0 16px 0;">See you then${firstName ? `, ${escapeHtml(firstName)}` : ""}!</p>
+    <div style="margin:24px 0;text-align:center;">
+      <p style="color:#94A3B8;font-size:14px;margin-bottom:12px;">Add to your calendar</p>
+      <a href="${googleUrl}" style="${btn}">📅 Google Calendar</a>
+      <a href="${outlookUrl}" style="${btn}">📅 Outlook</a>
+      <a href="${icsDataUrl}" style="${btn}" download="book8-appointment.ics">📅 Apple / Download .ics</a>
+    </div>
     <p style="margin:0 0 0 0;color:#666;font-size:14px;">Need to cancel? Text CANCEL BOOKING to your booking number, or call us to reschedule.</p>
   `;
 
