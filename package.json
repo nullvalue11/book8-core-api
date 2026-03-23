@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "set NODE_ENV=test&& node --test tests/*.js"
+    "test": "set NODE_ENV=test&& node --test tests/*.js",
+    "purge:bookings": "node scripts/purgeBookingsAllBusinesses.js",
+    "purge:bookings:dry": "node scripts/purgeBookingsAllBusinesses.js --dry-run"
   },
   "dependencies": {
     "cors": "^2.8.5",
