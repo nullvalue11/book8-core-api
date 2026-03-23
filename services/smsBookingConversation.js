@@ -87,24 +87,45 @@ function formatLocalDateYmdFromInstant(instant, timezone) {
   }).format(instant);
 }
 
+/** Normalize ordinals / commas so chrono parses "March 23rd, 2026" reliably. */
+function normalizeDateTextInput(s) {
+  if (!s || typeof s !== "string") return "";
+  return s
+    .trim()
+    .replace(/(\d+)(st|nd|rd|th)\b/gi, "$1")
+    .replace(/,/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * Resolve free-text date to YYYY-MM-DD in the business timezone.
  */
 export function resolveDate(dateText, timezone) {
   if (!dateText || typeof dateText !== "string") return null;
-  const trimmed = dateText.trim();
-  if (!trimmed) return null;
+  const rawTrim = dateText.trim();
+  if (!rawTrim) return null;
+  const normalized = normalizeDateTextInput(rawTrim);
   const tz = timezone || "America/Toronto";
   const ref = new Date();
-  try {
-    const parsed = parseDate(trimmed, ref, { forwardDate: true });
-    if (parsed && !Number.isNaN(parsed.getTime())) {
-      return formatLocalDateYmdFromInstant(parsed, tz);
+  const tryParse = (text) => {
+    try {
+      const parsed = parseDate(text, ref, { forwardDate: true });
+      if (parsed && !Number.isNaN(parsed.getTime())) {
+        return formatLocalDateYmdFromInstant(parsed, tz);
+      }
+    } catch {
+      // fall through
     }
-  } catch {
-    // fall through
+    return null;
+  };
+  const fromNorm = tryParse(normalized);
+  if (fromNorm) return fromNorm;
+  if (normalized !== rawTrim) {
+    const fromRaw = tryParse(rawTrim);
+    if (fromRaw) return fromRaw;
   }
-  const lower = trimmed.toLowerCase();
+  const lower = normalized.toLowerCase();
   if (lower === "today") {
     return formatLocalDateYmdFromInstant(ref, tz);
   }
@@ -643,6 +664,18 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
     }
   }
 
+  console.log(
+    "[sms-booking] State:",
+    convo.state,
+    "Intent:",
+    parsed.intent,
+    "Extracted:",
+    JSON.stringify(parsed.extracted),
+    "Context:",
+    JSON.stringify(convo.context)
+  );
+  console.log("[sms-booking] MergedCtx:", JSON.stringify(ctx));
+
   let reply = "";
   let newState = convo.state;
 
@@ -678,7 +711,17 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
 
   // --- need service ---
   if (!ctx.serviceId) {
-    if (intent === "greeting" || (intent === "unclear" && !ex.service)) {
+    if (ex.date || (convo.state === "selecting_date" && msg)) {
+      const dateStr = ex.date || msg;
+      const resolvedNoSvc = resolveDate(String(dateStr).trim(), tz);
+      if (!resolvedNoSvc) {
+        reply = REPLIES.badDate();
+        newState = "selecting_service";
+      } else {
+        reply = `Pick a service first. We offer: ${uniqueServiceNames(services).join(", ")}.`;
+        newState = "selecting_service";
+      }
+    } else if (intent === "greeting" || (intent === "unclear" && !ex.service)) {
       reply = REPLIES.greeting(business, services);
       newState = "selecting_service";
     } else if (ex.service) {
@@ -690,10 +733,16 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
     }
   } else if (!ctx.date) {
     const svcObj = activeServices(services).find((s) => s.serviceId === ctx.serviceId);
-    if (ex.date) {
-      const r = resolveDate(ex.date, tz);
+    let r = ex.date ? resolveDate(ex.date, tz) : null;
+    if (!r && convo.state === "selecting_date" && msg) {
+      r = resolveDate(msg, tz);
+    }
+    const userGaveDate = !!(ex.date || (convo.state === "selecting_date" && msg.trim()));
+    if (userGaveDate) {
       if (r) {
         ctx.date = r;
+        delete ctx.pendingSlotStart;
+        delete ctx.pendingSlotEnd;
         delete ctx.availableSlots;
         const av = await showAvailabilityAndReply(bizId, ctx, tz, services);
         reply = av.reply;

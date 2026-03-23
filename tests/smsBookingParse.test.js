@@ -51,4 +51,8 @@ describe("resolveDate", () => {
     const d = resolveDate("tomorrow", "America/Toronto");
     assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(d), d);
   });
+  it("parses March 23rd, 2026 with ordinals and comma", () => {
+    const d = resolveDate("March 23rd, 2026", "America/Toronto");
+    assert.strictEqual(d, "2026-03-23");
+  });
 });
