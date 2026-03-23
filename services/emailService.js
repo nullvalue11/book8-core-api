@@ -20,16 +20,29 @@ function getFrom() {
 }
 
 /**
- * Format slot start in business timezone for display.
+ * IANA timezone for customer-facing email copy.
+ * Prefer slot (booking), then weekly schedule, then business root.
+ */
+function resolveEmailTimezone(booking, business) {
+  return (
+    booking?.slot?.timezone ||
+    business?.weeklySchedule?.timezone ||
+    business?.timezone ||
+    "America/Toronto"
+  );
+}
+
+/**
+ * Format slot start in business timezone for display (not UTC / server local).
  */
 function formatDateAndTime(slotStart, timezone) {
   const tz = timezone || "America/Toronto";
   const d = new Date(slotStart);
   const dateStr = d.toLocaleDateString("en-US", {
     weekday: "long",
-    year: "numeric",
     month: "long",
     day: "numeric",
+    year: "numeric",
     timeZone: tz
   });
   const timeStr = d.toLocaleTimeString("en-US", {
@@ -55,14 +68,15 @@ ${content}
 /**
  * Send booking confirmation email. Fire-and-forget safe; no-op if Resend not configured.
  * @param {object} booking - booking doc (id, slot, customer, serviceId, businessId)
- * @param {object} business - business doc (name, timezone)
+ * @param {object} business - business doc (name, timezone, weeklySchedule)
  * @param {object} service - service doc (name)
  * @param {object} customer - customer (name, email)
  */
 export async function sendConfirmation(booking, business, service, customer) {
   if (!resend || !customer?.email) return;
   console.log("[emailService] Sending confirmation email to:", customer.email);
-  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, business?.timezone);
+  const tz = resolveEmailTimezone(booking, business);
+  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, tz);
   const serviceName = service?.name || booking?.serviceId || "Appointment";
   const businessName = business?.name || booking?.businessId || "Business";
   const firstName = customer?.name?.split(" ")[0] || "";
@@ -128,14 +142,14 @@ export async function sendConfirmation(booking, business, service, customer) {
 /**
  * Send reminder email. type = '24h' | '1h' | '30min'
  * @param {object} booking - booking doc
- * @param {object} business - business doc
+ * @param {object} business - business doc (timezone / weeklySchedule.timezone)
  * @param {object} service - service doc
  * @param {object} customer - customer (name, email)
  * @param {'24h'|'1h'|'30min'} type
  */
 export async function sendReminder(booking, business, service, customer, type) {
   if (!resend || !customer?.email) return;
-  const tz = business?.timezone || "America/Toronto";
+  const tz = resolveEmailTimezone(booking, business);
   const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, tz);
   const serviceName = service?.name || booking?.serviceId || "Appointment";
   const businessName = business?.name || booking?.businessId || "Business";
@@ -184,13 +198,14 @@ export async function sendReminder(booking, business, service, customer, type) {
 /**
  * Send booking cancellation email. Fire-and-forget; no-op if Resend not configured or no email.
  * @param {object} booking - booking doc (slot, serviceId, businessId, customer)
- * @param {object} business - business doc (name, timezone, assignedTwilioNumber)
+ * @param {object} business - business doc (name, timezone, weeklySchedule, assignedTwilioNumber)
  * @param {object} service - service doc (name)
  * @param {object} customer - customer (name, email)
  */
 export async function sendCancellation(booking, business, service, customer) {
   if (!resend || !customer?.email) return;
-  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, business?.timezone);
+  const tz = resolveEmailTimezone(booking, business);
+  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, tz);
   const serviceName = service?.name || booking?.serviceId || "Appointment";
   const businessName = business?.name || booking?.businessId || "Business";
   const callNumber = business?.assignedTwilioNumber ? `call ${business.assignedTwilioNumber}` : "call us";
