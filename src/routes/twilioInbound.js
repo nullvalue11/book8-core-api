@@ -19,7 +19,8 @@ import {
   normalizeE164,
   handleSmsBookingMessage,
   getHelpReply,
-  getStatusReply
+  getStatusReply,
+  resetAndGreetSmsConversation
 } from "../../services/smsBookingConversation.js";
 
 const router = express.Router();
@@ -109,6 +110,12 @@ router.post(
 
       if (upper === "STATUS") {
         sendReply(await getStatusReply(business, from));
+        return;
+      }
+
+      if (upper === "RESET" || upper === "START OVER" || upper === "STARTOVER") {
+        const reply = await resetAndGreetSmsConversation(business, from);
+        sendReply(reply);
         return;
       }
 

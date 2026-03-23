@@ -249,10 +249,15 @@ function formatTimeNice(isoOrDate, tz) {
   });
 }
 
+function uniqueServiceNames(services) {
+  const names = services.filter((s) => s.active !== false).map((s) => s.name);
+  return [...new Set(names)];
+}
+
 const REPLIES = {
   greeting: (biz, services) => {
-    const names = services.filter((s) => s.active !== false).map((s) => s.name);
-    const list = names.length ? names.join(", ") : "our services";
+    const uniqueNames = uniqueServiceNames(services);
+    const list = uniqueNames.length ? uniqueNames.join(", ") : "our services";
     return `Hi! Welcome to ${biz.name}. We offer: ${list}. What would you like to book?`;
   },
 
@@ -291,7 +296,7 @@ const REPLIES = {
     `Book8 AI for ${biz.name}. Text us to book! Try: "book a cleaning tomorrow at 2pm" or "what's available Friday?"`,
 
   unknownService: (services) => {
-    const names = services.filter((s) => s.active !== false).map((s) => s.name);
+    const names = uniqueServiceNames(services);
     return `I didn't find that service. We offer: ${names.join(", ") || "— please call us"}. Which one?`;
   },
 
@@ -499,6 +504,17 @@ async function completeSmsBooking(bizId, ctx, phone, tz, services) {
 }
 
 /**
+ * Delete saved SMS booking conversation and return a fresh greeting (no LLM).
+ */
+export async function resetAndGreetSmsConversation(business, customerPhone) {
+  const phone = normalizeE164(customerPhone);
+  const bizId = business.id;
+  await SmsConversation.deleteMany({ businessId: bizId, customerPhone: phone });
+  const services = await Service.find({ businessId: bizId }).lean();
+  return REPLIES.greeting(business, services);
+}
+
+/**
  * @returns {Promise<string>} SMS reply body
  */
 export async function handleSmsBookingMessage(business, customerPhone, messageText) {
@@ -570,6 +586,12 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
     ex.email = msg.trim();
   }
 
+  // Stale state: user is picking a service again while we still think we're choosing a time
+  if (convo.state === "selecting_time" && intent === "select_service") {
+    convo.context = {};
+    convo.state = "selecting_service";
+  }
+
   let ctx = { ...(convo.context || {}) };
 
   if (intent === "correction" || intent === "reschedule") {
@@ -591,6 +613,16 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
   if (ex.service) {
     const svc = matchServiceByText(ex.service, services);
     if (svc) {
+      const clearStale =
+        intent === "select_service" ||
+        intent === "book" ||
+        (convo.state === "selecting_time" && !!ex.service);
+      if (clearStale) {
+        ctx.date = null;
+        ctx.availableSlots = null;
+        delete ctx.pendingSlotStart;
+        delete ctx.pendingSlotEnd;
+      }
       ctx.serviceId = svc.serviceId;
       ctx.serviceName = svc.name;
       ctx.durationMinutes = svc.durationMinutes;
