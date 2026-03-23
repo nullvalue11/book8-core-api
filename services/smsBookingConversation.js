@@ -1,7 +1,8 @@
 /**
- * Two-way SMS booking: LLM + calendar availability + createBooking (bookingService unchanged).
+ * Two-way SMS booking: LLM extracts intent/entities only; server formats replies and drives flow.
  */
 import OpenAI from "openai";
+import { parseDate } from "chrono-node";
 import { SmsConversation } from "../models/SmsConversation.js";
 import { Service } from "../models/Service.js";
 import { Booking } from "../models/Booking.js";
@@ -11,6 +12,7 @@ import { cancelUpcomingBookingForPhone } from "./smsBookingCancellation.js";
 
 const SMS_CONVO_TTL_MS = 30 * 60 * 1000;
 const MAX_HISTORY = 24;
+const SMS_MODEL = process.env.OPENAI_SMS_MODEL || "gpt-4o";
 
 let openaiClient = null;
 function getOpenAI() {
@@ -27,9 +29,18 @@ export function normalizeE164(phone) {
     .replace(/\s/g, "");
 }
 
+/** IANA TZ for SMS copy + slot matching (same order as emailService). */
+export function resolveSmsTimezone(business) {
+  return (
+    business?.weeklySchedule?.timezone ||
+    business?.timezone ||
+    "America/Toronto"
+  );
+}
+
 export function getHelpReply(business) {
   const name = business?.name || "us";
-  return `Book8 for ${name}: text to book (e.g. "cleaning tomorrow afternoon") or reply CANCEL to cancel an upcoming visit. Questions? Call your booking line.`;
+  return `Book8 AI for ${name}. Text us to book! Try: "book a cleaning tomorrow at 2pm" or "what's available Friday?" Reply CANCEL to cancel.`;
 }
 
 export async function getStatusReply(business, customerPhone) {
@@ -46,7 +57,7 @@ export async function getStatusReply(business, customerPhone) {
   if (!booking) {
     return "No upcoming appointments on file for this number.";
   }
-  const tz = business.timezone || "America/Toronto";
+  const tz = resolveSmsTimezone(business);
   const d = new Date(booking.slot.start);
   const when = d.toLocaleString("en-US", {
     weekday: "short",
@@ -66,45 +77,334 @@ export async function getStatusReply(business, customerPhone) {
   return `Next booking: ${svc} on ${when} (${tz}). Reply CANCEL to cancel.`;
 }
 
+function formatLocalDateYmdFromInstant(instant, timezone) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(instant);
+}
+
 /**
- * Format YYYY-MM-DD for display. Uses noon anchor (no Z) + business TZ so weekday matches local calendar.
+ * Resolve free-text date to YYYY-MM-DD in the business timezone.
  */
-function formatDateNice(dateStr, businessOrTz) {
-  const tz =
-    typeof businessOrTz === "string"
-      ? businessOrTz
-      : businessOrTz?.weeklySchedule?.timezone || businessOrTz?.timezone || "America/Toronto";
-  if (!dateStr || typeof dateStr !== "string") return dateStr;
-  const d = new Date(`${dateStr}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString("en-US", {
+export function resolveDate(dateText, timezone) {
+  if (!dateText || typeof dateText !== "string") return null;
+  const trimmed = dateText.trim();
+  if (!trimmed) return null;
+  const tz = timezone || "America/Toronto";
+  const ref = new Date();
+  try {
+    const parsed = parseDate(trimmed, ref, { forwardDate: true });
+    if (parsed && !Number.isNaN(parsed.getTime())) {
+      return formatLocalDateYmdFromInstant(parsed, tz);
+    }
+  } catch {
+    // fall through
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === "today") {
+    return formatLocalDateYmdFromInstant(ref, tz);
+  }
+  if (lower === "tomorrow") {
+    const t = parseDate("tomorrow at 12:00", ref, { forwardDate: true });
+    if (t && !Number.isNaN(t.getTime())) {
+      return formatLocalDateYmdFromInstant(t, tz);
+    }
+  }
+  return null;
+}
+
+/**
+ * Parse time phrase to HH:MM (24h), morning|afternoon|evening, or __first_slot__.
+ */
+export function resolveTime(timeText) {
+  if (!timeText || typeof timeText !== "string") return null;
+  const lower = timeText.toLowerCase().trim();
+  if (!lower) return null;
+  if (/^(first|earliest|1\s*st|one)\b/i.test(lower)) return "__first_slot__";
+  if (lower.includes("morning") && !/\d/.test(lower)) return "morning";
+  if (lower.includes("afternoon") && !/\d/.test(lower)) return "afternoon";
+  if (lower.includes("evening") && !/\d/.test(lower)) return "evening";
+
+  const compact = lower.replace(/\s+/g, "");
+  const match = compact.match(/^(\d{1,2})(?::(\d{2}))?(a\.?m\.?|p\.?m\.?)?$/i);
+  if (match) {
+    let hour = parseInt(match[1], 10);
+    const min = match[2] ? parseInt(match[2], 10) : 0;
+    const ampm = (match[3] || "").replace(/\./g, "").toLowerCase();
+    if (ampm.startsWith("p") && hour < 12) hour += 12;
+    if (ampm.startsWith("a") && hour === 12) hour = 0;
+    if (!ampm && hour >= 0 && hour <= 23) {
+      // bare hour like "4" — treat as PM if hour <= 11 for booking context
+      if (hour >= 1 && hour <= 11) hour += 12;
+    }
+    return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+
+  const spaced = lower.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+  if (spaced) {
+    let hour = parseInt(spaced[1], 10);
+    const min = spaced[2] ? parseInt(spaced[2], 10) : 0;
+    const ap = spaced[3].toLowerCase();
+    if (ap === "pm" && hour < 12) hour += 12;
+    if (ap === "am" && hour === 12) hour = 0;
+    return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+
+  const h24 = lower.match(/^(\d{1,2}):(\d{2})$/);
+  if (h24) {
+    return `${String(parseInt(h24[1], 10)).padStart(2, "0")}:${String(parseInt(h24[2], 10)).padStart(2, "0")}`;
+  }
+  return null;
+}
+
+function getHourMinuteInTz(isoStart, timezone) {
+  const d = new Date(isoStart);
+  if (Number.isNaN(d.getTime())) return { h: 0, m: 0 };
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(d);
+  const h = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+  const m = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
+  return { h, m };
+}
+
+/**
+ * Match resolved time token to an available slot (business TZ).
+ */
+export function matchTimeToSlot(timeToken, slots, timezone) {
+  if (!timeToken || !slots?.length) return null;
+  const tz = timezone || "America/Toronto";
+  if (timeToken === "__first_slot__") return slots[0];
+
+  if (timeToken === "morning") {
+    return slots.find((s) => getHourMinuteInTz(s.start, tz).h < 12) || null;
+  }
+  if (timeToken === "afternoon") {
+    return (
+      slots.find((s) => {
+        const { h } = getHourMinuteInTz(s.start, tz);
+        return h >= 12 && h < 17;
+      }) || null
+    );
+  }
+  if (timeToken === "evening") {
+    return (
+      slots.find((s) => {
+        const { h } = getHourMinuteInTz(s.start, tz);
+        return h >= 17 && h < 21;
+      }) || null
+    );
+  }
+
+  const m = timeToken.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) {
+    const th = parseInt(m[1], 10);
+    const tm = parseInt(m[2], 10);
+    const want = th * 60 + tm;
+    let best = null;
+    let bestDiff = Infinity;
+    for (const s of slots) {
+      const { h, m: sm } = getHourMinuteInTz(s.start, tz);
+      const diff = Math.abs(h * 60 + sm - want);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = s;
+      }
+    }
+    if (best && bestDiff <= 30) return best;
+  }
+  return null;
+}
+
+function formatDateNiceYmd(dateYmd, tz) {
+  if (!dateYmd || typeof dateYmd !== "string") return String(dateYmd || "");
+  const parts = dateYmd.split("-").map((x) => parseInt(x, 10));
+  const [y, mo, d] = parts;
+  if (!y || !mo || !d) return dateYmd;
+  const anchor = new Date(Date.UTC(y, mo - 1, d, 12, 0, 0));
+  return anchor.toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
-    timeZone: tz
+    year: "numeric",
+    timeZone: tz || "America/Toronto"
   });
 }
 
-function formatTimeShort(iso, timezone) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
+function formatTimeNice(isoOrDate, tz) {
+  const d = typeof isoOrDate === "string" ? new Date(isoOrDate) : isoOrDate;
+  if (Number.isNaN(d.getTime())) return String(isoOrDate);
   return d.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: timezone || "America/Toronto"
+    timeZone: tz || "America/Toronto"
   });
 }
 
-function dateStrDaysAheadInTimezone(timezone, daysAhead) {
-  const base = new Date();
-  const shifted = new Date(base.getTime() + daysAhead * 86400000);
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone || "America/Toronto",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(shifted);
+const REPLIES = {
+  greeting: (biz, services) => {
+    const names = services.filter((s) => s.active !== false).map((s) => s.name);
+    const list = names.length ? names.join(", ") : "our services";
+    return `Hi! Welcome to ${biz.name}. We offer: ${list}. What would you like to book?`;
+  },
+
+  askDate: (service) => {
+    const name = service?.name || "That service";
+    const dur = service?.durationMinutes;
+    return dur
+      ? `Great choice! ${name} (${dur} min). What date works for you?`
+      : `Great choice! ${name}. What date works for you?`;
+  },
+
+  showAvailability: (dateYmd, slots, tz) => {
+    const dateStr = formatDateNiceYmd(dateYmd, tz);
+    const times = slots.slice(0, 6).map((s) => formatTimeNice(s.start, tz)).join(", ");
+    return `Available on ${dateStr}: ${times}. Reply with a time, or pick another day.`;
+  },
+
+  noAvailability: (dateYmd, tz) =>
+    `Sorry, no availability on ${formatDateNiceYmd(dateYmd, tz)}. Try another day?`,
+
+  confirmSlot: (isoStart, dateYmd, tz) =>
+    `Got it, ${formatTimeNice(isoStart, tz)} on ${formatDateNiceYmd(dateYmd, tz)}! What's your name?`,
+
+  askEmail: (name) => `Thanks ${name}! What's your email for the confirmation?`,
+
+  booked: (serviceName, isoStart, dateYmd, tz) =>
+    `Booked: ${serviceName} on ${formatDateNiceYmd(dateYmd, tz)} at ${formatTimeNice(
+      isoStart,
+      tz
+    )}. Confirmations sent. Reply CANCEL to cancel.`,
+
+  error: () =>
+    `Sorry, I didn't catch that. Try "book a cleaning tomorrow at 2pm" or tell us which day.`,
+
+  help: (biz) =>
+    `Book8 AI for ${biz.name}. Text us to book! Try: "book a cleaning tomorrow at 2pm" or "what's available Friday?"`,
+
+  unknownService: (services) => {
+    const names = services.filter((s) => s.active !== false).map((s) => s.name);
+    return `I didn't find that service. We offer: ${names.join(", ") || "— please call us"}. Which one?`;
+  },
+
+  badDate: () =>
+    `I couldn't understand that date. Try "tomorrow", "March 24", or "next Monday".`,
+
+  pickFromTimes: (slots, tz) => {
+    const times = slots.slice(0, 6).map((s) => formatTimeNice(s.start, tz)).join(", ");
+    return `That time isn't available. Choose from: ${times}`;
+  },
+
+  needName: () => "What's your name for the booking?",
+
+  needEmail: () => "What's your email for the confirmation?",
+
+  needSlotDetails: () => "I need a confirmed time, your name, and email to book. Reply with what's missing."
+};
+
+function activeServices(services) {
+  return services.filter((s) => s.active !== false);
+}
+
+function matchServiceByText(text, services) {
+  if (!text || typeof text !== "string") return null;
+  const t = text.toLowerCase().trim();
+  const list = activeServices(services);
+  const exact = list.find((s) => s.name.toLowerCase() === t);
+  if (exact) return exact;
+  return (
+    list.find(
+      (s) =>
+        s.name.toLowerCase().includes(t) ||
+        t.includes(s.name.toLowerCase()) ||
+        s.serviceId.toLowerCase() === t
+    ) || null
+  );
+}
+
+function buildSystemPrompt(business, services, convo) {
+  const serviceNames = activeServices(services)
+    .map((s) => s.name)
+    .join(", ");
+
+  return `You are parsing SMS messages for a booking system.
+Your ONLY job is to understand what the customer wants and extract structured data.
+Do NOT generate any customer-facing text. Do NOT format dates or times for display.
+
+Business: ${business.name}
+Services offered: ${serviceNames || "(none)"}
+Conversation state: ${convo.state}
+Already collected: ${JSON.stringify(convo.context || {})}
+
+Return ONLY this JSON (no markdown, no explanation):
+{
+  "intent": one of: "book", "select_service", "select_date", "select_time",
+            "provide_name", "provide_email", "cancel", "help", "greeting",
+            "question", "correction", "reschedule", "unclear",
+  "extracted": {
+    "service": service name mentioned or null,
+    "date": date mentioned (any format: "tomorrow", "March 23", "next monday", "03/23") or null,
+    "time": time mentioned (any format: "4pm", "4:00", "afternoon", "morning") or null,
+    "name": customer name or null,
+    "email": email address or null
+  }
+}
+
+Examples:
+- "I want a dental cleaning" → {"intent":"book","extracted":{"service":"dental cleaning"}}
+- "Tomorrow at 2pm" → {"intent":"select_date","extracted":{"date":"tomorrow","time":"2pm"}}
+- "March 23rd" → {"intent":"select_date","extracted":{"date":"March 23"}}
+- "4pm" → {"intent":"select_time","extracted":{"time":"4pm"}}
+- "John Smith" → {"intent":"provide_name","extracted":{"name":"John Smith"}}
+- "john@email.com" → {"intent":"provide_email","extracted":{"email":"john@email.com"}}
+- "cancel" → {"intent":"cancel","extracted":{}}
+- "It's Monday not Saturday" → {"intent":"correction","extracted":{"date":"monday"}}`;
+}
+
+function safeJsonParse(raw) {
+  const s = String(raw || "").trim();
+  try {
+    return JSON.parse(s);
+  } catch {
+    const start = s.indexOf("{");
+    const end = s.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(s.slice(start, end + 1));
+    }
+    throw new Error("Invalid JSON from model");
+  }
+}
+
+async function extractIntent(business, services, convo, messageText) {
+  const client = getOpenAI();
+  if (!client) return null;
+
+  const system = buildSystemPrompt(business, services, convo);
+  const history = (convo.messages || []).slice(-MAX_HISTORY).map((m) => ({
+    role: m.role === "customer" ? "user" : "assistant",
+    content: m.text
+  }));
+
+  const completion = await client.chat.completions.create({
+    model: SMS_MODEL,
+    temperature: 0.1,
+    max_tokens: 400,
+    response_format: { type: "json_object" },
+    messages: [{ role: "system", content: system }, ...history]
+  });
+
+  const raw = completion.choices[0]?.message?.content || "{}";
+  const parsed = safeJsonParse(raw);
+  if (!parsed.intent) parsed.intent = "unclear";
+  if (!parsed.extracted || typeof parsed.extracted !== "object") parsed.extracted = {};
+  return parsed;
 }
 
 /**
@@ -130,139 +430,71 @@ async function fetchSlotsForDay(businessId, serviceId, dateYmd, timezone) {
   return { ok: true, slots: result.slots || [], timezone: result.timezone || tz };
 }
 
-function pickSlotFromSlots(slots, extracted, timezone) {
-  if (extracted?.slotStart && extracted?.slotEnd) {
-    return { start: extracted.slotStart, end: extracted.slotEnd };
+async function showAvailabilityAndReply(bizId, ctx, tz, services) {
+  const serviceId = ctx.serviceId;
+  const date = ctx.date;
+  const svc = activeServices(services).find((s) => s.serviceId === serviceId);
+  const slotRes = await fetchSlotsForDay(bizId, serviceId, date, tz);
+  if (!slotRes.ok) {
+    return {
+      reply: `Can't load times: ${slotRes.error || "try another day"}.`,
+      state: "selecting_date"
+    };
   }
-  const t = (extracted?.time || "").toLowerCase();
-  if (!t || !slots?.length) return null;
-  for (const s of slots) {
-    const label = formatTimeShort(s.start, timezone).toLowerCase().replace(/\s/g, "");
-    if (label.includes(t.replace(/\s/g, "")) || t.includes(label.slice(0, 4))) {
-      return { start: s.start, end: s.end };
-    }
+  ctx.availableSlots = slotRes.slots;
+  if (!slotRes.slots.length) {
+    return { reply: REPLIES.noAvailability(date, tz), state: "selecting_date" };
   }
-  // try hour match (compare clock in business timezone, not server local)
-  const hourMatch = t.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
-  if (hourMatch && slots.length) {
-    let h = parseInt(hourMatch[1], 10);
-    const m = hourMatch[2] ? parseInt(hourMatch[2], 10) : 0;
-    const ap = (hourMatch[3] || "").toLowerCase();
-    if (ap === "pm" && h < 12) h += 12;
-    if (ap === "am" && h === 12) h = 0;
-    for (const s of slots) {
-      const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone: timezone || "America/Toronto",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: false
-      }).formatToParts(new Date(s.start));
-      const sh = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
-      const sm = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
-      if (sh === h && Math.abs(sm - m) <= 15) {
-        return { start: s.start, end: s.end };
-      }
-    }
-  }
-  return slots[0] ? { start: slots[0].start, end: slots[0].end } : null;
+  return { reply: REPLIES.showAvailability(date, slotRes.slots, tz), state: "selecting_time" };
 }
 
-function buildSystemPrompt(business, services, convo) {
-  const tz = business.timezone || business.weeklySchedule?.timezone || "America/Toronto";
-  const serviceList = services
-    .filter((s) => s.active)
-    .map((s) => `- ${s.name} (${s.durationMinutes} min, serviceId: ${s.serviceId})`)
-    .join("\n");
-
-  const ctx = convo.context || {};
-  const availPreview = ctx.availableSlots
-    ? JSON.stringify(
-        (ctx.availableSlots || []).slice(0, 8).map((x) => ({
-          start: x.start,
-          end: x.end,
-          label: formatTimeShort(x.start, tz)
-        }))
-      )
-    : "none";
-
-  return `You are a friendly SMS booking assistant for ${business.name}.
-
-SERVICES (use exact serviceId when known):
-${serviceList || "(none)"}
-
-BUSINESS TIMEZONE: ${tz}
-CURRENT STATE: ${convo.state}
-COLLECTED CONTEXT (JSON): ${JSON.stringify(ctx)}
-CACHED AVAILABLE SLOTS (if any): ${availPreview}
-
-RULES:
-- Keep reply under 300 characters when possible (SMS).
-- Respond with a single JSON object ONLY (no markdown), keys:
-  "reply": string (required),
-  "action": "none" | "check_availability" | "create_booking" | "cancel_booking",
-  "extracted": {
-    "serviceId": string or null,
-    "serviceName": string or null,
-    "date": "YYYY-MM-DD" or null,
-    "time": "HH:mm 24h or natural" or null,
-    "timePreference": "morning"|"afternoon"|"evening"|null,
-    "customerName": string or null,
-    "customerEmail": string or null,
-    "slotStart": ISO string or null,
-    "slotEnd": ISO string or null
-  },
-  "newState": string (greeting|selecting_service|selecting_time|collecting_name|collecting_email|confirming|complete)
-
-FLOW:
-1) First time you have serviceId + date: action check_availability, newState selecting_time (server will list times).
-2) CRITICAL — When CURRENT STATE is selecting_time and CACHED slots exist: if the customer only sends a TIME (e.g. "10:00 am", "2pm", "10", "the first one") they are PICKING a slot, NOT asking for new availability. Then: action "none", set extracted.slotStart/slotEnd to match CACHED slots, newState "collecting_name", reply "Got it, [time] on [date]! What's your name?"
-3) Do NOT use check_availability again just because the user sent a time — that re-lists times and confuses the flow.
-4) When you have name + email + slot: action create_booking.
-5) If user wants to cancel: action cancel_booking.
-`;
+function svcName(services, serviceId) {
+  const s = services.find((x) => x.serviceId === serviceId);
+  return s?.name || "Appointment";
 }
 
-async function runLlm(business, services, convo) {
-  const client = getOpenAI();
-  if (!client) {
-    return null;
+function looksLikeEmail(s) {
+  return typeof s === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+}
+
+async function completeSmsBooking(bizId, ctx, phone, tz, services) {
+  if (!ctx.pendingSlotStart || !ctx.pendingSlotEnd) {
+    return { reply: REPLIES.needSlotDetails(), state: "selecting_time", clearSlots: false };
   }
-
-  const system = buildSystemPrompt(business, services, convo);
-  const history = (convo.messages || []).slice(-MAX_HISTORY).map((m) => ({
-    role: m.role === "customer" ? "user" : "assistant",
-    content: m.text
-  }));
-
-  const completion = await client.chat.completions.create({
-    model: process.env.OPENAI_SMS_MODEL || "gpt-4o-mini",
-    temperature: 0.3,
-    max_tokens: 500,
-    response_format: { type: "json_object" },
-    messages: [{ role: "system", content: system }, ...history]
+  const book = await createBooking({
+    businessId: bizId,
+    serviceId: ctx.serviceId,
+    customer: {
+      name: ctx.customerName,
+      email: ctx.customerEmail,
+      phone
+    },
+    slot: {
+      start: ctx.pendingSlotStart,
+      end: ctx.pendingSlotEnd,
+      timezone: tz
+    },
+    notes: "Booked via SMS",
+    source: "sms-booking"
   });
 
-  const raw = completion.choices[0]?.message?.content || "{}";
-  return JSON.parse(raw);
-}
-
-function mergeExtracted(context, extracted) {
-  const out = { ...context };
-  if (!extracted || typeof extracted !== "object") return out;
-  for (const [k, v] of Object.entries(extracted)) {
-    if (v !== null && v !== undefined && v !== "") out[k] = v;
+  if (book.ok) {
+    const ymd =
+      ctx.pendingSlotStart && String(ctx.pendingSlotStart).includes("T")
+        ? String(ctx.pendingSlotStart).split("T")[0]
+        : ctx.date;
+    const reply = REPLIES.booked(svcName(services, ctx.serviceId), ctx.pendingSlotStart, ymd, tz);
+    delete ctx.pendingSlotStart;
+    delete ctx.pendingSlotEnd;
+    return { reply, state: "complete", clearSlots: true };
   }
-  return out;
-}
-
-function resolveServiceId(services, extracted) {
-  if (extracted?.serviceId && services.some((s) => s.serviceId === extracted.serviceId)) {
-    return extracted.serviceId;
-  }
-  const name = (extracted?.serviceName || "").toLowerCase();
-  if (!name) return null;
-  const hit = services.find((s) => s.name.toLowerCase().includes(name) || name.includes(s.name.toLowerCase()));
-  return hit?.serviceId || null;
+  delete ctx.pendingSlotStart;
+  delete ctx.pendingSlotEnd;
+  return {
+    reply: book.error || "That slot may be taken—pick another time.",
+    state: "selecting_time",
+    clearSlots: true
+  };
 }
 
 /**
@@ -274,7 +506,7 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
   }
   const phone = normalizeE164(customerPhone);
   const bizId = business.id;
-  const tz = business.timezone || business.weeklySchedule?.timezone || "America/Toronto";
+  const tz = resolveSmsTimezone(business);
 
   let convo = await SmsConversation.findOne({
     businessId: bizId,
@@ -293,28 +525,22 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
     });
   }
 
-  const priorState = convo.state;
-  const priorCtx = { ...(convo.context || {}) };
-  const priorSlots = priorCtx.availableSlots || [];
-
-  convo.messages.push({ role: "customer", text: messageText, timestamp: new Date() });
+  const msg = messageText.trim();
+  convo.messages.push({ role: "customer", text: msg, timestamp: new Date() });
 
   const services = await Service.find({ businessId: bizId }).lean();
   const client = getOpenAI();
   if (!client) {
-    convo.messages.push({
-      role: "assistant",
-      text: "SMS booking is not configured (missing OPENAI_API_KEY). Please call us to book.",
-      timestamp: new Date()
-    });
+    const fail = "SMS booking is not configured (missing OPENAI_API_KEY). Please call us to book.";
+    convo.messages.push({ role: "assistant", text: fail, timestamp: new Date() });
     convo.expiresAt = new Date(Date.now() + SMS_CONVO_TTL_MS);
     await convo.save();
-    return convo.messages[convo.messages.length - 1].text;
+    return fail;
   }
 
-  let result;
+  let parsed;
   try {
-    result = await runLlm(business, services, convo);
+    parsed = await extractIntent(business, services, convo, msg);
   } catch (err) {
     console.error("[sms-booking] LLM error:", err.message);
     const reply = "Sorry—something went wrong. Please try again in a moment or call us.";
@@ -324,122 +550,214 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
     return reply;
   }
 
-  const action = result.action || "none";
-  let reply = (result.reply || "Okay.").slice(0, 1600);
+  const ex = parsed.extracted || {};
+  const intent = parsed.intent || "unclear";
 
-  let ctx = mergeExtracted(convo.context || {}, result.extracted);
-
-  let skipAvailabilityFetch = false;
-  let stateLocked = false;
-
-  // Server-side: user replied with a time after we showed slots; LLM may wrongly return check_availability again
-  if (
-    action === "check_availability" &&
-    priorState === "selecting_time" &&
-    priorSlots.length > 0
-  ) {
-    const slotPick = pickSlotFromSlots(
-      priorSlots,
-      { ...result.extracted, time: messageText.trim() },
-      tz
-    );
-    if (slotPick) {
-      ctx.serviceId = priorCtx.serviceId || ctx.serviceId;
-      ctx.date = priorCtx.date || ctx.date;
-      ctx.availableSlots = priorSlots;
-      ctx.pendingSlotStart = slotPick.start;
-      ctx.pendingSlotEnd = slotPick.end;
-      const dateForMsg = ctx.date || "";
-      reply = `Got it, ${formatTimeShort(slotPick.start, tz)} on ${formatDateNice(dateForMsg, business)}! What's your name?`;
-      convo.state = "collecting_name";
-      stateLocked = true;
-      skipAvailabilityFetch = true;
-    }
+  // State-aware heuristics (no customer-facing LLM text)
+  if (convo.state === "collecting_name" && !ex.name && msg.length < 120 && !msg.includes("@")) {
+    ex.name = msg;
+  }
+  if (convo.state === "collecting_email" && !ex.email && looksLikeEmail(msg)) {
+    ex.email = msg.trim();
   }
 
-  if (action === "check_availability" && !skipAvailabilityFetch) {
-    const serviceId = resolveServiceId(services, ctx) || ctx.serviceId;
-    let date =
-      ctx.date ||
-      dateStrDaysAheadInTimezone(tz, 1);
-    if (!serviceId) {
-      reply = "Which service do you want? Reply with the service name.";
-    } else {
-      const slotRes = await fetchSlotsForDay(bizId, serviceId, date, tz);
-      if (!slotRes.ok) {
-        reply = `Can't load times: ${slotRes.error || "try another day"}.`;
-      } else {
-        ctx.serviceId = serviceId;
-        ctx.date = date;
-        ctx.availableSlots = slotRes.slots;
-        const labels = slotRes.slots.slice(0, 5).map((s) => formatTimeShort(s.start, tz));
-        reply =
-          labels.length > 0
-            ? `Times on ${formatDateNice(date, business)}: ${labels.join(", ")}. Reply with one, or pick another day.`
-            : `No openings on ${formatDateNice(date, business)}. Try another day?`;
-        convo.state = "selecting_time";
-        stateLocked = true;
-      }
-    }
-  } else if (action === "create_booking") {
-    const serviceId = resolveServiceId(services, ctx) || ctx.serviceId;
-    const name = ctx.customerName || result.extracted?.customerName;
-    const email = ctx.customerEmail || result.extracted?.customerEmail;
-    const slotPick =
-      ctx.pendingSlotStart && ctx.pendingSlotEnd
-        ? { start: ctx.pendingSlotStart, end: ctx.pendingSlotEnd }
-        : pickSlotFromSlots(ctx.availableSlots || [], result.extracted || {}, tz);
+  let ctx = { ...(convo.context || {}) };
 
-    if (!serviceId || !name || !email || !slotPick) {
-      reply =
-        "I need a confirmed time, your name, and email to book. Reply with what's missing.";
-    } else {
-      const book = await createBooking({
-        businessId: bizId,
-        serviceId,
-        customer: {
-          name: String(name).trim(),
-          email: String(email).trim(),
-          phone
-        },
-        slot: {
-          start: slotPick.start,
-          end: slotPick.end,
-          timezone: tz
-        },
-        notes: "Booked via SMS",
-        source: "sms-booking"
-      });
-
-      if (book.ok) {
-        convo.state = "complete";
-        stateLocked = true;
-        const ymd = slotPick.start.includes("T") ? slotPick.start.split("T")[0] : ctx.date;
-        reply = `Booked: ${svcName(services, serviceId)} ${formatDateNice(ymd || "", business)} ${formatTimeShort(slotPick.start, tz)}. Confirmations sent. Reply CANCEL to cancel.`;
+  if (intent === "correction" || intent === "reschedule") {
+    if (ex.date) {
+      const r = resolveDate(ex.date, tz);
+      if (r) {
+        ctx.date = r;
         delete ctx.pendingSlotStart;
         delete ctx.pendingSlotEnd;
-      } else {
-        reply = book.error || "That slot may be taken—pick another time.";
+        delete ctx.availableSlots;
       }
     }
-  } else if (action === "cancel_booking") {
-    const cancel = await cancelUpcomingBookingForPhone(business, phone);
-    reply = cancel.reply;
-    stateLocked = true;
+    if (ex.time) {
+      delete ctx.pendingSlotStart;
+      delete ctx.pendingSlotEnd;
+    }
   }
 
-  if (!stateLocked && result.newState) {
-    convo.state = result.newState;
+  if (ex.service) {
+    const svc = matchServiceByText(ex.service, services);
+    if (svc) {
+      ctx.serviceId = svc.serviceId;
+      ctx.serviceName = svc.name;
+      ctx.durationMinutes = svc.durationMinutes;
+    }
+  }
+  if (ex.name) ctx.customerName = String(ex.name).trim();
+  if (ex.email && looksLikeEmail(ex.email)) ctx.customerEmail = String(ex.email).trim();
+
+  if (ex.date) {
+    const r = resolveDate(ex.date, tz);
+    if (r) {
+      if (ctx.date !== r) {
+        ctx.date = r;
+        delete ctx.pendingSlotStart;
+        delete ctx.pendingSlotEnd;
+        delete ctx.availableSlots;
+      }
+    }
+  }
+
+  let reply = "";
+  let newState = convo.state;
+
+  // --- cancel ---
+  if (intent === "cancel") {
+    const cancel = await cancelUpcomingBookingForPhone(business, phone);
+    reply = cancel.reply;
+    newState = "greeting";
+    convo.context = ctx;
+    convo.state = newState;
+    convo.messages.push({ role: "assistant", text: reply, timestamp: new Date() });
+    convo.expiresAt = new Date(Date.now() + SMS_CONVO_TTL_MS);
+    await convo.save();
+    return reply;
+  }
+
+  // --- help ---
+  if (intent === "help") {
+    reply = REPLIES.help(business);
+    newState = convo.state;
+    convo.context = ctx;
+    convo.state = newState;
+    convo.messages.push({ role: "assistant", text: reply, timestamp: new Date() });
+    convo.expiresAt = new Date(Date.now() + SMS_CONVO_TTL_MS);
+    await convo.save();
+    return reply;
+  }
+
+  const timeSource = ex.time || (intent === "select_time" ? msg : "");
+  const resolvedTimeToken =
+    resolveTime(timeSource) ||
+    (convo.state === "selecting_time" || ctx.availableSlots?.length ? resolveTime(msg) : null);
+
+  // --- need service ---
+  if (!ctx.serviceId) {
+    if (intent === "greeting" || (intent === "unclear" && !ex.service)) {
+      reply = REPLIES.greeting(business, services);
+      newState = "selecting_service";
+    } else if (ex.service) {
+      reply = REPLIES.unknownService(services);
+      newState = "selecting_service";
+    } else {
+      reply = REPLIES.greeting(business, services);
+      newState = "selecting_service";
+    }
+  } else if (!ctx.date) {
+    const svcObj = activeServices(services).find((s) => s.serviceId === ctx.serviceId);
+    if (ex.date) {
+      const r = resolveDate(ex.date, tz);
+      if (r) {
+        ctx.date = r;
+        delete ctx.availableSlots;
+        const av = await showAvailabilityAndReply(bizId, ctx, tz, services);
+        reply = av.reply;
+        newState = av.state;
+      } else {
+        reply = REPLIES.badDate();
+        newState = "selecting_date";
+      }
+    } else {
+      reply = REPLIES.askDate(svcObj || { name: ctx.serviceName, durationMinutes: ctx.durationMinutes });
+      newState = "selecting_date";
+    }
+  } else if (!ctx.pendingSlotStart || !ctx.pendingSlotEnd) {
+    if (!ctx.availableSlots || ctx.availableSlots.length === 0) {
+      const av = await showAvailabilityAndReply(bizId, ctx, tz, services);
+      reply = av.reply;
+      newState = av.state;
+    } else if (resolvedTimeToken) {
+      const slot = matchTimeToSlot(resolvedTimeToken, ctx.availableSlots, tz);
+      if (slot) {
+        ctx.pendingSlotStart = slot.start;
+        ctx.pendingSlotEnd = slot.end;
+        reply = REPLIES.confirmSlot(slot.start, ctx.date, tz);
+        newState = "collecting_name";
+      } else if (ex.date && resolveDate(ex.date, tz)) {
+        ctx.date = resolveDate(ex.date, tz);
+        delete ctx.availableSlots;
+        const av = await showAvailabilityAndReply(bizId, ctx, tz, services);
+        reply = av.reply;
+        newState = av.state;
+      } else {
+        reply = REPLIES.pickFromTimes(ctx.availableSlots, tz);
+        newState = "selecting_time";
+      }
+    } else if (ex.date) {
+      const r = resolveDate(ex.date, tz);
+      if (r) {
+        ctx.date = r;
+        delete ctx.availableSlots;
+        const av = await showAvailabilityAndReply(bizId, ctx, tz, services);
+        reply = av.reply;
+        newState = av.state;
+      } else {
+        reply = REPLIES.pickFromTimes(ctx.availableSlots, tz);
+        newState = "selecting_time";
+      }
+    } else {
+      reply = REPLIES.pickFromTimes(ctx.availableSlots, tz);
+      newState = "selecting_time";
+    }
+  } else if (!ctx.customerName) {
+    if (ex.name) {
+      ctx.customerName = String(ex.name).trim();
+      if (ex.email && looksLikeEmail(ex.email)) {
+        ctx.customerEmail = String(ex.email).trim();
+        const booked = await completeSmsBooking(bizId, ctx, phone, tz, services);
+        reply = booked.reply;
+        newState = booked.state;
+        if (booked.clearSlots) delete ctx.availableSlots;
+      } else {
+        reply = REPLIES.askEmail(ctx.customerName);
+        newState = "collecting_email";
+      }
+    } else {
+      reply = REPLIES.needName();
+      newState = "collecting_name";
+    }
+  } else if (!ctx.customerEmail || (ex.email && looksLikeEmail(ex.email))) {
+    if (ex.email && looksLikeEmail(ex.email)) {
+      ctx.customerEmail = String(ex.email).trim();
+    }
+    if (ctx.customerEmail) {
+      const booked = await completeSmsBooking(bizId, ctx, phone, tz, services);
+      reply = booked.reply;
+      newState = booked.state;
+      if (booked.clearSlots) delete ctx.availableSlots;
+    } else {
+      reply = REPLIES.needEmail();
+      newState = "collecting_email";
+    }
+  } else {
+    reply = REPLIES.error();
+    newState = convo.state;
+  }
+
+  // Same message: service + date + time → after loading slots, pick time immediately
+  if (
+    newState === "selecting_time" &&
+    ctx.availableSlots?.length &&
+    resolvedTimeToken &&
+    !ctx.pendingSlotStart
+  ) {
+    const slot = matchTimeToSlot(resolvedTimeToken, ctx.availableSlots, tz);
+    if (slot) {
+      ctx.pendingSlotStart = slot.start;
+      ctx.pendingSlotEnd = slot.end;
+      reply = REPLIES.confirmSlot(slot.start, ctx.date, tz);
+      newState = "collecting_name";
+    }
   }
 
   convo.context = ctx;
-  convo.messages.push({ role: "assistant", text: reply, timestamp: new Date() });
+  convo.state = newState;
+  convo.messages.push({ role: "assistant", text: reply.slice(0, 1600), timestamp: new Date() });
   convo.expiresAt = new Date(Date.now() + SMS_CONVO_TTL_MS);
   await convo.save();
-  return reply;
-}
-
-function svcName(services, serviceId) {
-  const s = services.find((x) => x.serviceId === serviceId);
-  return s?.name || "Appointment";
+  return reply.slice(0, 1600);
 }
