@@ -379,22 +379,25 @@ function normalizeConversationState(convo) {
 }
 
 async function getOrCreateConversation(businessId, customerPhone) {
-  let convo = await SmsConversation.findOne({
-    businessId: businessId,
-    customerPhone,
+  const bid = String(businessId ?? "").trim();
+  const cp = String(customerPhone ?? "").trim();
+  const existing = await SmsConversation.findOne({
+    businessId: bid,
+    customerPhone: cp,
     expiresAt: { $gt: new Date() }
   });
-  if (!convo) {
-    convo = new SmsConversation({
-      businessId: businessId,
-      customerPhone,
-      state: "selecting_service",
-      context: {},
-      messages: [],
-      expiresAt: new Date(Date.now() + SMS_CONVO_TTL_MS)
-    });
+  if (existing) {
+    return { convo: existing, found: true };
   }
-  return convo;
+  const convo = new SmsConversation({
+    businessId: bid,
+    customerPhone: cp,
+    state: "selecting_service",
+    context: {},
+    messages: [],
+    expiresAt: new Date(Date.now() + SMS_CONVO_TTL_MS)
+  });
+  return { convo, found: false };
 }
 
 async function createSmsBookingFromStateMachine(business, phone, tz, ctx, services) {
@@ -438,7 +441,13 @@ async function handleSmsBookingStateMachine(business, customerPhone, messageText
   const services = await Service.find({ businessId: bizId }).lean();
   const uniqueServices = deduplicateByName(services);
 
-  let convo = await getOrCreateConversation(bizId, phone);
+  const { convo, found: convoFound } = await getOrCreateConversation(bizId, phone);
+  console.log("[sms-booking] Loaded convo:", {
+    found: convoFound,
+    state: convo?.state,
+    isNew: convo?.isNew === true,
+    serviceId: convo?.context?.serviceId
+  });
   normalizeConversationState(convo);
 
   convo.messages.push({ role: "customer", text: msg, timestamp: new Date() });
@@ -601,6 +610,7 @@ async function handleSmsBookingStateMachine(business, customerPhone, messageText
 
   convo.messages.push({ role: "assistant", text: reply.slice(0, 1600), timestamp: new Date() });
   convo.expiresAt = new Date(Date.now() + SMS_CONVO_TTL_MS);
+  convo.markModified("context");
   await convo.save();
   console.log("[sms-booking] State:", convo.state, "Reply:", reply.substring(0, 80));
   return reply.slice(0, 1600);
