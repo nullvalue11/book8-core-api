@@ -1,5 +1,6 @@
 /**
- * Two-way SMS booking: LLM extracts intent/entities only; server formats replies and drives flow.
+ * Two-way SMS booking: default linear state machine (no LLM).
+ * Set USE_LLM_SMS=true and OPENAI_API_KEY to use the legacy LLM extraction path.
  */
 import OpenAI from "openai";
 import { parseDate } from "chrono-node";
@@ -14,6 +15,8 @@ const SMS_CONVO_TTL_MS = 30 * 60 * 1000;
 const MAX_HISTORY = 24;
 const SMS_MODEL = process.env.OPENAI_SMS_MODEL || "gpt-4o-mini";
 const LLM_TIMEOUT_MS = 10_000;
+const USE_LLM_SMS =
+  process.env.USE_LLM_SMS === "true" || process.env.USE_LLM_SMS === "1";
 
 let openaiClient = null;
 function getOpenAI() {
@@ -356,6 +359,253 @@ function matchServiceByText(text, services) {
   );
 }
 
+/** One row per distinct service name (first active wins). */
+function deduplicateByName(services) {
+  const list = activeServices(services);
+  const seen = new Set();
+  const out = [];
+  for (const s of list) {
+    const k = s.name.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
+function normalizeConversationState(convo) {
+  const legacy = { greeting: "selecting_service", init: "selecting_service" };
+  if (legacy[convo.state]) convo.state = legacy[convo.state];
+}
+
+async function getOrCreateConversation(businessId, customerPhone) {
+  let convo = await SmsConversation.findOne({
+    businessId: businessId,
+    customerPhone,
+    expiresAt: { $gt: new Date() }
+  });
+  if (!convo) {
+    convo = new SmsConversation({
+      businessId: businessId,
+      customerPhone,
+      state: "selecting_service",
+      context: {},
+      messages: [],
+      expiresAt: new Date(Date.now() + SMS_CONVO_TTL_MS)
+    });
+  }
+  return convo;
+}
+
+async function createSmsBookingFromStateMachine(business, phone, tz, ctx, services) {
+  const slot = ctx.selectedSlot;
+  if (!slot?.start || !slot?.end || !ctx.serviceId) {
+    throw new Error("Missing slot or service");
+  }
+  const book = await createBooking({
+    businessId: business.id,
+    serviceId: ctx.serviceId,
+    customer: {
+      name: ctx.customerName,
+      email: ctx.customerEmail,
+      phone
+    },
+    slot: {
+      start: slot.start,
+      end: slot.end,
+      timezone: tz
+    },
+    notes: "Booked via SMS",
+    source: "sms-booking"
+  });
+  if (!book.ok) {
+    throw new Error(book.error || "Booking failed");
+  }
+  const ymd = slot.start.includes("T") ? slot.start.split("T")[0] : ctx.date;
+  const svc = services.find((x) => x.serviceId === ctx.serviceId);
+  return REPLIES.booked(svc?.name || "Appointment", slot.start, ymd, tz);
+}
+
+/**
+ * Linear state machine: service → date → time → name → email. No LLM.
+ */
+async function handleSmsBookingStateMachine(business, customerPhone, messageText) {
+  const phone = normalizeE164(customerPhone);
+  const bizId = business.id;
+  const tz = resolveSmsTimezone(business);
+  const msg = messageText.trim();
+
+  const services = await Service.find({ businessId: bizId }).lean();
+  const uniqueServices = deduplicateByName(services);
+
+  let convo = await getOrCreateConversation(bizId, phone);
+  normalizeConversationState(convo);
+
+  convo.messages.push({ role: "customer", text: msg, timestamp: new Date() });
+
+  const ctx = convo.context && typeof convo.context === "object" ? convo.context : {};
+  convo.context = ctx;
+
+  let reply = "";
+
+  switch (convo.state) {
+    case "init":
+    case "selecting_service": {
+      const matched = matchServiceByText(msg, uniqueServices);
+      if (matched) {
+        ctx.service = matched.name;
+        ctx.serviceId = matched.serviceId;
+        ctx.duration = matched.durationMinutes;
+        delete ctx.date;
+        delete ctx.availableSlots;
+        delete ctx.selectedSlot;
+        delete ctx.customerName;
+        delete ctx.customerEmail;
+        reply = `Great choice! ${matched.name} (${matched.durationMinutes} min). What date works for you?`;
+        convo.state = "selecting_date";
+      } else {
+        const names = uniqueServices.map((s) => s.name).join(", ");
+        reply = `Hi! Welcome to ${business.name}. We offer: ${names}. What would you like to book?`;
+        convo.state = "selecting_service";
+      }
+      break;
+    }
+
+    case "selecting_date": {
+      if (!ctx.serviceId) {
+        const names = uniqueServices.map((s) => s.name).join(", ");
+        reply = `Pick a service first. We offer: ${names}.`;
+        convo.state = "selecting_service";
+        break;
+      }
+      const dateStr = resolveDate(msg, tz);
+      if (dateStr) {
+        ctx.date = dateStr;
+        const slotRes = await fetchSlotsForDay(bizId, ctx.serviceId, dateStr, tz);
+        if (!slotRes.ok) {
+          reply = `Can't load times: ${slotRes.error || "try again later"}.`;
+          break;
+        }
+        const slots = slotRes.slots || [];
+        if (slots.length > 0) {
+          ctx.availableSlots = slots;
+          const times = slots.slice(0, 6).map((s) => formatTimeNice(s.start, tz)).join(", ");
+          const dateNice = formatDateNiceYmd(dateStr, tz);
+          reply = `Available on ${dateNice}: ${times}. Reply with a time.`;
+          convo.state = "selecting_time";
+        } else {
+          const dateNice = formatDateNiceYmd(dateStr, tz);
+          reply = `Sorry, no availability on ${dateNice}. Try another day?`;
+        }
+      } else {
+        reply = `I couldn't understand that date. Try "tomorrow", "March 24", or "next Monday".`;
+      }
+      break;
+    }
+
+    case "selecting_time": {
+      if (!ctx.serviceId || !ctx.date) {
+        convo.state = !ctx.serviceId ? "selecting_service" : "selecting_date";
+        reply = !ctx.serviceId
+          ? `Pick a service first. We offer: ${uniqueServices.map((s) => s.name).join(", ")}.`
+          : `What date works for you?`;
+        break;
+      }
+      const timeTok = resolveTime(msg);
+      if (timeTok && ctx.availableSlots?.length) {
+        const slot = matchTimeToSlot(timeTok, ctx.availableSlots, tz);
+        if (slot) {
+          ctx.selectedSlot = { start: slot.start, end: slot.end };
+          const timeNice = formatTimeNice(slot.start, tz);
+          const dateNice = formatDateNiceYmd(ctx.date, tz);
+          reply = `Got it, ${timeNice} on ${dateNice}! What's your name?`;
+          convo.state = "collecting_name";
+        } else {
+          const times = ctx.availableSlots.slice(0, 6).map((s) => formatTimeNice(s.start, tz)).join(", ");
+          reply = `That time isn't available. Choose from: ${times}`;
+        }
+      } else {
+        const newDate = resolveDate(msg, tz);
+        if (newDate) {
+          ctx.date = newDate;
+          const slotRes = await fetchSlotsForDay(bizId, ctx.serviceId, newDate, tz);
+          if (!slotRes.ok) {
+            reply = `Can't load times: ${slotRes.error || "try again"}.`;
+            convo.state = "selecting_date";
+            break;
+          }
+          const slots = slotRes.slots || [];
+          if (slots.length > 0) {
+            ctx.availableSlots = slots;
+            const times = slots.slice(0, 6).map((s) => formatTimeNice(s.start, tz)).join(", ");
+            reply = `Available on ${formatDateNiceYmd(newDate, tz)}: ${times}. Reply with a time.`;
+            convo.state = "selecting_time";
+          } else {
+            reply = `No availability on ${formatDateNiceYmd(newDate, tz)}. Try another day?`;
+            convo.state = "selecting_date";
+          }
+        } else {
+          const times =
+            ctx.availableSlots?.slice(0, 6).map((s) => formatTimeNice(s.start, tz)).join(", ") || "";
+          reply = `Reply with a time like "10am" or "2:30 PM". Available: ${times}`;
+        }
+      }
+      break;
+    }
+
+    case "collecting_name": {
+      const name = msg.trim();
+      if (name.length >= 2 && name.length <= 100) {
+        ctx.customerName = name;
+        reply = `Thanks ${name}! What's your email for the confirmation?`;
+        convo.state = "collecting_email";
+      } else {
+        reply = `What's your name for the booking?`;
+      }
+      break;
+    }
+
+    case "collecting_email": {
+      const email = msg.trim().toLowerCase();
+      if (looksLikeEmail(email)) {
+        ctx.customerEmail = email;
+        try {
+          reply = await createSmsBookingFromStateMachine(business, phone, tz, ctx, services);
+          convo.state = "complete";
+          delete ctx.selectedSlot;
+          delete ctx.availableSlots;
+        } catch (err) {
+          console.error("[sms-booking] Booking failed:", err);
+          reply = `Sorry, something went wrong creating your booking. Please try again.`;
+        }
+      } else {
+        reply = `That doesn't look like an email. Please enter your email (e.g. john@example.com)`;
+      }
+      break;
+    }
+
+    case "complete": {
+      convo.context = {};
+      convo.state = "selecting_service";
+      const names = uniqueServices.map((s) => s.name).join(", ");
+      reply = `Hi again! We offer: ${names}. What would you like to book?`;
+      break;
+    }
+
+    default: {
+      convo.state = "selecting_service";
+      const names = uniqueServices.map((s) => s.name).join(", ");
+      reply = `Hi! Welcome to ${business.name}. We offer: ${names}. What would you like to book?`;
+    }
+  }
+
+  convo.messages.push({ role: "assistant", text: reply.slice(0, 1600), timestamp: new Date() });
+  convo.expiresAt = new Date(Date.now() + SMS_CONVO_TTL_MS);
+  await convo.save();
+  console.log("[sms-booking] State:", convo.state, "Reply:", reply.substring(0, 80));
+  return reply.slice(0, 1600);
+}
+
 function buildSystemPrompt(business, services, convo) {
   const serviceNames = activeServices(services)
     .map((s) => s.name)
@@ -532,7 +782,9 @@ export async function resetAndGreetSmsConversation(business, customerPhone) {
   const bizId = business.id;
   await SmsConversation.deleteMany({ businessId: bizId, customerPhone: phone });
   const services = await Service.find({ businessId: bizId }).lean();
-  return REPLIES.greeting(business, services);
+  const unique = deduplicateByName(services);
+  const names = unique.map((s) => s.name).join(", ");
+  return `Hi! Welcome to ${business.name}. We offer: ${names}. What would you like to book?`;
 }
 
 /**
@@ -542,6 +794,18 @@ export async function handleSmsBookingMessage(business, customerPhone, messageTe
   if (process.env.NODE_ENV === "test") {
     return "SMS booking is disabled in test mode.";
   }
+  if (USE_LLM_SMS && process.env.OPENAI_API_KEY) {
+    return handleSmsBookingMessageWithLlm(business, customerPhone, messageText);
+  }
+  if (USE_LLM_SMS && !process.env.OPENAI_API_KEY) {
+    console.warn(
+      "[sms-booking] USE_LLM_SMS is set but OPENAI_API_KEY is missing — using state machine."
+    );
+  }
+  return handleSmsBookingStateMachine(business, customerPhone, messageText);
+}
+
+async function handleSmsBookingMessageWithLlm(business, customerPhone, messageText) {
   const phone = normalizeE164(customerPhone);
   const bizId = business.id;
   const tz = resolveSmsTimezone(business);

@@ -119,8 +119,8 @@ router.post(
         return;
       }
 
-      // --- Two-way SMS booking (LLM) when configured ---
-      if (process.env.OPENAI_API_KEY && rawBody.length > 0) {
+      // --- Two-way SMS booking (state machine by default; LLM if USE_LLM_SMS + OPENAI_API_KEY) ---
+      if (rawBody.length > 0) {
         try {
           const reply = await handleSmsBookingMessage(business, from, rawBody);
           sendReply(reply);
@@ -137,7 +137,7 @@ router.post(
         (to ? ` Call: ${to}.` : "");
       sendReply(defaultReply);
       if (rawBody && upper !== "HELP") {
-        console.log("[inbound-sms] Inbound message (no OPENAI / fallback):", { from, to, body: rawBody });
+        console.log("[inbound-sms] Inbound message (empty body path / fallback):", { from, to, body: rawBody });
       }
     })().catch((err) => {
       console.error("[inbound-sms] Error:", err);
