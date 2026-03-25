@@ -2,12 +2,10 @@
 import express from "express";
 import { ensureTenant } from "../../services/tenantEnsure.js";
 import { Business } from "../../models/Business.js";
-import { TwilioNumber } from "../../models/TwilioNumber.js";
 import {
-  configureTwilioWebhooksForNumber,
-  registerNumberInElevenLabs,
-  logProvisioningNumberSetup
-} from "../../services/twilioNumberSetup.js";
+  assignTwilioNumberFromPool,
+  businessLookupFilter
+} from "../../services/provisioningHelpers.js";
 
 const router = express.Router();
 
@@ -104,7 +102,7 @@ router.post("/", async (req, res) => {
         }
 
         await Business.findOneAndUpdate(
-          { id: businessId },
+          businessLookupFilter(businessId),
           { $set: update }
         );
         console.log("[provision-from-stripe] Stripe billing fields saved for:", businessId);
@@ -116,63 +114,18 @@ router.post("/", async (req, res) => {
 
     // Auto-assign a Twilio number from the pool (best-effort; never crash provisioning)
     try {
-      const business = await Business.findOne({ id: businessId }).lean();
-      if (business?.assignedTwilioNumber) {
-        // Already has a number — skip
+      const twilioResult = await assignTwilioNumberFromPool(businessId);
+      if (twilioResult.skipped) {
+        // already assigned
+      } else if (twilioResult.ok) {
+        console.log("[provisioning] Assigned", twilioResult.phone, "to", businessId);
       } else {
-        const number = await TwilioNumber.findOneAndUpdate(
-          { status: "available" },
-          {
-            status: "assigned",
-            assignedToBusinessId: businessId,
-            assignedAt: new Date(),
-            updatedAt: new Date()
-          },
-          { new: true, sort: { createdAt: 1 } }
-        );
-
-        if (!number) {
-          console.error("[provisioning] No available Twilio numbers in pool!");
-          await Business.findOneAndUpdate(
-            { id: businessId },
-            { $set: { numberSetupMethod: "pending" } }
-          );
-        } else {
-          await Business.findOneAndUpdate(
-            { id: businessId },
-            {
-              $set: {
-                assignedTwilioNumber: number.phoneNumber,
-                numberSetupMethod: "direct"
-              }
-            }
-          );
-
-          const webhooksConfigured = await configureTwilioWebhooksForNumber({
-            twilioSid: number.twilioSid,
-            phoneNumber: number.phoneNumber
-          });
-          if (!webhooksConfigured) {
-            console.warn("[provisioning] ⚠️ Twilio webhooks not fully configured — manual setup may be needed");
-          }
-
-          const elevenLabsRegistered = await registerNumberInElevenLabs(number.phoneNumber);
-          if (!elevenLabsRegistered) {
-            console.warn("[provisioning] ⚠️ ElevenLabs registration failed or skipped — manual setup may be needed");
-          }
-
-          logProvisioningNumberSetup({
-            phoneNumber: number.phoneNumber,
-            webhooksConfigured,
-            elevenLabsRegistered
-          });
-          console.log("[provisioning] Assigned", number.phoneNumber, "to", businessId);
-        }
+        console.error("[provisioning] Number assignment:", twilioResult.detail);
       }
     } catch (numberErr) {
       console.error("[provisioning] Number assignment failed:", numberErr);
       await Business.findOneAndUpdate(
-        { id: businessId },
+        businessLookupFilter(businessId),
         { $set: { numberSetupMethod: "pending" } }
       ).catch(() => {});
     }

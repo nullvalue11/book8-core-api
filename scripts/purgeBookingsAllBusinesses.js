@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Demo / ops: delete all MongoDB bookings for every business in the **test** database only
- * (core-api production data on Atlas `test`).
+ * Demo / ops: delete all MongoDB bookings for every business in the target database
+ * (default `book8_core`; override with DB_NAME / MONGODB_DB_NAME).
  *
  * Matches booking.businessId against each business document's `id` and `businessId`.
  *
  * Does NOT remove Google Calendar / Outlook events — only the `bookings` collection.
- * Does NOT touch the `book8` database or any other DB.
+ * Does NOT touch databases other than the one selected by env.
  *
  * Usage:
  *   node scripts/purgeBookingsAllBusinesses.js
@@ -14,11 +14,13 @@
  *
  * Env:
  *   MONGODB_URI or MONGO_URI     (required)
+ *   DB_NAME or MONGODB_DB_NAME   (optional; default book8_core)
  */
 import "dotenv/config";
 import mongoose from "mongoose";
 
-const DB_NAME = "test";
+const DB_NAME =
+  process.env.DB_NAME || process.env.MONGODB_DB_NAME || "book8_core";
 
 const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
 const dryRun = process.argv.includes("--dry-run") || process.env.PURGE_DRY_RUN === "1";

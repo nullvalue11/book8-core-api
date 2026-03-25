@@ -81,14 +81,17 @@ export async function ensureDefaultScheduleForBusiness(businessId, timezone) {
  * @returns {{ defaultsEnsured: boolean, servicesEnsured: boolean, scheduleEnsured: boolean, servicesCreated?: number }}
  */
 export async function ensureBookableDefaultsForBusiness(businessId, opts = {}) {
-  const business = await Business.findOne({ id: businessId }).lean();
+  const business = await Business.findOne({
+    $or: [{ id: businessId }, { businessId: businessId }]
+  }).lean();
   if (!business) return { defaultsEnsured: false, servicesEnsured: false, scheduleEnsured: false };
 
+  const canonicalId = business.id || business.businessId;
   const tz = opts.timezone || business.timezone || "America/Toronto";
   const category = opts.category || business.category || "other";
 
-  const servicesResult = await ensureDefaultServicesForBusiness(businessId, category);
-  const scheduleResult = await ensureDefaultScheduleForBusiness(businessId, tz);
+  const servicesResult = await ensureDefaultServicesForBusiness(canonicalId, category);
+  const scheduleResult = await ensureDefaultScheduleForBusiness(canonicalId, tz);
 
   const defaultsEnsured = servicesResult.ensured || scheduleResult.ensured;
   return {

@@ -2,10 +2,13 @@
 export const requireInternalAuth = (req, res, next) => {
   // Support both header names (older code uses x-book8-internal-secret; some callers use x-internal-secret)
   const authHeader = req.headers["x-internal-secret"] || req.headers["x-book8-internal-secret"];
-  const expectedSecret = process.env.INTERNAL_API_SECRET;
+  const expectedSecret =
+    process.env.CORE_API_INTERNAL_SECRET || process.env.INTERNAL_API_SECRET;
 
   if (!expectedSecret) {
-    console.error("[INTERNAL_AUTH] INTERNAL_API_SECRET environment variable is not set");
+    console.error(
+      "[INTERNAL_AUTH] CORE_API_INTERNAL_SECRET or INTERNAL_API_SECRET environment variable is not set"
+    );
     console.error("[INTERNAL_AUTH] Request path:", req.path);
     console.error("[INTERNAL_AUTH] Request method:", req.method);
     return res.status(500).json({
