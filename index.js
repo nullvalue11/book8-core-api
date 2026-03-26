@@ -27,7 +27,6 @@ import bookingsRouter from "./src/routes/bookings.js";
 import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
 import internalProvisionRouter from "./src/routes/internalProvision.js";
 import healthCheckRouter from "./src/routes/healthCheck.js";
-import provisioningRetryRouter from "./src/routes/provisioningRetry.js";
 import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
 import twilioInboundRouter from "./src/routes/twilioInbound.js";
 import twilioPoolRouter from "./src/routes/twilioPool.js";
@@ -1076,7 +1075,6 @@ app.use("/internal/business", requireInternalAuth, internalBusinessRouter);
 app.use("/internal/execute-tool", requireInternalAuth, internalExecuteToolRouter);
 app.use("/internal/provision-from-stripe", requireInternalAuth, internalProvisionRouter);
 app.use("/api/health", requireInternalAuth, healthCheckRouter);
-app.use("/api/provisioning", requireInternalAuth, provisioningRetryRouter);
 app.use("/internal/twilio-pool", requireInternalAuth, twilioPoolRouter);
 
 // ---------- START SERVER ----------

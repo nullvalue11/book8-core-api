@@ -7,7 +7,7 @@ const router = express.Router();
 // POST /internal/business/update-calendar
 router.post("/update-calendar", async (req, res) => {
   try {
-    const { businessId, calendarProvider, calendarConnected } = req.body || {};
+    const { businessId, calendarProvider, calendarConnected, timezone } = req.body || {};
 
     if (!businessId) {
       return res.status(400).json({ ok: false, error: "businessId required" });
@@ -20,6 +20,12 @@ router.post("/update-calendar", async (req, res) => {
       "calendar.provider": provider,
       "calendar.updatedAt": new Date()
     };
+
+    if (typeof timezone === "string" && timezone.trim()) {
+      const tz = timezone.trim();
+      update.timezone = tz;
+      update["weeklySchedule.timezone"] = tz;
+    }
 
     // Core-api uses "id" not "businessId" in the test database.
     const result = await Business.findOneAndUpdate(
@@ -43,7 +49,8 @@ router.post("/update-calendar", async (req, res) => {
       console.log("[update-calendar] Synced (via businessId):", {
         businessId,
         calendarProvider,
-        calendarConnected
+        calendarConnected,
+        timezone: update.timezone
       });
 
       return res.json({ ok: true, businessId });
@@ -52,7 +59,8 @@ router.post("/update-calendar", async (req, res) => {
     console.log("[update-calendar] Synced (via id):", {
       businessId,
       calendarProvider,
-      calendarConnected
+      calendarConnected,
+      timezone: update.timezone
     });
 
     return res.json({ ok: true, businessId });

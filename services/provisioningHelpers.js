@@ -1,5 +1,5 @@
 /**
- * Shared provisioning steps used by internalProvision and provisioning retry.
+ * Shared provisioning steps used by internalProvision (n8n retries use tenant.ensure / this stack indirectly).
  */
 import { Business } from "../models/Business.js";
 import { TwilioNumber } from "../models/TwilioNumber.js";

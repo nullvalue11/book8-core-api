@@ -1,0 +1,711 @@
+{
+  "name": "Book8 Ops — Provisioning Health Check",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "provisioning-check",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-webhook-0001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-200, 0],
+      "webhookId": "book8-provisioning-check"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        },
+        "timezone": "America/Toronto"
+      },
+      "id": "a1b2c3d4-sched-0002",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-200, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst body = item.body || {};\nif (body.businessId) {\n  return [{\n    json: {\n      mode: 'single',\n      businessId: body.businessId,\n      source: 'webhook',\n      respond: true\n    }\n  }];\n}\nreturn [{\n  json: {\n    mode: 'all',\n    businessId: null,\n    source: 'schedule',\n    respond: false\n  }\n}];"
+      },
+      "id": "a1b2c3d4-mode-0003",
+      "name": "Determine Mode",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [80, 110]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.mode }}",
+                    "rightValue": "single",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "single"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.mode }}",
+                    "rightValue": "all",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "all"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-swch-0004",
+      "name": "Switch on Mode",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [320, 110]
+    },
+    {
+      "parameters": {
+        "url": "=https://book8-core-api.onrender.com/api/health/business/{{ $json.businessId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.CORE_API_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a1b2c3d4-h1s-0005",
+      "name": "Health Check Single",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [580, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://book8-core-api.onrender.com/api/health/all",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.CORE_API_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a1b2c3d4-hall-0006",
+      "name": "Health Check All",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [580, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const dm = $('Determine Mode').first().json;\nconst respond = !!dm.respond;\nconst mode = dm.mode;\nconst input = $json;\n\nif (input.businesses) {\n  const incomplete = input.businesses.filter((b) => b.status === 'INCOMPLETE');\n  if (incomplete.length === 0) {\n    return [{\n      json: {\n        allHealthy: true,\n        total: input.total,\n        ready: input.ready,\n        incomplete: 0,\n        businessesToRetry: [],\n        respond,\n        mode\n      }\n    }];\n  }\n  return [{\n    json: {\n      allHealthy: false,\n      total: input.total,\n      ready: input.ready,\n      incomplete: incomplete.length,\n      businessesToRetry: incomplete.map((b) => ({\n        businessId: b.businessId,\n        name: b.name,\n        hasServices: b.hasServices,\n        hasSchedule: b.hasSchedule,\n        hasPhone: b.hasPhone,\n        hasCalendar: b.hasCalendar,\n        hasElevenLabs: b.hasElevenLabs\n      })),\n      respond,\n      mode\n    }\n  }];\n}\n\nif (input.status === 'FULLY_PROVISIONED' || input.status === 'PARTIALLY_PROVISIONED') {\n  return [{\n    json: {\n      allHealthy: true,\n      total: 1,\n      ready: 1,\n      incomplete: 0,\n      businessesToRetry: [],\n      respond,\n      mode\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    allHealthy: false,\n    total: 1,\n    ready: 0,\n    incomplete: 1,\n    businessesToRetry: [{\n      businessId: input.businessId,\n      name: input.raw?.name || 'unknown',\n      hasServices: input.checks?.services?.ok || false,\n      hasSchedule: input.checks?.schedule?.ok || false,\n      hasPhone: input.checks?.phone_number?.ok || false,\n      hasCalendar: input.checks?.calendar?.ok || false,\n      hasElevenLabs: input.checks?.elevenlabs?.ok || false\n    }],\n    respond,\n    mode\n  }\n}];"
+      },
+      "id": "a1b2c3d4-norm-0007",
+      "name": "Normalize Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 110]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ah1",
+              "leftValue": "={{ $json.allHealthy }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-ifh-0008",
+      "name": "If All Healthy",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1120, 110]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "r1",
+              "leftValue": "={{ $json.respond }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-ifr-0009",
+      "name": "If Should Respond",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1360, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, message: 'All businesses healthy', total: $json.total, ready: $json.ready }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-rsp-0010",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1600, -40]
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-nop-0011",
+      "name": "NoOp Healthy Schedule",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1600, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const businesses = $json.businessesToRetry || [];\nconst respond = $json.respond;\nconst mode = $json.mode || 'all';\nreturn businesses.map((biz) => ({\n  json: { ...biz, _flowRespond: respond, _flowMode: mode }\n}));"
+      },
+      "id": "a1b2c3d4-spl-0012",
+      "name": "Split Businesses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://n8n.book8.io/webhook/ops-execute-tool",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-ops-secret",
+              "value": "={{ $env.N8N_OPS_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ tool: 'tenant.ensure', input: { businessId: $json.businessId }, dryRun: false }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "a1b2c3d4-rty-0013",
+      "name": "Retry Execute Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1600, 280],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const split = $('Split Businesses').item.json;\nreturn [{\n  json: {\n    businessId: split.businessId,\n    _flowRespond: split._flowRespond,\n    retryHttpResponse: $json\n  }\n}];"
+      },
+      "id": "a1b2c3d4-att-0014",
+      "name": "Attach businessId After Retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1820, 280]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "a1b2c3d4-wai-0015",
+      "name": "Wait 5 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2040, 280],
+      "webhookId": "wait-book8-provision"
+    },
+    {
+      "parameters": {
+        "url": "=https://book8-core-api.onrender.com/api/health/business/{{ $json.businessId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-secret",
+              "value": "={{ $env.CORE_API_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a1b2c3d4-rc1-0016",
+      "name": "Recheck Health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2260, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "const health = $input.first().json;\nconst split = $('Split Businesses').item.json;\nreturn [{\n  json: {\n    ...health,\n    _flowRespond: split._flowRespond\n  }\n}];"
+      },
+      "id": "a1b2c3d4-enr-0017",
+      "name": "Enrich After Recheck",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2480, 280]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "sf1",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-iff-0018",
+      "name": "Still Failing",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2700, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.RESEND_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ from: 'alerts@book8.io', to: ['YOUR_ALERT_EMAIL@example.com'], subject: 'Book8 AI — Provisioning failed: ' + ($('Enrich After Recheck').item.json.businessId || 'unknown'), html: '<h2>Provisioning health check failed</h2><p><strong>Business:</strong> ' + ($('Enrich After Recheck').item.json.businessId || '') + '</p><p><strong>Status:</strong> ' + ($('Enrich After Recheck').item.json.status || '') + '</p><pre>' + JSON.stringify($('Enrich After Recheck').item.json.checks || {}, null, 2) + '</pre><p>tenant.ensure was retried; critical checks still failing. Manual follow-up required.</p>' }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-rsd-0019",
+      "name": "Send Alert Resend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2960, 180],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const h = $('Enrich After Recheck').item.json;\nreturn [{\n  json: {\n    ok: h.ok,\n    businessId: h.businessId,\n    status: h.status,\n    checks: h.checks,\n    message: h.ok ? 'Recheck passed after retry' : 'Still failing after retry',\n    respond: h._flowRespond\n  }\n}];"
+      },
+      "id": "a1b2c3d4-sum-0020",
+      "name": "Build Response Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2960, 380]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "r2",
+              "leftValue": "={{ $json.respond }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-if2-0021",
+      "name": "If Respond After Retry",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [3200, 380]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-rsp-0022",
+      "name": "Respond With Results",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [3440, 300]
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-nop-0023",
+      "name": "NoOp Retry Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [3440, 460]
+    },
+    {
+      "parameters": {
+        "content": "## Book8 — provisioning health workflow\n\n**Env (n8n):** `CORE_API_INTERNAL_SECRET`, `N8N_OPS_SECRET` (same as ops-execute-tool webhook), `RESEND_API_KEY`.\n\nEdit **Send Alert Resend** → `to` / `from` (verified domain on Resend).\n\nWebhook URL: `/webhook/provisioning-check` — same header auth as your other ops webhooks if you add it in n8n.",
+        "height": 320,
+        "width": 460
+      },
+      "id": "a1b2c3d4-stk-0024",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-260, -300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Determine Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Determine Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Mode": {
+      "main": [
+        [
+          {
+            "node": "Switch on Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch on Mode": {
+      "main": [
+        [
+          {
+            "node": "Health Check Single",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health Check All",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Check Single": {
+      "main": [
+        [
+          {
+            "node": "Normalize Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Check All": {
+      "main": [
+        [
+          {
+            "node": "Normalize Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Results": {
+      "main": [
+        [
+          {
+            "node": "If All Healthy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If All Healthy": {
+      "main": [
+        [
+          {
+            "node": "If Should Respond",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Should Respond": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NoOp Healthy Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Businesses": {
+      "main": [
+        [
+          {
+            "node": "Retry Execute Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Execute Tool": {
+      "main": [
+        [
+          {
+            "node": "Attach businessId After Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach businessId After Retry": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Recheck Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recheck Health": {
+      "main": [
+        [
+          {
+            "node": "Enrich After Recheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich After Recheck": {
+      "main": [
+        [
+          {
+            "node": "Still Failing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still Failing": {
+      "main": [
+        [
+          {
+            "node": "Send Alert Resend",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Response Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Response Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response Summary": {
+      "main": [
+        [
+          {
+            "node": "If Respond After Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Respond After Retry": {
+      "main": [
+        [
+          {
+            "node": "Respond With Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NoOp Retry Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": []
+}
