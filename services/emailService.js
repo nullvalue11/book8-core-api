@@ -5,7 +5,7 @@ import { Resend } from "resend";
 import { generateCalendarLinks } from "../utils/calendarLinks.js";
 
 const apiKey = process.env.RESEND_API_KEY;
-const defaultFrom = "Book8 <noreply@book8.io>";
+const defaultFrom = "Book8 AI <noreply@book8.io>";
 
 let resend = null;
 if (apiKey) {

@@ -56,6 +56,8 @@ const BusinessSchema = new mongoose.Schema(
     id: { type: String, unique: true, index: true }, // slug/handle e.g. "waismofit"
     /** Duplicate of `id` for dashboard alignment; optional until migrated */
     businessId: { type: String, index: true, sparse: true },
+    /** Public URL slug for /b/:handle (may mirror `id`) */
+    handle: { type: String, index: true, sparse: true },
     name: { type: String, required: true },
     category: { type: String, default: "fitness" }, // fitness, car_wash, salon, ...
     description: { type: String },
