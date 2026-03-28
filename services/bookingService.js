@@ -57,7 +57,16 @@ export async function isSlotAvailable(businessId, slot) {
  * @returns {Promise<{ ok: boolean, error?: string, booking?: object, summary?: string }>}
  */
 export async function createBooking(input) {
-  const { businessId, serviceId, customer, slot: rawSlot, notes, source, timezone: inputTimezone } = input;
+  const {
+    businessId,
+    serviceId,
+    customer,
+    slot: rawSlot,
+    notes,
+    source,
+    timezone: inputTimezone,
+    language: inputLanguage
+  } = input;
 
   if (!businessId || !serviceId) {
     return { ok: false, error: "businessId and serviceId are required" };
@@ -139,6 +148,10 @@ export async function createBooking(input) {
     },
     status: "confirmed",
     source: source || "voice-agent",
+    language:
+      typeof inputLanguage === "string" && inputLanguage.trim()
+        ? inputLanguage.trim()
+        : "en",
     notes: notes || ""
   });
 
@@ -196,6 +209,8 @@ export async function createBooking(input) {
         // fallback to serviceId
       }
 
+      // TODO: Localize SMS confirmations based on booking.language
+      // Templates needed: fr, es, ar at minimum. For now, all confirmations sent in English.
       const smsBody = formatConfirmationSMS({
         serviceName,
         businessName: bizForSms.name || businessId,
@@ -304,7 +319,8 @@ export async function createBooking(input) {
       serviceId: booking.serviceId,
       customer: booking.customer,
       slot: booking.slot,
-      status: booking.status
+      status: booking.status,
+      language: booking.language
     },
     summary
   };

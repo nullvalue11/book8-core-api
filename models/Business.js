@@ -77,6 +77,10 @@ const BusinessSchema = new mongoose.Schema(
 
     greetingOverride: { type: String },
 
+    primaryLanguage: { type: String, default: "en" },
+    multilingualEnabled: { type: Boolean, default: true },
+    supportedLanguages: [{ type: String }],
+
     // Stripe billing linkage + plan
     stripeCustomerId: { type: String, index: true, sparse: true },
     stripeSubscriptionId: { type: String, sparse: true },

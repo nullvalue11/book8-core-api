@@ -123,7 +123,19 @@ router.post("/", async (req, res) => {
         break;
       }
       case "booking.create": {
-        const { businessId, serviceId, customer: rawCustomer, customerName, customerPhone, customerEmail, slot, notes, source, timezone } = payload;
+        const {
+          businessId,
+          serviceId,
+          customer: rawCustomer,
+          customerName,
+          customerPhone,
+          customerEmail,
+          slot,
+          notes,
+          source,
+          timezone,
+          language
+        } = payload;
         let customer = rawCustomer || customerName;
         if (typeof customer === "string") customer = { name: customer };
         if (customer && typeof customer === "object") {
@@ -145,7 +157,8 @@ router.post("/", async (req, res) => {
             slot,
             notes,
             source,
-            timezone
+            timezone,
+            language
           });
           if (!result.ok) {
             outcome = {

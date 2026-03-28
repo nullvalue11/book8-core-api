@@ -419,7 +419,8 @@ async function createSmsBookingFromStateMachine(business, phone, tz, ctx, servic
       timezone: tz
     },
     notes: "Booked via SMS",
-    source: "sms-booking"
+    source: "sms-booking",
+    language: "en"
   });
   if (!book.ok) {
     throw new Error(book.error || "Booking failed");
@@ -762,7 +763,8 @@ async function completeSmsBooking(bizId, ctx, phone, tz, services) {
       timezone: tz
     },
     notes: "Booked via SMS",
-    source: "sms-booking"
+    source: "sms-booking",
+    language: "en"
   });
 
   if (book.ok) {

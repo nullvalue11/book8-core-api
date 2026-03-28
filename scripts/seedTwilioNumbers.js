@@ -8,7 +8,7 @@ import mongoose from "mongoose";
 import twilio from "twilio";
 import { TwilioNumber } from "../models/TwilioNumber.js";
 
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/book8_core";
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/book8-core";
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 

@@ -45,7 +45,7 @@ router.get("/", async (req, res) => {
 // POST /api/bookings
 router.post("/", async (req, res) => {
   try {
-    const { businessId, serviceId, customer, slot, notes, source } = req.body;
+    const { businessId, serviceId, customer, slot, notes, source, language } = req.body;
 
     if (!businessId || !serviceId) {
       return res.status(400).json({
@@ -72,7 +72,8 @@ router.post("/", async (req, res) => {
       customer,
       slot,
       notes,
-      source
+      source,
+      language
     });
 
     if (!result.ok) {

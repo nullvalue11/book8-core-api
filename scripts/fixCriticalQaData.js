@@ -40,7 +40,7 @@ const NAMES = [
   }
 ];
 
-const OTTAWA_DENTAL = {
+const QA_DENTAL = {
   businessId: "biz_mmwfgpg50jkiub",
   weeklyHours: {
     monday: [{ start: "09:00", end: "17:00" }],
@@ -118,46 +118,46 @@ async function main() {
     console.log(`[3] ${n.name} AFTER: name="${b2?.name ?? n.name}"`);
   }
 
-  // --- Issue 4: Ottawa Dental hours (business + Schedule) ---
-  const ottawaId = OTTAWA_DENTAL.businessId;
-  const ottawaBefore = await Business.findOne(businessFilterByCanonical(ottawaId)).lean();
-  console.log("\n[4] Ottawa Dental weeklySchedule BEFORE:", JSON.stringify(ottawaBefore?.weeklySchedule, null, 2));
-  const schedBefore = await Schedule.findOne({ businessId: ottawaId }).lean();
-  console.log("[4] Ottawa Dental Schedule doc BEFORE:", JSON.stringify(schedBefore?.weeklyHours, null, 2));
+  // --- Issue 4: QA Dental sample business — hours (business + Schedule) ---
+  const dentalBizId = QA_DENTAL.businessId;
+  const dentalBefore = await Business.findOne(businessFilterByCanonical(dentalBizId)).lean();
+  console.log("\n[4] QA Dental weeklySchedule BEFORE:", JSON.stringify(dentalBefore?.weeklySchedule, null, 2));
+  const schedBefore = await Schedule.findOne({ businessId: dentalBizId }).lean();
+  console.log("[4] QA Dental Schedule doc BEFORE:", JSON.stringify(schedBefore?.weeklyHours, null, 2));
 
-  const ottawaTz =
+  const dentalTz =
     schedBefore?.timezone ||
-    ottawaBefore?.weeklySchedule?.timezone ||
-    ottawaBefore?.timezone ||
+    dentalBefore?.weeklySchedule?.timezone ||
+    dentalBefore?.timezone ||
     "America/Toronto";
 
   if (!dryRun) {
-    await bizCol.updateOne(businessFilterByCanonical(ottawaId), {
+    await bizCol.updateOne(businessFilterByCanonical(dentalBizId), {
       $set: {
-        "weeklySchedule.weeklyHours": OTTAWA_DENTAL.weeklyHours
+        "weeklySchedule.weeklyHours": QA_DENTAL.weeklyHours
       }
     });
     await Schedule.updateOne(
-      { businessId: ottawaId },
+      { businessId: dentalBizId },
       {
         $set: {
-          weeklyHours: OTTAWA_DENTAL.weeklyHours,
-          timezone: ottawaTz
+          weeklyHours: QA_DENTAL.weeklyHours,
+          timezone: dentalTz
         },
-        $setOnInsert: { businessId: ottawaId }
+        $setOnInsert: { businessId: dentalBizId }
       },
       { upsert: true }
     );
   }
 
-  const ottawaAfter = dryRun
-    ? ottawaBefore
-    : await Business.findOne(businessFilterByCanonical(ottawaId)).lean();
+  const dentalAfter = dryRun
+    ? dentalBefore
+    : await Business.findOne(businessFilterByCanonical(dentalBizId)).lean();
   const schedAfter = dryRun
     ? schedBefore
-    : await Schedule.findOne({ businessId: ottawaId }).lean();
-  console.log("[4] Ottawa Dental weeklySchedule AFTER:", JSON.stringify(ottawaAfter?.weeklySchedule, null, 2));
-  console.log("[4] Ottawa Dental Schedule doc AFTER:", JSON.stringify(schedAfter?.weeklyHours, null, 2));
+    : await Schedule.findOne({ businessId: dentalBizId }).lean();
+  console.log("[4] QA Dental weeklySchedule AFTER:", JSON.stringify(dentalAfter?.weeklySchedule, null, 2));
+  console.log("[4] QA Dental Schedule doc AFTER:", JSON.stringify(schedAfter?.weeklyHours, null, 2));
 
   console.log("\n[fixCriticalQaData] Done.");
   await mongoose.disconnect();

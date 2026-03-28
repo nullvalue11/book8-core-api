@@ -7,7 +7,15 @@ const router = express.Router();
 // POST /internal/business/update-calendar
 router.post("/update-calendar", async (req, res) => {
   try {
-    const { businessId, calendarProvider, calendarConnected, timezone } = req.body || {};
+    const {
+      businessId,
+      calendarProvider,
+      calendarConnected,
+      timezone,
+      primaryLanguage,
+      multilingualEnabled,
+      supportedLanguages
+    } = req.body || {};
 
     if (!businessId) {
       return res.status(400).json({ ok: false, error: "businessId required" });
@@ -27,7 +35,19 @@ router.post("/update-calendar", async (req, res) => {
       update["weeklySchedule.timezone"] = tz;
     }
 
-    // Core-api uses "id" not "businessId" in the test database.
+    if (typeof primaryLanguage === "string" && primaryLanguage.trim()) {
+      update.primaryLanguage = primaryLanguage.trim();
+    }
+    if (typeof multilingualEnabled === "boolean") {
+      update.multilingualEnabled = multilingualEnabled;
+    }
+    if (Array.isArray(supportedLanguages)) {
+      update.supportedLanguages = supportedLanguages.filter(
+        (x) => typeof x === "string" && x.trim()
+      );
+    }
+
+    // Match by canonical id or businessId (same as other internal routes).
     const result = await Business.findOneAndUpdate(
       { id: businessId },
       { $set: update },

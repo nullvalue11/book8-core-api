@@ -16,7 +16,7 @@ const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
 const dryRun = process.argv.includes("--dry-run");
 
 const TARGETS = [
-  { phone: "+15064048251", businessId: "biz_mmwfgpg50jkiub", name: "Ottawa Dental" },
+  { phone: "+15064048251", businessId: "biz_mmwfgpg50jkiub", name: "QA Dental" },
   { phone: "+15795011441", businessId: "biz_mmzusq281oq7pb", name: "Fitness Studio" },
   { phone: "+14382561566", businessId: "biz_mmzzgvsy6tkwtm", name: "River City Massage" }
 ];

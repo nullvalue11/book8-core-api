@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Copies all collections from SOURCE_DB to TARGET_DB (default: test → book8_core).
+ * Copies all collections from SOURCE_DB to TARGET_DB (default: test → book8-core).
  *
  * Run: node scripts/renameDatabase.js
  *
@@ -19,7 +19,7 @@ import { MongoClient } from "mongodb";
 
 const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
 const SOURCE_DB = process.env.SOURCE_DB || "test";
-const TARGET_DB = process.env.TARGET_DB || "book8_core";
+const TARGET_DB = process.env.TARGET_DB || "book8-core";
 
 async function copyDatabase() {
   if (!uri) {

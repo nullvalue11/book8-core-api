@@ -37,7 +37,10 @@ const CallSchema = new mongoose.Schema(
     sttSeconds: { type: Number }, // Optional/unused - don't block on it
     
     transcript: [TranscriptEntrySchema],
-    toolCalls: [ToolCallSchema]
+    toolCalls: [ToolCallSchema],
+
+    language: { type: String, default: "en" },
+    languageDetected: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

@@ -8,6 +8,43 @@ import { isFeatureAllowed } from "../../services/planLimits.js";
 
 const router = express.Router();
 
+function languageDynamicVarsFromBusiness(business) {
+  if (!business) {
+    return { primary_language: "en", multilingual_enabled: "true" };
+  }
+  return {
+    primary_language: business.primaryLanguage || "en",
+    multilingual_enabled: business.multilingualEnabled !== false ? "true" : "false"
+  };
+}
+
+/**
+ * Best-effort parse of ElevenLabs Conversational AI 2.0 post-call language fields.
+ * @param {object} data - `data` from post-call webhook body
+ * @returns {string|null}
+ */
+function extractDetectedLanguageFromPostCallData(data) {
+  if (!data || typeof data !== "object") return null;
+  const md = data.metadata || {};
+  const an = data.analysis || {};
+  let fromTurn = null;
+  if (Array.isArray(data.transcript)) {
+    const t = data.transcript.find(
+      (x) => x && (x.language || x.detected_language)
+    );
+    if (t) fromTurn = t.language || t.detected_language;
+  }
+  return (
+    data.language ||
+    data.detected_language ||
+    data.conversation_language ||
+    md.language ||
+    an.language ||
+    fromTurn ||
+    null
+  );
+}
+
 /**
  * POST /api/elevenlabs/conversation-init
  *
@@ -61,15 +98,19 @@ router.post("/conversation-init", async (req, res) => {
     if (!business) {
       console.warn("[elevenlabs-webhook] No business found for:", called_number);
 
+      const todayIso = new Date().toISOString().slice(0, 10);
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
           business_name: "Book8",
           business_id: "unknown",
+          business_category: "general",
           services_list: "appointments",
           business_hours: "Monday to Friday, 9 AM to 5 PM",
           timezone: "America/Toronto",
-          caller_phone: caller_id || ""
+          today_date: todayIso,
+          caller_phone: caller_id || "",
+          ...languageDynamicVarsFromBusiness(null)
         },
         conversation_config_override: {
           agent: {
@@ -99,7 +140,8 @@ router.post("/conversation-init", async (req, res) => {
           today_date: today,
           caller_phone: caller_id || "",
           business_category: "",
-          greeting: `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`
+          greeting: `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`,
+          ...languageDynamicVarsFromBusiness(business)
         }
       });
     }
@@ -206,7 +248,8 @@ router.post("/conversation-init", async (req, res) => {
         timezone: timezone,
         today_date: todayIso,
         caller_phone: caller_id || "",
-        call_sid: call_sid || ""
+        call_sid: call_sid || "",
+        ...languageDynamicVarsFromBusiness(business)
       },
       conversation_config_override: {
         agent: {
@@ -218,15 +261,19 @@ router.post("/conversation-init", async (req, res) => {
     console.error("[elevenlabs-webhook] Error:", err);
 
     // Return generic defaults on error — don't fail the call
+    const todayIsoErr = new Date().toISOString().slice(0, 10);
     return res.json({
       type: "conversation_initiation_client_data",
       dynamic_variables: {
         business_name: "Book8",
         business_id: "unknown",
+        business_category: "general",
         services_list: "appointments",
         business_hours: "Monday to Friday, 9 AM to 5 PM",
         timezone: "America/Toronto",
-        caller_phone: req.body?.caller_id || ""
+        today_date: todayIsoErr,
+        caller_phone: req.body?.caller_id || "",
+        ...languageDynamicVarsFromBusiness(null)
       },
       conversation_config_override: {
         agent: {
@@ -290,10 +337,14 @@ router.post("/post-call", async (req, res) => {
  * Extracts call data and upserts into the Call collection.
  */
 async function handleTranscription(data) {
+  const detectedLanguage = extractDetectedLanguageFromPostCallData(data);
+  const language = detectedLanguage || "en";
+  console.log("[elevenlabs-post-call] Detected language:", detectedLanguage);
+  console.log("[elevenlabs-post-call] Full data keys:", Object.keys(data || {}));
+
   const {
     agent_id,
     conversation_id,
-    status,
     transcript,
     metadata,
     analysis,
@@ -350,6 +401,8 @@ async function handleTranscription(data) {
           ? new Date((startTimeUnix + callDurationSecs) * 1000)
           : new Date(),
         transcript: formattedTranscript,
+        language,
+        languageDetected: !!detectedLanguage,
         elevenLabs: {
           conversationId: conversation_id,
           agentId: agent_id,

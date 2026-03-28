@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Demo / ops: delete all MongoDB bookings for every business in the target database
- * (default `book8_core`; override with DB_NAME / MONGODB_DB_NAME).
+ * (default `book8-core`; override with DB_NAME / MONGODB_DB_NAME).
  *
  * Matches booking.businessId against each business document's `id` and `businessId`.
  *
@@ -20,7 +20,7 @@ import "dotenv/config";
 import mongoose from "mongoose";
 
 const DB_NAME =
-  process.env.DB_NAME || process.env.MONGODB_DB_NAME || "book8_core";
+  process.env.DB_NAME || process.env.MONGODB_DB_NAME || "book8-core";
 
 const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
 const dryRun = process.argv.includes("--dry-run") || process.env.PURGE_DRY_RUN === "1";

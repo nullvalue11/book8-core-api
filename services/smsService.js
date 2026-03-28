@@ -75,6 +75,8 @@ export async function sendSMS({ to, from, body }) {
  * @param {string} params.customerName - e.g. "John"
  * @returns {string}
  */
+// TODO: Localize SMS confirmations based on booking.language (see bookingService).
+// For now, all confirmations sent in English.
 export function formatConfirmationSMS({ serviceName, businessName, date, time, customerName }) {
   return [
     `✅ Booked! ${serviceName} on ${date} at ${time} at ${businessName}.`,

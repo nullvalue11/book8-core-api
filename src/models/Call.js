@@ -60,7 +60,11 @@ const CallSchema = new mongoose.Schema(
       cost: { type: Number }, // ElevenLabs credit cost
       terminationReason: { type: String },
       failureReason: { type: String } // For call_initiation_failure events
-    }
+    },
+
+    /** ISO 639-1 code from ElevenLabs post-call (default en if unknown) */
+    language: { type: String, default: "en" },
+    languageDetected: { type: Boolean, default: false }
   },
   { timestamps: true }
 );
@@ -74,4 +78,5 @@ CallSchema.index({ "elevenLabs.conversationId": 1 }, { sparse: true });
 CallSchema.index({ callSid: 1, "transcript.turnId": 1 });
 CallSchema.index({ callSid: 1, "toolsUsed.eventId": 1 });
 
-export const Call = mongoose.model("Call", CallSchema);
+export const Call =
+  mongoose.models.Call || mongoose.model("Call", CallSchema);
