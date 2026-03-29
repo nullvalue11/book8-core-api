@@ -17,7 +17,7 @@ import { listCategories } from "./services/categoryDefaults.js";
 import { sendSMS, formatReminderSMS } from "./services/smsService.js";
 import { sendReminder as sendReminderEmail } from "./services/emailService.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
-import { getPlanLimits } from "./services/planLimits.js";
+import { getPlanLimits, isFeatureAllowed } from "./services/planLimits.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
 import internalBookingsRouter from "./src/routes/internalBookings.js";
@@ -596,6 +596,15 @@ app.post("/api/businesses/:id/assign-number", requireApiKey, async (req, res) =>
       return res.status(404).json({
         ok: false,
         error: "Business not found"
+      });
+    }
+
+    if (!isFeatureAllowed(resolved.business.plan || "starter", "aiPhoneAgent")) {
+      return res.status(403).json({
+        ok: false,
+        error:
+          "Dedicated phone numbers are not included on this plan. Upgrade to Growth or Enterprise.",
+        upgrade: true
       });
     }
 

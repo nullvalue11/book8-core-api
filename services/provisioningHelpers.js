@@ -9,6 +9,7 @@ import {
   logProvisioningNumberSetup
 } from "./twilioNumberSetup.js";
 import { ensureBookableDefaultsForBusiness } from "./bookableBootstrap.js";
+import { isFeatureAllowed } from "../src/config/plans.js";
 
 /** Match business by canonical slug stored in `id` or duplicate `businessId`. */
 export function businessLookupFilter(slugOrId) {
@@ -33,6 +34,17 @@ export async function assignTwilioNumberFromPool(slugOrId) {
   const bid = canonicalBusinessId(business);
   if (!bid) {
     return { ok: false, detail: "Business has no id/businessId" };
+  }
+
+  const plan = business.plan || "starter";
+  if (!isFeatureAllowed(plan, "aiPhoneAgent")) {
+    return {
+      ok: true,
+      skipped: true,
+      detail:
+        "Phone agent not included on this plan. Upgrade to Growth for a dedicated phone number.",
+      plan
+    };
   }
 
   if (business.assignedTwilioNumber) {

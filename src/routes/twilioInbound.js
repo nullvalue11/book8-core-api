@@ -22,6 +22,7 @@ import {
   getStatusReply,
   resetAndGreetSmsConversation
 } from "../../services/smsBookingConversation.js";
+import { isChannelAllowed } from "../config/plans.js";
 
 const router = express.Router();
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -89,6 +90,12 @@ router.post(
         return;
       }
 
+      const plan = business.plan || "starter";
+      const smsChannelOk = isChannelAllowed(plan, "sms");
+      const smsBookingBlockedReply = `Thanks for reaching out! SMS booking isn't available on this business's current plan. You can book online at https://book8.io/b/${encodeURIComponent(
+        business.handle || business.id || "book"
+      )}`;
+
       // --- Legacy exact cancel phrase (kept for existing flows) ---
       if (upper === "CANCEL BOOKING") {
         const { reply } = await cancelUpcomingBookingForPhone(business, from);
@@ -104,6 +111,10 @@ router.post(
       }
 
       if (upper === "HELP" || upper === "INFO") {
+        if (!smsChannelOk) {
+          sendReply(smsBookingBlockedReply);
+          return;
+        }
         sendReply(getHelpReply(business));
         return;
       }
@@ -132,6 +143,10 @@ router.post(
         }
       }
 
+      if (!smsChannelOk) {
+        sendReply(smsBookingBlockedReply);
+        return;
+      }
       const defaultReply =
         getHelpReply(business) +
         (to ? ` Call: ${to}.` : "");

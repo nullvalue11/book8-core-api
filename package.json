@@ -8,7 +8,9 @@
     "dev": "nodemon index.js",
     "test": "set NODE_ENV=test&& node --test tests/*.js",
     "purge:bookings": "node scripts/purgeBookingsAllBusinesses.js",
-    "purge:bookings:dry": "node scripts/purgeBookingsAllBusinesses.js --dry-run"
+    "purge:bookings:dry": "node scripts/purgeBookingsAllBusinesses.js --dry-run",
+    "backfill:plans": "node scripts/backfillPlans.js",
+    "backfill:plans:dry": "node scripts/backfillPlans.js --dry-run"
   },
   "dependencies": {
     "chrono-node": "^2.9.0",

@@ -4,6 +4,7 @@ import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { Schedule } from "../../models/Schedule.js";
 import { businessLookupFilter, canonicalBusinessId } from "../../services/provisioningHelpers.js";
+import { getPlanFeatures } from "../config/plans.js";
 
 const router = express.Router();
 
@@ -21,6 +22,8 @@ router.get("/business/:businessId", async (req, res) => {
       return res.json({
         ok: false,
         businessId,
+        plan: null,
+        planFeatures: null,
         status: "NOT_FOUND",
         message: "Business does not exist in core-api database",
         checks: {
@@ -108,9 +111,14 @@ router.get("/business/:businessId", async (req, res) => {
     const allCriticalOk = criticalChecks.every((k) => checks[k].ok);
     const allOk = Object.values(checks).every((c) => c.ok);
 
+    const plan = business.plan || "starter";
+    const planFeatures = { ...getPlanFeatures(plan) };
+
     return res.json({
       ok: allCriticalOk,
       businessId,
+      plan,
+      planFeatures,
       status: allOk
         ? "FULLY_PROVISIONED"
         : allCriticalOk

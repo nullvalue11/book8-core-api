@@ -38,7 +38,17 @@ router.post("/", async (req, res) => {
     let outcome;
     switch (tool) {
       case "tenant.ensure": {
-        const { businessId, name, description, category, timezone, email, phoneNumber, services } = payload;
+        const {
+          businessId,
+          name,
+          description,
+          category,
+          timezone,
+          email,
+          phoneNumber,
+          services,
+          plan
+        } = payload;
         if (!businessId || !name) {
           outcome = {
             ok: false,
@@ -55,7 +65,8 @@ router.post("/", async (req, res) => {
             timezone,
             email,
             phoneNumber,
-            services
+            services,
+            plan
           });
           if (!result.ok) {
             outcome = {

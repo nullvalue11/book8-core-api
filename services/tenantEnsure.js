@@ -14,19 +14,42 @@ function normalizePhone(phone) {
   return str ? (str.startsWith("+") ? str : `+${str}`) : null;
 }
 
+const VALID_PLANS = new Set(["starter", "growth", "enterprise"]);
+
+function normalizePlan(p) {
+  if (typeof p !== "string") return null;
+  const x = p.toLowerCase();
+  return VALID_PLANS.has(x) ? x : null;
+}
+
 /**
- * @param {object} input - { businessId, name, description?, category?, timezone?, email?, phoneNumber?, services? }
+ * @param {object} input - { businessId, name, description?, category?, timezone?, email?, phoneNumber?, services?, plan? }
  * @returns {Promise<{ ok: boolean, error?: string, businessId?: string, existed?: boolean, created?: boolean }>}
  */
 export async function ensureTenant(input) {
-  const { businessId, name, description, category, timezone, email, phoneNumber, services } = input || {};
+  const {
+    businessId,
+    name,
+    description,
+    category,
+    timezone,
+    email,
+    phoneNumber,
+    services,
+    plan: inputPlan
+  } = input || {};
 
   if (!businessId || !name) {
     return { ok: false, error: "businessId and name are required" };
   }
 
+  const resolvedPlan = normalizePlan(inputPlan);
+
   const existing = await Business.findOne({ id: businessId }).lean();
   if (existing) {
+    if (resolvedPlan) {
+      await Business.updateOne({ id: businessId }, { $set: { plan: resolvedPlan } }).catch(() => {});
+    }
     const tz = timezone || existing.timezone || "America/Toronto";
     const bootstrap = await ensureBookableDefaultsForBusiness(businessId, { timezone: tz });
     return {
@@ -54,7 +77,8 @@ export async function ensureTenant(input) {
       email: email || undefined,
       phoneNumber: normalizedPhone || undefined,
       services: servicesToUse,
-      weeklySchedule: weeklyScheduleToUse
+      weeklySchedule: weeklyScheduleToUse,
+      ...(resolvedPlan ? { plan: resolvedPlan } : {})
     });
 
     await business.save();

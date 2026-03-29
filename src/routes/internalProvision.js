@@ -116,7 +116,7 @@ router.post("/", async (req, res) => {
     try {
       const twilioResult = await assignTwilioNumberFromPool(businessId);
       if (twilioResult.skipped) {
-        // already assigned
+        console.log("[provisioning] Twilio assignment skipped:", twilioResult.detail);
       } else if (twilioResult.ok) {
         console.log("[provisioning] Assigned", twilioResult.phone, "to", businessId);
       } else {

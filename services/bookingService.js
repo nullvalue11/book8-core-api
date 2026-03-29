@@ -10,6 +10,7 @@ import { randomBytes } from "crypto";
 import { sendSMS, formatConfirmationSMS } from "./smsService.js";
 import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
 import { createGcalEvent, resolveCalendarProviderForBusiness } from "./gcalService.js";
+import { isFeatureAllowed } from "../src/config/plans.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -185,6 +186,14 @@ export async function createBooking(input) {
         return;
       }
 
+      const smsPlan = bizForSms.plan || "starter";
+      if (!isFeatureAllowed(smsPlan, "smsConfirmations")) {
+        console.log(
+          `[bookingService] SMS confirmation skipped — plan has no SMS confirmations (${businessId}, plan=${smsPlan})`
+        );
+        return;
+      }
+
       const bizTz = bizForSms?.timezone || timezone || "America/Toronto";
       const slotDate = new Date(normStart);
       const dateStr = slotDate.toLocaleDateString("en-US", {
@@ -246,7 +255,7 @@ export async function createBooking(input) {
     hasResendKey: !!process.env.RESEND_API_KEY
   });
 
-  if (customer.email) {
+  if (customer.email && isFeatureAllowed(business.plan || "starter", "emailConfirmations")) {
     sendConfirmationEmail(booking, business, service, customer)
       .then(async (result) => {
         if (result?.id) {

@@ -4,7 +4,7 @@ import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { Schedule } from "../../models/Schedule.js";
 import { Call } from "../models/Call.js";
-import { isFeatureAllowed } from "../../services/planLimits.js";
+import { isFeatureAllowed } from "../config/plans.js";
 
 const router = express.Router();
 
