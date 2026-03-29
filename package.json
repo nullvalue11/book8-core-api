@@ -10,7 +10,9 @@
     "purge:bookings": "node scripts/purgeBookingsAllBusinesses.js",
     "purge:bookings:dry": "node scripts/purgeBookingsAllBusinesses.js --dry-run",
     "backfill:plans": "node scripts/backfillPlans.js",
-    "backfill:plans:dry": "node scripts/backfillPlans.js --dry-run"
+    "backfill:plans:dry": "node scripts/backfillPlans.js --dry-run",
+    "purge:named": "node scripts/purgeNamed.js",
+    "purge:named:dry": "node scripts/purgeNamed.js --dry-run"
   },
   "dependencies": {
     "chrono-node": "^2.9.0",
