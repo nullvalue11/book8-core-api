@@ -82,6 +82,47 @@ const requireApiKey = (req, res, next) => {
   next();
 };
 
+/**
+ * Dashboard (book8-ai) phone setup uses x-book8-internal-secret; some callers use x-book8-api-key.
+ */
+const requireInternalSecretOrApiKey = (req, res, next) => {
+  const internal =
+    req.headers["x-book8-internal-secret"] || req.headers["x-internal-secret"];
+  const expectedInternal =
+    process.env.CORE_API_INTERNAL_SECRET || process.env.INTERNAL_API_SECRET;
+  const apiKey = req.headers["x-book8-api-key"];
+  const expectedKey = process.env.BOOK8_CORE_API_KEY;
+
+  const okInternal = expectedInternal && internal && internal === expectedInternal;
+  const okApi = expectedKey && apiKey && apiKey === expectedKey;
+
+  if (okInternal || okApi) {
+    return next();
+  }
+
+  if (!expectedInternal && !expectedKey) {
+    return res.status(500).json({
+      ok: false,
+      error: "Server configuration error: no auth secret configured"
+    });
+  }
+
+  return res.status(401).json({
+    ok: false,
+    error: "Unauthorized: Invalid or missing internal secret or API key"
+  });
+};
+
+/** book8-ai sends forward|dedicated; schema uses forwarding|direct */
+function mapNumberSetupMethodForSchema(raw) {
+  if (raw == null || raw === "") return undefined;
+  const s = String(raw).toLowerCase();
+  if (s === "forward" || s === "forwarding") return "forwarding";
+  if (s === "dedicated" || s === "direct") return "direct";
+  if (s === "pending") return "pending";
+  return undefined;
+}
+
 // ---------- HELPER: Generate slug from business name ----------
 function generateSlug(name) {
   if (!name) return null;
@@ -538,6 +579,102 @@ app.get("/api/businesses/:id", async (req, res) => {
     res.json({ ok: true, business: { ...business }, planLimits: limits });
   } catch (err) {
     console.error("Error in GET /api/businesses/:id:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- UPDATE BUSINESS (dashboard phone setup — book8-ai POST) ----------
+app.post("/api/businesses/:id", requireInternalSecretOrApiKey, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resolved = await findBusinessByParam(id);
+    if (!resolved) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+
+    const {
+      name,
+      numberSetupMethod,
+      forwardingEnabled,
+      forwardingFrom,
+      phoneNumber,
+      phoneSetup,
+      existingBusinessNumber
+    } = req.body || {};
+
+    const update = {};
+
+    if (typeof name === "string" && name.trim()) {
+      update.name = name.trim();
+    }
+
+    if (numberSetupMethod !== undefined && numberSetupMethod !== null) {
+      const mapped = mapNumberSetupMethodForSchema(numberSetupMethod);
+      if (mapped) {
+        update.numberSetupMethod = mapped;
+      }
+    }
+
+    if (typeof forwardingEnabled === "boolean") {
+      update.forwardingEnabled = forwardingEnabled;
+    }
+    if (Array.isArray(forwardingFrom)) {
+      update.forwardingFrom = forwardingFrom;
+    }
+
+    if (phoneNumber !== undefined) {
+      update.phoneNumber =
+        phoneNumber === null || phoneNumber === ""
+          ? null
+          : normalizePhoneNumber(phoneNumber);
+    }
+
+    if (phoneSetup === "new" || phoneSetup === "forward") {
+      update.phoneSetup = phoneSetup;
+    }
+    if (existingBusinessNumber !== undefined) {
+      if (existingBusinessNumber === null) {
+        update.existingBusinessNumber = null;
+      } else if (typeof existingBusinessNumber === "string") {
+        update.existingBusinessNumber = existingBusinessNumber.trim();
+      }
+    }
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "No valid fields to update"
+      });
+    }
+
+    const business = await Business.findByIdAndUpdate(
+      resolved.business._id,
+      { $set: update },
+      { new: true, runValidators: true }
+    ).lean();
+
+    if (!business) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+
+    const businessId = business.id ?? business.businessId;
+    const limits = getPlanLimits(business.plan);
+    res.json({
+      ok: true,
+      business: { ...business, id: businessId },
+      planLimits: limits
+    });
+  } catch (err) {
+    console.error("Error in POST /api/businesses/:id:", err);
+    if (err.name === "ValidationError") {
+      return res.status(400).json({ ok: false, error: err.message });
+    }
+    if (err.code === 11000) {
+      return res.status(409).json({
+        ok: false,
+        error: "Duplicate value (e.g. phone number already in use)"
+      });
+    }
     res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
