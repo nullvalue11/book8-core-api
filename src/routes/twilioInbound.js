@@ -23,6 +23,7 @@ import {
   resetAndGreetSmsConversation
 } from "../../services/smsBookingConversation.js";
 import { isChannelAllowed } from "../config/plans.js";
+import { maskPhone } from "../utils/maskPhone.js";
 
 const router = express.Router();
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -77,15 +78,16 @@ router.post(
     };
 
     (async () => {
+      const bodyStr = req.body.Body != null ? String(req.body.Body) : "";
       console.log("[inbound-sms] Received:", {
-        From: req.body.From,
-        To: req.body.To,
-        Body: req.body.Body != null ? String(req.body.Body).substring(0, 100) : undefined
+        From: maskPhone(req.body.From),
+        To: maskPhone(req.body.To),
+        bodyLength: bodyStr.length
       });
 
       const business = await Business.findOne({ assignedTwilioNumber: to }).lean();
       if (!business) {
-        console.warn("[inbound-sms] No business found for Twilio number:", to);
+        console.warn("[inbound-sms] No business found for Twilio number:", maskPhone(to));
         sendEmpty();
         return;
       }
@@ -152,7 +154,11 @@ router.post(
         (to ? ` Call: ${to}.` : "");
       sendReply(defaultReply);
       if (rawBody && upper !== "HELP") {
-        console.log("[inbound-sms] Inbound message (empty body path / fallback):", { from, to, body: rawBody });
+        console.log("[inbound-sms] Inbound message (empty body path / fallback):", {
+          from: maskPhone(from),
+          to: maskPhone(to),
+          bodyLength: rawBody.length
+        });
       }
     })().catch((err) => {
       console.error("[inbound-sms] Error:", err);

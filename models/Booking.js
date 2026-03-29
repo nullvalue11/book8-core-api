@@ -3,60 +3,60 @@ import mongoose from "mongoose";
 
 const CustomerSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
-    phone: { type: String },
-    email: { type: String }
+    name: { type: String, required: true, maxlength: 200, trim: true },
+    phone: { type: String, maxlength: 32, trim: true },
+    email: { type: String, maxlength: 254, trim: true }
   },
   { _id: false }
 );
 
 const SlotSchema = new mongoose.Schema(
   {
-    start: { type: String, required: true },
-    end: { type: String, required: true },
-    timezone: { type: String, required: true }
+    start: { type: String, required: true, maxlength: 64, trim: true },
+    end: { type: String, required: true, maxlength: 64, trim: true },
+    timezone: { type: String, required: true, maxlength: 64, trim: true }
   },
   { _id: false }
 );
 
 const BookingSchema = new mongoose.Schema(
   {
-    id: { type: String, unique: true, index: true },
-    businessId: { type: String, required: true, index: true },
-    serviceId: { type: String, required: true },
+    id: { type: String, unique: true, index: true, maxlength: 128, trim: true },
+    businessId: { type: String, required: true, index: true, maxlength: 128, trim: true },
+    serviceId: { type: String, required: true, maxlength: 128, trim: true },
     customer: { type: CustomerSchema, required: true },
     slot: { type: SlotSchema, required: true },
-    status: { type: String, default: "confirmed" },
-    source: { type: String, default: "voice-agent" },
+    status: { type: String, default: "confirmed", maxlength: 32, trim: true },
+    source: { type: String, default: "voice-agent", maxlength: 64, trim: true },
     /** ISO 639-1; SMS/email may stay English until templates exist */
-    language: { type: String, default: "en" },
-    notes: { type: String },
+    language: { type: String, default: "en", maxlength: 16, trim: true },
+    notes: { type: String, maxlength: 1000, trim: true },
 
     /** Google/Outlook calendar event id from book8-ai after successful create */
-    calendarEventId: { type: String, default: null },
+    calendarEventId: { type: String, default: null, maxlength: 512, trim: true },
 
     cancelledAt: { type: Date },
-    cancellationMethod: { type: String, enum: ["sms", "dashboard", "phone", "api"] },
+    cancellationMethod: { type: String, enum: ["sms", "dashboard", "phone", "api"], maxlength: 32, trim: true },
 
     // SMS tracking
     confirmationSentAt: { type: Date },
-    confirmationSid: { type: String },
+    confirmationSid: { type: String, maxlength: 64, trim: true },
     reminderSentAt: { type: Date },
-    reminderSid: { type: String },
+    reminderSid: { type: String, maxlength: 64, trim: true },
     shortReminderSentAt: { type: Date },
-    shortReminderSid: { type: String },
+    shortReminderSid: { type: String, maxlength: 64, trim: true },
     lastMinuteReminderSentAt: { type: Date },
-    lastMinuteReminderSid: { type: String },
+    lastMinuteReminderSid: { type: String, maxlength: 64, trim: true },
 
     // Email tracking
     confirmationEmailSentAt: { type: Date },
-    confirmationEmailId: { type: String },
+    confirmationEmailId: { type: String, maxlength: 256, trim: true },
     reminderEmailSentAt: { type: Date },
-    reminderEmailId: { type: String },
+    reminderEmailId: { type: String, maxlength: 256, trim: true },
     shortReminderEmailSentAt: { type: Date },
-    shortReminderEmailId: { type: String },
+    shortReminderEmailId: { type: String, maxlength: 256, trim: true },
     lastMinuteReminderEmailSentAt: { type: Date },
-    lastMinuteReminderEmailId: { type: String }
+    lastMinuteReminderEmailId: { type: String, maxlength: 256, trim: true }
   },
   { timestamps: true }
 );

@@ -2,6 +2,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import mongoose from "mongoose";
 
 import { Business } from "./models/Business.js";
@@ -16,7 +17,11 @@ import { ensureBookableDefaultsForBusiness } from "./services/bookableBootstrap.
 import { listCategories } from "./services/categoryDefaults.js";
 import { sendSMS, formatReminderSMS } from "./services/smsService.js";
 import { sendReminder as sendReminderEmail } from "./services/emailService.js";
-import { requireInternalAuth, isInternalCoreApiRequest } from "./src/middleware/internalAuth.js";
+import {
+  requireInternalAuth,
+  isInternalCoreApiRequest,
+  safeCompare
+} from "./src/middleware/internalAuth.js";
 import { strictLimiter } from "./src/middleware/strictLimiter.js";
 import { getPlanLimits, isFeatureAllowed } from "./services/planLimits.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
@@ -57,8 +62,26 @@ if (process.env.NODE_ENV === "test") {
 }
 
 // ---------- MIDDLEWARE ----------
-app.use(cors());
-app.use(express.json());
+app.use(helmet());
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGINS
+      ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+      : ["https://www.book8.io", "https://book8.io"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Book8-Internal-Secret",
+      "X-Internal-Secret",
+      "X-Book8-Api-Key",
+      "X-Book8-Webhook-Secret"
+    ],
+    credentials: true
+  })
+);
+app.use(express.json({ limit: "512kb" }));
+app.use(express.urlencoded({ extended: true, limit: "512kb" }));
 
 // ---------- API KEY MIDDLEWARE (for write routes) ----------
 const requireApiKey = (req, res, next) => {
@@ -73,7 +96,7 @@ const requireApiKey = (req, res, next) => {
     });
   }
 
-  if (!apiKey || apiKey !== expectedKey) {
+  if (!safeCompare(apiKey || "", expectedKey)) {
     return res.status(401).json({
       ok: false,
       error: "Unauthorized: Invalid or missing API key"
@@ -94,8 +117,8 @@ const requireInternalSecretOrApiKey = (req, res, next) => {
   const apiKey = req.headers["x-book8-api-key"];
   const expectedKey = process.env.BOOK8_CORE_API_KEY;
 
-  const okInternal = expectedInternal && internal && internal === expectedInternal;
-  const okApi = expectedKey && apiKey && apiKey === expectedKey;
+  const okInternal = !!(expectedInternal && internal && safeCompare(internal, expectedInternal));
+  const okApi = !!(expectedKey && apiKey && safeCompare(apiKey, expectedKey));
 
   if (okInternal || okApi) {
     return next();
@@ -913,7 +936,7 @@ app.get("/api/cron/send-reminders", async (req, res) => {
         ? authHeader.slice(7)
         : null;
     const expectedSecret = process.env.CRON_SECRET;
-    if (!expectedSecret || !token || token !== expectedSecret) {
+    if (!expectedSecret || !token || !safeCompare(token, expectedSecret)) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
@@ -1188,7 +1211,7 @@ app.get("/api/cron/replenish-pool", async (req, res) => {
         ? authHeader.slice(7)
         : null;
     const expectedSecret = process.env.CRON_SECRET;
-    if (!expectedSecret || !token || token !== expectedSecret) {
+    if (!expectedSecret || !token || !safeCompare(token, expectedSecret)) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 

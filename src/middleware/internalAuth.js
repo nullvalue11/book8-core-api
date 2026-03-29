@@ -1,11 +1,26 @@
 // src/middleware/internalAuth.js
+import { timingSafeEqual } from "crypto";
+
+/**
+ * Constant-time comparison for secrets (length mismatch still branches but avoids early exit on first char).
+ */
+export function safeCompare(a, b) {
+  if (a == null || b == null) return false;
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) {
+    if (bufA.length > 0) timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
+}
 
 /** True when caller presents the same secret {@link requireInternalAuth} expects (no response sent). */
 export function isInternalCoreApiRequest(req) {
   const authHeader = req.headers["x-internal-secret"] || req.headers["x-book8-internal-secret"];
   const expectedSecret =
     process.env.CORE_API_INTERNAL_SECRET || process.env.INTERNAL_API_SECRET;
-  return !!(expectedSecret && authHeader && authHeader === expectedSecret);
+  return !!(expectedSecret && authHeader && safeCompare(authHeader, expectedSecret));
 }
 
 export const requireInternalAuth = (req, res, next) => {
@@ -34,8 +49,8 @@ export const requireInternalAuth = (req, res, next) => {
     });
   }
 
-  if (authHeader !== expectedSecret) {
-    console.warn("[INTERNAL_AUTH] Invalid internal auth secret (header length:", authHeader.length, ")");
+  if (!safeCompare(authHeader, expectedSecret)) {
+    console.warn("[INTERNAL_AUTH] Invalid auth attempt");
     return res.status(401).json({
       ok: false,
       error: "Unauthorized: Invalid internal auth secret"
@@ -44,4 +59,3 @@ export const requireInternalAuth = (req, res, next) => {
 
   next();
 };
-

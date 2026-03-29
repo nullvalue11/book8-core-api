@@ -1,6 +1,7 @@
 // src/routes/internalCalls.js
 import express from "express";
 import { Call } from "../models/Call.js";
+import { maskPhone } from "../utils/maskPhone.js";
 
 const router = express.Router();
 
@@ -9,7 +10,12 @@ router.post("/start", async (req, res) => {
   try {
     const { callSid, businessId, from, to } = req.body;
 
-    console.log("[CALL_START] Request received:", { callSid, businessId, from, to });
+    console.log("[CALL_START] Request received:", {
+      callSid,
+      businessId,
+      from: maskPhone(from),
+      to: maskPhone(to)
+    });
 
     if (!callSid || !businessId) {
       console.warn("[CALL_START] Missing required fields:", { hasCallSid: !!callSid, hasBusinessId: !!businessId });

@@ -3,8 +3,8 @@ import mongoose from "mongoose";
 
 const SmsMessageSchema = new mongoose.Schema(
   {
-    role: { type: String, enum: ["customer", "assistant"], required: true },
-    text: { type: String, required: true },
+    role: { type: String, enum: ["customer", "assistant"], required: true, maxlength: 16, trim: true },
+    text: { type: String, required: true, maxlength: 8000, trim: true },
     timestamp: { type: Date, default: Date.now }
   },
   { _id: false }
@@ -12,11 +12,13 @@ const SmsMessageSchema = new mongoose.Schema(
 
 const SmsConversationSchema = new mongoose.Schema(
   {
-    businessId: { type: String, required: true, index: true },
-    customerPhone: { type: String, required: true, index: true },
+    businessId: { type: String, required: true, index: true, maxlength: 128, trim: true },
+    customerPhone: { type: String, required: true, index: true, maxlength: 32, trim: true },
     state: {
       type: String,
-      default: "greeting"
+      default: "greeting",
+      maxlength: 64,
+      trim: true
     },
     context: {
       type: mongoose.Schema.Types.Mixed,

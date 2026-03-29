@@ -5,6 +5,8 @@ import { Service } from "../../models/Service.js";
 import { Schedule } from "../../models/Schedule.js";
 import { Call } from "../models/Call.js";
 import { isFeatureAllowed } from "../config/plans.js";
+import { safeCompare } from "../middleware/internalAuth.js";
+import { maskPhone } from "../utils/maskPhone.js";
 
 const router = express.Router();
 
@@ -23,7 +25,7 @@ function assertElevenLabsWebhookAuth(req, res) {
     req.headers["authorization"].startsWith("Bearer ")
       ? req.headers["authorization"].slice(7)
       : "");
-  if (!providedSecret || providedSecret !== authSecret) {
+  if (!providedSecret || !safeCompare(providedSecret, authSecret)) {
     console.warn("[elevenlabs-webhook] Auth failed — invalid or missing secret");
     res.status(401).json({ error: "Unauthorized" });
     return false;
@@ -84,24 +86,14 @@ router.post("/conversation-init", async (req, res) => {
   const startTime = Date.now();
 
   try {
+    if (!assertElevenLabsWebhookAuth(req, res)) return;
+
     const { caller_id, agent_id, called_number, call_sid } = req.body;
 
-    // Optional: validate auth header from ElevenLabs
-    // The secret is configured in ElevenLabs dashboard → Settings → Webhook → Headers
-    const authSecret = process.env.ELEVENLABS_WEBHOOK_SECRET;
-    if (authSecret) {
-      const providedSecret = req.headers["x-book8-webhook-secret"] ||
-        req.headers["authorization"]?.replace("Bearer ", "");
-      if (!providedSecret || providedSecret !== authSecret) {
-        console.warn("[elevenlabs-webhook] Auth failed — invalid or missing secret");
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-    }
-
     console.log("[elevenlabs-webhook] Conversation init request:", {
-      caller_id,
+      caller_id: maskPhone(caller_id),
       agent_id,
-      called_number,
+      called_number: maskPhone(called_number),
       call_sid
     });
 
@@ -119,7 +111,7 @@ router.post("/conversation-init", async (req, res) => {
 
     // 2) If no business found, return generic defaults
     if (!business) {
-      console.warn("[elevenlabs-webhook] No business found for:", called_number);
+      console.warn("[elevenlabs-webhook] No business found for:", maskPhone(called_number));
 
       const todayIso = new Date().toISOString().slice(0, 10);
       return res.json({
@@ -484,8 +476,8 @@ async function handleInitiationFailure(data) {
     failureReason: failure_reason,
     providerType,
     callSid,
-    from: callerNumber,
-    to: calledNumber
+    from: maskPhone(callerNumber),
+    to: maskPhone(calledNumber)
   });
 
   try {

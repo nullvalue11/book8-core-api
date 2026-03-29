@@ -3,9 +3,9 @@ import mongoose from "mongoose";
 
 const TranscriptEntrySchema = new mongoose.Schema(
   {
-    turnId: { type: String }, // optional but recommended
-    role: { type: String, enum: ["caller", "agent"], required: true },
-    text: { type: String, required: true },
+    turnId: { type: String, maxlength: 256, trim: true }, // optional but recommended
+    role: { type: String, enum: ["caller", "agent"], required: true, maxlength: 16, trim: true },
+    text: { type: String, required: true, maxlength: 12000, trim: true },
     timestamp: { type: Date, default: Date.now }
   },
   { _id: false }
@@ -13,8 +13,8 @@ const TranscriptEntrySchema = new mongoose.Schema(
 
 const ToolEventSchema = new mongoose.Schema(
   {
-    eventId: { type: String }, // optional but recommended
-    name: { type: String, required: true },
+    eventId: { type: String, maxlength: 256, trim: true }, // optional but recommended
+    name: { type: String, required: true, maxlength: 128, trim: true },
     success: { type: Boolean, default: true },
     timestamp: { type: Date, default: Date.now }
   },
@@ -53,17 +53,17 @@ const CallSchema = new mongoose.Schema(
 
     // ElevenLabs call data (populated by post-call webhook)
     elevenLabs: {
-      conversationId: { type: String },
-      agentId: { type: String },
-      callSuccessful: { type: String }, // "success", "failure", "unknown"
-      transcriptSummary: { type: String },
+      conversationId: { type: String, maxlength: 128, trim: true },
+      agentId: { type: String, maxlength: 128, trim: true },
+      callSuccessful: { type: String, maxlength: 32, trim: true }, // "success", "failure", "unknown"
+      transcriptSummary: { type: String, maxlength: 8000, trim: true },
       cost: { type: Number }, // ElevenLabs credit cost
-      terminationReason: { type: String },
-      failureReason: { type: String } // For call_initiation_failure events
+      terminationReason: { type: String, maxlength: 512, trim: true },
+      failureReason: { type: String, maxlength: 512, trim: true } // For call_initiation_failure events
     },
 
     /** ISO 639-1 code from ElevenLabs post-call (default en if unknown) */
-    language: { type: String, default: "en" },
+    language: { type: String, default: "en", maxlength: 16, trim: true },
     languageDetected: { type: Boolean, default: false }
   },
   { timestamps: true }

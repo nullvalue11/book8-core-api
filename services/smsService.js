@@ -2,6 +2,7 @@
 // Thin wrapper around Twilio SMS API
 
 import twilio from "twilio";
+import { maskPhone } from "../src/utils/maskPhone.js";
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -48,16 +49,16 @@ export async function sendSMS({ to, from, body }) {
 
     console.log("[smsService] SMS sent:", {
       messageSid: message.sid,
-      to,
-      from,
+      to: maskPhone(to),
+      from: maskPhone(from),
       status: message.status
     });
 
     return { ok: true, messageSid: message.sid };
   } catch (err) {
     console.error("[smsService] Error sending SMS:", {
-      to,
-      from,
+      to: maskPhone(to),
+      from: maskPhone(from),
       error: err.message,
       code: err.code
     });

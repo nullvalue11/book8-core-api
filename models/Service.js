@@ -3,9 +3,9 @@ import mongoose from "mongoose";
 
 const ServiceSchema = new mongoose.Schema(
   {
-    businessId: { type: String, required: true, index: true },
-    serviceId: { type: String, required: true },
-    name: { type: String, required: true },
+    businessId: { type: String, required: true, index: true, maxlength: 128, trim: true },
+    serviceId: { type: String, required: true, maxlength: 128, trim: true },
+    name: { type: String, required: true, maxlength: 200, trim: true },
     durationMinutes: { type: Number, required: true },
     active: { type: Boolean, default: true }
   },

@@ -3,8 +3,8 @@ import mongoose from "mongoose";
 
 const ServiceSchema = new mongoose.Schema(
   {
-    id: { type: String, required: true },
-    name: { type: String, required: true },
+    id: { type: String, required: true, maxlength: 128, trim: true },
+    name: { type: String, required: true, maxlength: 200, trim: true },
     duration: { type: Number, required: true }, // minutes
     price: { type: Number, default: 0 },
     active: { type: Boolean, default: true }
@@ -24,7 +24,7 @@ const BookingSettingsSchema = new mongoose.Schema(
 
 const WeeklyScheduleSchema = new mongoose.Schema(
   {
-    timezone: { type: String, default: "America/Toronto" },
+    timezone: { type: String, default: "America/Toronto", maxlength: 64, trim: true },
     weeklyHours: {
       type: mongoose.Schema.Types.Mixed,
       default: function () {
@@ -53,22 +53,22 @@ const CalendarSchema = new mongoose.Schema(
 
 const BusinessSchema = new mongoose.Schema(
   {
-    id: { type: String, unique: true, index: true }, // slug/handle e.g. "waismofit"
+    id: { type: String, unique: true, index: true, maxlength: 128, trim: true }, // slug/handle e.g. "waismofit"
     /** Duplicate of `id` for dashboard alignment; optional until migrated */
-    businessId: { type: String, index: true, sparse: true },
+    businessId: { type: String, index: true, sparse: true, maxlength: 128, trim: true },
     /** Public URL slug for /b/:handle (may mirror `id`) */
-    handle: { type: String, index: true, sparse: true },
-    name: { type: String, required: true },
-    category: { type: String, default: "fitness" }, // fitness, car_wash, salon, ...
-    description: { type: String },
-    timezone: { type: String, default: "America/Toronto" },
+    handle: { type: String, index: true, sparse: true, maxlength: 128, trim: true },
+    name: { type: String, required: true, maxlength: 200, trim: true },
+    category: { type: String, default: "fitness", maxlength: 64, trim: true }, // fitness, car_wash, salon, ...
+    description: { type: String, maxlength: 4000, trim: true },
+    timezone: { type: String, default: "America/Toronto", maxlength: 64, trim: true },
 
-    phoneNumber: { type: String, index: true, unique: true, sparse: true },
-    email: { type: String },
+    phoneNumber: { type: String, index: true, unique: true, sparse: true, maxlength: 32, trim: true },
+    email: { type: String, maxlength: 254, trim: true },
 
-    assignedTwilioNumber: { type: String, index: true, unique: true, sparse: true },
+    assignedTwilioNumber: { type: String, index: true, unique: true, sparse: true, maxlength: 32, trim: true },
     forwardingEnabled: { type: Boolean, default: false },
-    forwardingFrom: [String],
+    forwardingFrom: [{ type: String, maxlength: 32, trim: true }],
     // Phone number setup method chosen during onboarding
     // "forwarding" = business keeps their number, forwards to Book8 Twilio number
     // "direct" = business uses the assigned Twilio number directly
@@ -77,17 +77,17 @@ const BusinessSchema = new mongoose.Schema(
 
     /** Dashboard phone setup wizard: new number vs call forwarding */
     phoneSetup: { type: String, enum: ["new", "forward"], default: "new" },
-    existingBusinessNumber: { type: String },
+    existingBusinessNumber: { type: String, maxlength: 32, trim: true },
 
-    greetingOverride: { type: String },
+    greetingOverride: { type: String, maxlength: 2000, trim: true },
 
-    primaryLanguage: { type: String, default: "en" },
+    primaryLanguage: { type: String, default: "en", maxlength: 16, trim: true },
     multilingualEnabled: { type: Boolean, default: true },
-    supportedLanguages: [{ type: String }],
+    supportedLanguages: [{ type: String, maxlength: 16, trim: true }],
 
     // Stripe billing linkage + plan
-    stripeCustomerId: { type: String, index: true, sparse: true },
-    stripeSubscriptionId: { type: String, sparse: true },
+    stripeCustomerId: { type: String, index: true, sparse: true, maxlength: 128, trim: true },
+    stripeSubscriptionId: { type: String, sparse: true, maxlength: 128, trim: true },
     plan: {
       type: String,
       enum: ["starter", "growth", "enterprise"],

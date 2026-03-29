@@ -44,7 +44,7 @@ router.get("/", strictLimiter, async (req, res) => {
 });
 
 // POST /api/bookings
-router.post("/", async (req, res) => {
+router.post("/", strictLimiter, async (req, res) => {
   try {
     const { businessId, serviceId, customer, slot, notes, source, language } = req.body;
 

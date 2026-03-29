@@ -6,6 +6,7 @@ import {
   assignTwilioNumberFromPool,
   businessLookupFilter
 } from "../../services/provisioningHelpers.js";
+import { maskPhone } from "../utils/maskPhone.js";
 
 const router = express.Router();
 
@@ -63,7 +64,7 @@ router.post("/", async (req, res) => {
     console.log("[provision-from-stripe] Provisioning tenant:", {
       businessId,
       name,
-      email,
+      hasEmail: !!email,
       plan,
       stripeCustomerId: stripeCustomerId ? "present" : "missing",
       stripeSubscriptionId: stripeSubscriptionId ? "present" : "missing"
@@ -118,7 +119,7 @@ router.post("/", async (req, res) => {
       if (twilioResult.skipped) {
         console.log("[provisioning] Twilio assignment skipped:", twilioResult.detail);
       } else if (twilioResult.ok) {
-        console.log("[provisioning] Assigned", twilioResult.phone, "to", businessId);
+        console.log("[provisioning] Assigned", maskPhone(twilioResult.phone), "to", businessId);
       } else {
         console.error("[provisioning] Number assignment:", twilioResult.detail);
       }

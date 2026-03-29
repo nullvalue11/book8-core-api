@@ -3,8 +3,8 @@ import mongoose from "mongoose";
 
 const ScheduleSchema = new mongoose.Schema(
   {
-    businessId: { type: String, required: true, unique: true, index: true },
-    timezone: { type: String, required: true, default: "America/Toronto" },
+    businessId: { type: String, required: true, unique: true, index: true, maxlength: 128, trim: true },
+    timezone: { type: String, required: true, default: "America/Toronto", maxlength: 64, trim: true },
     weeklyHours: {
       type: mongoose.Schema.Types.Mixed,
       required: true,
