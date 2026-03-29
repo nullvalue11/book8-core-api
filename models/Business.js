@@ -75,6 +75,10 @@ const BusinessSchema = new mongoose.Schema(
     // "pending" = hasn't completed setup yet
     numberSetupMethod: { type: String, enum: ["forwarding", "direct", "pending"], default: "pending" },
 
+    /** Dashboard phone setup wizard: new number vs call forwarding */
+    phoneSetup: { type: String, enum: ["new", "forward"], default: "new" },
+    existingBusinessNumber: { type: String },
+
     greetingOverride: { type: String },
 
     primaryLanguage: { type: String, default: "en" },

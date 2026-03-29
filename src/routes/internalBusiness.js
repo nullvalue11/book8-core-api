@@ -18,7 +18,9 @@ router.post("/update-calendar", async (req, res) => {
       primaryLanguage,
       multilingualEnabled,
       supportedLanguages,
-      plan: bodyPlan
+      plan: bodyPlan,
+      phoneSetup,
+      existingBusinessNumber
     } = req.body || {};
 
     if (!businessId) {
@@ -81,6 +83,17 @@ router.post("/update-calendar", async (req, res) => {
       }
     }
 
+    if (phoneSetup === "new" || phoneSetup === "forward") {
+      update.phoneSetup = phoneSetup;
+    }
+    if (existingBusinessNumber !== undefined) {
+      if (existingBusinessNumber === null) {
+        update.existingBusinessNumber = null;
+      } else if (typeof existingBusinessNumber === "string") {
+        update.existingBusinessNumber = existingBusinessNumber.trim();
+      }
+    }
+
     const result = await Business.findOneAndUpdate(
       { $or: [{ id: businessId }, { businessId: businessId }] },
       { $set: update },
@@ -92,7 +105,9 @@ router.post("/update-calendar", async (req, res) => {
       calendarProvider,
       calendarConnected,
       timezone: update.timezone,
-      plan: update.plan
+      plan: update.plan,
+      phoneSetup: update.phoneSetup,
+      hasExistingBusinessNumber: update.existingBusinessNumber != null && update.existingBusinessNumber !== ""
     });
 
     return res.json({ ok: true, businessId });
