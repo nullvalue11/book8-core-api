@@ -16,7 +16,8 @@ import { ensureBookableDefaultsForBusiness } from "./services/bookableBootstrap.
 import { listCategories } from "./services/categoryDefaults.js";
 import { sendSMS, formatReminderSMS } from "./services/smsService.js";
 import { sendReminder as sendReminderEmail } from "./services/emailService.js";
-import { requireInternalAuth } from "./src/middleware/internalAuth.js";
+import { requireInternalAuth, isInternalCoreApiRequest } from "./src/middleware/internalAuth.js";
+import { strictLimiter } from "./src/middleware/strictLimiter.js";
 import { getPlanLimits, isFeatureAllowed } from "./services/planLimits.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
@@ -113,6 +114,22 @@ const requireInternalSecretOrApiKey = (req, res, next) => {
   });
 };
 
+/** Public booking / widget: no email, phones, Stripe, plan, etc. */
+function toPublicBusinessPayload(business) {
+  const id = business.id ?? business.businessId;
+  return {
+    _id: business._id,
+    id,
+    businessId: business.businessId ?? id,
+    name: business.name,
+    handle: business.handle,
+    category: business.category,
+    timezone: business.timezone,
+    primaryLanguage: business.primaryLanguage,
+    multilingualEnabled: business.multilingualEnabled
+  };
+}
+
 /** book8-ai sends forward|dedicated; schema uses forwarding|direct */
 function mapNumberSetupMethodForSchema(raw) {
   if (raw == null || raw === "") return undefined;
@@ -157,7 +174,7 @@ app.get("/health", (req, res) => {
 });
 
 // ---------- RESOLVE BUSINESS BY PHONE NUMBER ----------
-app.get("/api/resolve", async (req, res) => {
+app.get("/api/resolve", strictLimiter, requireInternalAuth, async (req, res) => {
   try {
     const { to } = req.query;
 
@@ -565,7 +582,7 @@ app.put("/api/businesses/:id/schedule", requireApiKey, async (req, res) => {
 });
 
 // ---------- GET BUSINESS BY ID ----------
-app.get("/api/businesses/:id", async (req, res) => {
+app.get("/api/businesses/:id", strictLimiter, async (req, res) => {
   try {
     const id = req.params.id;
     const resolved = await findBusinessByParam(id);
@@ -575,6 +592,14 @@ app.get("/api/businesses/:id", async (req, res) => {
     }
 
     const { business } = resolved;
+
+    if (!isInternalCoreApiRequest(req)) {
+      return res.json({
+        ok: true,
+        business: toPublicBusinessPayload(business)
+      });
+    }
+
     const limits = getPlanLimits(business.plan);
     res.json({ ok: true, business: { ...business }, planLimits: limits });
   } catch (err) {
@@ -788,7 +813,7 @@ app.get("/api/categories", (req, res) => {
 });
 
 // ---------- LIST BUSINESSES (optional helper) ----------
-app.get("/api/businesses", async (req, res) => {
+app.get("/api/businesses", strictLimiter, requireInternalAuth, async (req, res) => {
   try {
     const { category } = req.query;
     const filter = {};
@@ -882,9 +907,13 @@ app.use("/api/elevenlabs", elevenLabsWebhookRouter);
 // ---------- CRON: Send appointment reminders ----------
 app.get("/api/cron/send-reminders", async (req, res) => {
   try {
-    const secret = req.query.secret;
+    const authHeader = req.headers["authorization"];
+    const token =
+      authHeader && typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : null;
     const expectedSecret = process.env.CRON_SECRET;
-    if (!expectedSecret || secret !== expectedSecret) {
+    if (!expectedSecret || !token || token !== expectedSecret) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 
@@ -1153,9 +1182,13 @@ app.get("/api/cron/send-reminders", async (req, res) => {
 // ---------- CRON: Replenish Twilio number pool ----------
 app.get("/api/cron/replenish-pool", async (req, res) => {
   try {
-    const secret = req.query.secret;
+    const authHeader = req.headers["authorization"];
+    const token =
+      authHeader && typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : null;
     const expectedSecret = process.env.CRON_SECRET;
-    if (!expectedSecret || secret !== expectedSecret) {
+    if (!expectedSecret || !token || token !== expectedSecret) {
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
 

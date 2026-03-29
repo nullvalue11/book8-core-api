@@ -1,4 +1,13 @@
 // src/middleware/internalAuth.js
+
+/** True when caller presents the same secret {@link requireInternalAuth} expects (no response sent). */
+export function isInternalCoreApiRequest(req) {
+  const authHeader = req.headers["x-internal-secret"] || req.headers["x-book8-internal-secret"];
+  const expectedSecret =
+    process.env.CORE_API_INTERNAL_SECRET || process.env.INTERNAL_API_SECRET;
+  return !!(expectedSecret && authHeader && authHeader === expectedSecret);
+}
+
 export const requireInternalAuth = (req, res, next) => {
   // Support both header names (older code uses x-book8-internal-secret; some callers use x-internal-secret)
   const authHeader = req.headers["x-internal-secret"] || req.headers["x-book8-internal-secret"];

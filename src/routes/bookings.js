@@ -1,5 +1,6 @@
 // src/routes/bookings.js
 import express from "express";
+import { strictLimiter } from "../middleware/strictLimiter.js";
 import { createBooking } from "../../services/bookingService.js";
 import { Booking } from "../../models/Booking.js";
 import {
@@ -15,7 +16,7 @@ const router = express.Router();
 
 // GET /api/bookings?businessId=xxx
 // Returns bookings for a business, sorted by slot start time
-router.get("/", async (req, res) => {
+router.get("/", strictLimiter, async (req, res) => {
   try {
     const { businessId, status, limit: limitParam } = req.query;
 

@@ -8,6 +8,29 @@ import { isFeatureAllowed } from "../config/plans.js";
 
 const router = express.Router();
 
+function assertElevenLabsWebhookAuth(req, res) {
+  const authSecret = process.env.ELEVENLABS_WEBHOOK_SECRET;
+  if (!authSecret) {
+    console.error(
+      "[elevenlabs-webhook] ELEVENLABS_WEBHOOK_SECRET is not configured — rejecting webhook"
+    );
+    res.status(503).json({ error: "Webhook auth not configured" });
+    return false;
+  }
+  const providedSecret =
+    req.headers["x-book8-webhook-secret"] ||
+    (typeof req.headers["authorization"] === "string" &&
+    req.headers["authorization"].startsWith("Bearer ")
+      ? req.headers["authorization"].slice(7)
+      : "");
+  if (!providedSecret || providedSecret !== authSecret) {
+    console.warn("[elevenlabs-webhook] Auth failed — invalid or missing secret");
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+
 function languageDynamicVarsFromBusiness(business) {
   if (!business) {
     return { primary_language: "en", multilingual_enabled: "true" };
@@ -295,6 +318,8 @@ router.post("/conversation-init", async (req, res) => {
  * consecutive failures.
  */
 router.post("/post-call", async (req, res) => {
+  if (!assertElevenLabsWebhookAuth(req, res)) return;
+
   const startTime = Date.now();
 
   try {
