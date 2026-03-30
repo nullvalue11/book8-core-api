@@ -24,7 +24,14 @@ describe("POST /internal/execute-tool", () => {
     if (!process.env.INTERNAL_API_SECRET) process.env.INTERNAL_API_SECRET = INTERNAL_SECRET;
     await Business.findOneAndUpdate(
       { id: TEST_BUSINESS_ID },
-      { $set: { id: TEST_BUSINESS_ID, name: "Execute Tool Gym", timezone: "America/Toronto" } },
+      {
+        $set: {
+          id: TEST_BUSINESS_ID,
+          name: "Execute Tool Gym",
+          timezone: "America/Toronto",
+          plan: "growth"
+        }
+      },
       { upsert: true, new: true }
     );
     await Service.findOneAndUpdate(

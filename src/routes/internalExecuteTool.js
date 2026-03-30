@@ -8,15 +8,24 @@ import express from "express";
 import { getAvailability } from "../../services/calendarAvailability.js";
 import { createBooking } from "../../services/bookingService.js";
 import { ensureTenant } from "../../services/tenantEnsure.js";
+import { requireChannel } from "../middleware/planCheck.js";
 
 const router = express.Router();
+
+function requireVoiceForBookingTool(req, res, next) {
+  const toolName = req.body?.tool || req.body?.input?.tool;
+  if (toolName === "booking.create" || toolName === "create_booking") {
+    return requireChannel("voice")(req, res, next);
+  }
+  next();
+}
 
 /**
  * POST /internal/execute-tool
  * Body: { tool, input, requestId?, executionKey? }
  * Returns: { ok, status, tool, tenantId, requestId, executionKey, result, error }
  */
-router.post("/", async (req, res) => {
+router.post("/", requireVoiceForBookingTool, async (req, res) => {
   try {
     const { tool, input, requestId, executionKey } = req.body;
 
@@ -167,7 +176,7 @@ router.post("/", async (req, res) => {
             customer,
             slot,
             notes,
-            source,
+            source: source || "voice-agent",
             timezone,
             language
           });

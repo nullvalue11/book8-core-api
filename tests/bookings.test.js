@@ -21,7 +21,14 @@ describe("POST /api/bookings", () => {
   before(async () => {
     await Business.findOneAndUpdate(
       { id: TEST_BUSINESS_ID },
-      { $set: { id: TEST_BUSINESS_ID, name: "Test Bookings Gym", timezone: "America/Toronto" } },
+      {
+        $set: {
+          id: TEST_BUSINESS_ID,
+          name: "Test Bookings Gym",
+          timezone: "America/Toronto",
+          plan: "growth"
+        }
+      },
       { upsert: true, new: true }
     );
     await Service.findOneAndUpdate(

@@ -91,6 +91,9 @@ export function getPlanFeatures(plan) {
  * @returns {boolean|number|string|unknown}
  */
 export function isFeatureAllowed(plan, feature) {
+  if (feature === "outlookCalendar") {
+    return isCalendarProviderAllowed(plan, "outlook");
+  }
   const features = getPlanFeatures(plan);
   const v = features[feature];
   if (typeof v === "boolean") return v;

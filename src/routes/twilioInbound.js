@@ -125,6 +125,10 @@ router.post(
       }
 
       if (upper === "STATUS") {
+        if (!smsChannelOk) {
+          sendReply("To check your booking status, visit: https://www.book8.io");
+          return;
+        }
         sendReply(await getStatusReply(business, from));
         return;
       }

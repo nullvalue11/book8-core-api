@@ -2,6 +2,7 @@
 import express from "express";
 import { strictLimiter } from "../middleware/strictLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
+import { requireChannel } from "../middleware/planCheck.js";
 import { createBooking } from "../../services/bookingService.js";
 import { Booking } from "../../models/Booking.js";
 import {
@@ -14,6 +15,17 @@ import { Service } from "../../models/Service.js";
 import { sendCancellation } from "../../services/emailService.js";
 
 const router = express.Router();
+
+function requireBookingChannelBySource(req, res, next) {
+  const source = req.body?.source || req.body?.input?.source;
+  if (source === "voice-agent" || source === "voice") {
+    return requireChannel("voice")(req, res, next);
+  }
+  if (source === "sms") {
+    return requireChannel("sms")(req, res, next);
+  }
+  next();
+}
 
 /** Calendar + cancellation email after a booking is marked cancelled (fire-and-forget for async I/O). */
 async function applyCancelSideEffects(booking) {
@@ -104,7 +116,7 @@ router.get("/", strictLimiter, async (req, res) => {
 });
 
 // POST /api/bookings
-router.post("/", strictLimiter, async (req, res) => {
+router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) => {
   try {
     const { businessId, serviceId, customer, slot, notes, source, language } = req.body;
 

@@ -147,7 +147,7 @@ export async function createBooking(input) {
       timezone
     },
     status: "confirmed",
-    source: source || "voice-agent",
+    source: source || "web",
     language:
       typeof inputLanguage === "string" && inputLanguage.trim()
         ? inputLanguage.trim()

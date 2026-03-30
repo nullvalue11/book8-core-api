@@ -1,14 +1,27 @@
 // src/routes/internalBusiness.js
 import express from "express";
 import { Business } from "../../models/Business.js";
-import { isCalendarProviderAllowed } from "../config/plans.js";
+import { requireFeature } from "../middleware/planCheck.js";
 
 const router = express.Router();
 
 const VALID_PLANS = new Set(["starter", "growth", "enterprise"]);
 
+function planGatesForUpdateCalendar(req, res, next) {
+  const { calendarProvider, multilingualEnabled } = req.body || {};
+  const providerLc = calendarProvider ? String(calendarProvider).toLowerCase() : "";
+  const connectingOutlook = providerLc === "microsoft" || providerLc === "outlook";
+  if (connectingOutlook) {
+    return requireFeature("outlookCalendar")(req, res, next);
+  }
+  if (typeof multilingualEnabled === "boolean" && multilingualEnabled === true) {
+    return requireFeature("multilingual")(req, res, next);
+  }
+  next();
+}
+
 // POST /internal/business/update-calendar
-router.post("/update-calendar", async (req, res) => {
+router.post("/update-calendar", planGatesForUpdateCalendar, async (req, res) => {
   try {
     const {
       businessId,
@@ -36,20 +49,6 @@ router.post("/update-calendar", async (req, res) => {
     }
 
     const provider = calendarProvider || null;
-    const providerLc = provider ? String(provider).toLowerCase() : "";
-    const connectingOutlook =
-      providerLc === "microsoft" || providerLc === "outlook";
-
-    if (connectingOutlook) {
-      const plan = existing.plan || "starter";
-      if (!isCalendarProviderAllowed(plan, "outlook")) {
-        return res.status(403).json({
-          ok: false,
-          error: "Outlook calendar is available on Growth and Enterprise plans.",
-          upgrade: true
-        });
-      }
-    }
 
     const update = {
       calendarProvider: provider,
