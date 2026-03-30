@@ -1282,6 +1282,15 @@ app.use("/internal/twilio-pool", requireInternalAuth, twilioPoolRouter);
 // ---------- START SERVER ----------
 // Bind port first so Render's port scan succeeds; then connect to MongoDB.
 if (process.env.NODE_ENV !== "test") {
+  const requireInitToken =
+    process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+  if (requireInitToken && !process.env.ELEVENLABS_INIT_TOKEN) {
+    console.error(
+      "[book8-core-api] ELEVENLABS_INIT_TOKEN is required (ElevenLabs conversation-init webhook URL path)"
+    );
+    process.exit(1);
+  }
+
   app.listen(PORT, () => {
     console.log(`[book8-core-api] Listening on port ${PORT}`);
     mongoose

@@ -35,12 +35,42 @@ function assertElevenLabsWebhookAuth(req, res) {
 
 function languageDynamicVarsFromBusiness(business) {
   if (!business) {
-    return { primary_language: "en", multilingual_enabled: "true" };
+    return { primary_language: "en", multilingual_enabled: true };
   }
   return {
     primary_language: business.primaryLanguage || "en",
-    multilingual_enabled: business.multilingualEnabled !== false ? "true" : "false"
+    multilingual_enabled: business.multilingualEnabled !== false
   };
+}
+
+/** ElevenLabs sends caller_id, called_number, agent_id, call_sid — accept common aliases. */
+function parseConversationInitBody(body) {
+  const b = body && typeof body === "object" ? body : {};
+  return {
+    caller_id:
+      b.caller_id ??
+      b.callerId ??
+      b.from_number ??
+      b.from ??
+      b.phone_number,
+    agent_id: b.agent_id ?? b.agentId,
+    called_number:
+      b.called_number ?? b.calledNumber ?? b.to_number ?? b.to ?? b.called ?? b.dialed_number ?? b.DialedNumber,
+    call_sid: b.call_sid ?? b.callSid
+  };
+}
+
+/** Optional JSON merge for agent-defined dynamic variables (see ElevenLabs docs — all defined vars must be sent). */
+function extraDynamicVariableDefaults() {
+  const raw = process.env.ELEVENLABS_DYNAMIC_VARIABLE_DEFAULTS;
+  if (!raw || typeof raw !== "string") return {};
+  try {
+    const o = JSON.parse(raw);
+    return o && typeof o === "object" && !Array.isArray(o) ? o : {};
+  } catch {
+    console.warn("[elevenlabs-webhook] ELEVENLABS_DYNAMIC_VARIABLE_DEFAULTS is not valid JSON — ignoring");
+    return {};
+  }
 }
 
 /**
@@ -71,10 +101,11 @@ function extractDetectedLanguageFromPostCallData(data) {
 }
 
 /**
- * POST /api/elevenlabs/conversation-init
+ * POST /api/elevenlabs/conversation-init/:token
  *
  * ElevenLabs Conversation Initiation Client Data Webhook.
  * Called when an inbound Twilio call arrives at the ElevenLabs agent.
+ * Auth: path segment must match ELEVENLABS_INIT_TOKEN (ElevenLabs cannot send custom headers here).
  *
  * Receives: { caller_id, agent_id, called_number, call_sid }
  * Returns:  { type, dynamic_variables, conversation_config_override }
@@ -82,13 +113,27 @@ function extractDetectedLanguageFromPostCallData(data) {
  * This is what makes the voice agent multi-tenant — one ElevenLabs agent
  * serves all businesses by receiving per-call context from this webhook.
  */
-router.post("/conversation-init", async (req, res) => {
+router.post("/conversation-init/:token", async (req, res) => {
   const startTime = Date.now();
 
   try {
-    if (!assertElevenLabsWebhookAuth(req, res)) return;
+    const { token } = req.params;
+    const expectedToken = process.env.ELEVENLABS_INIT_TOKEN;
 
-    const { caller_id, agent_id, called_number, call_sid } = req.body;
+    if (!expectedToken) {
+      console.error(
+        "[elevenlabs-webhook] ELEVENLABS_INIT_TOKEN is not configured — rejecting conversation-init webhook"
+      );
+      return res.status(503).json({ error: "Webhook auth not configured" });
+    }
+
+    if (!safeCompare(token, expectedToken)) {
+      console.warn("[ELEVENLABS] Invalid conversation-init token");
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const dynamicExtras = extraDynamicVariableDefaults();
+    const { caller_id, agent_id, called_number, call_sid } = parseConversationInitBody(req.body);
 
     console.log("[elevenlabs-webhook] Conversation init request:", {
       caller_id: maskPhone(caller_id),
@@ -117,6 +162,7 @@ router.post("/conversation-init", async (req, res) => {
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
+          ...dynamicExtras,
           business_name: "Book8",
           business_id: "unknown",
           business_category: "general",
@@ -147,6 +193,7 @@ router.post("/conversation-init", async (req, res) => {
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
+          ...dynamicExtras,
           business_name: businessName,
           business_id: businessId,
           services_list: "",
@@ -201,32 +248,36 @@ router.post("/conversation-init", async (req, res) => {
     // Format schedule as a spoken-friendly string
     let businessHours = "Monday to Friday, 9 AM to 5 PM";
     if (schedule && schedule.weeklyHours) {
-      const days = [];
-      const dayNames = {
-        monday: "Monday",
-        tuesday: "Tuesday",
-        wednesday: "Wednesday",
-        thursday: "Thursday",
-        friday: "Friday",
-        saturday: "Saturday",
-        sunday: "Sunday"
-      };
+      try {
+        const days = [];
+        const dayNames = {
+          monday: "Monday",
+          tuesday: "Tuesday",
+          wednesday: "Wednesday",
+          thursday: "Thursday",
+          friday: "Friday",
+          saturday: "Saturday",
+          sunday: "Sunday"
+        };
 
-      for (const [day, blocks] of Object.entries(schedule.weeklyHours)) {
-        if (Array.isArray(blocks) && blocks.length > 0) {
-          const timeRanges = blocks
-            .map((b) => {
-              const startFormatted = formatTime(b.start);
-              const endFormatted = formatTime(b.end);
-              return `${startFormatted} to ${endFormatted}`;
-            })
-            .join(", ");
-          days.push(`${dayNames[day] || day}: ${timeRanges}`);
+        for (const [day, blocks] of Object.entries(schedule.weeklyHours)) {
+          if (Array.isArray(blocks) && blocks.length > 0) {
+            const timeRanges = blocks
+              .map((blk) => {
+                const startFormatted = formatTime(blk?.start);
+                const endFormatted = formatTime(blk?.end);
+                return `${startFormatted} to ${endFormatted}`;
+              })
+              .join(", ");
+            days.push(`${dayNames[day] || day}: ${timeRanges}`);
+          }
         }
-      }
 
-      if (days.length > 0) {
-        businessHours = days.join(". ");
+        if (days.length > 0) {
+          businessHours = days.join(". ");
+        }
+      } catch (schedErr) {
+        console.error("[elevenlabs-webhook] Error formatting schedule:", schedErr);
       }
     }
 
@@ -254,6 +305,7 @@ router.post("/conversation-init", async (req, res) => {
     return res.json({
       type: "conversation_initiation_client_data",
       dynamic_variables: {
+        ...dynamicExtras,
         business_name: businessName,
         business_id: businessId,
         business_category: business.category || "general",
@@ -277,9 +329,11 @@ router.post("/conversation-init", async (req, res) => {
 
     // Return generic defaults on error — don't fail the call
     const todayIsoErr = new Date().toISOString().slice(0, 10);
+    const parsed = parseConversationInitBody(req.body);
     return res.json({
       type: "conversation_initiation_client_data",
       dynamic_variables: {
+        ...extraDynamicVariableDefaults(),
         business_name: "Book8",
         business_id: "unknown",
         business_category: "general",
@@ -287,7 +341,7 @@ router.post("/conversation-init", async (req, res) => {
         business_hours: "Monday to Friday, 9 AM to 5 PM",
         timezone: "America/Toronto",
         today_date: todayIsoErr,
-        caller_phone: req.body?.caller_id || "",
+        caller_phone: parsed.caller_id || "",
         ...languageDynamicVarsFromBusiness(null)
       },
       conversation_config_override: {
