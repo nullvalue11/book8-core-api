@@ -80,7 +80,16 @@ app.use(
     credentials: true
   })
 );
-app.use(express.json({ limit: "512kb" }));
+app.use(
+  express.json({
+    limit: "512kb",
+    verify: (req, res, buf) => {
+      if (req.originalUrl.includes("/api/elevenlabs/")) {
+        req.rawBody = buf;
+      }
+    }
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: "512kb" }));
 
 // ---------- API KEY MIDDLEWARE (for write routes) ----------

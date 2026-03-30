@@ -1,5 +1,6 @@
 // src/routes/elevenLabsWebhook.js
 import express from "express";
+import { createHmac, timingSafeEqual } from "crypto";
 import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { Schedule } from "../../models/Schedule.js";
@@ -10,26 +11,88 @@ import { maskPhone } from "../utils/maskPhone.js";
 
 const router = express.Router();
 
-function assertElevenLabsWebhookAuth(req, res) {
-  const authSecret = process.env.ELEVENLABS_WEBHOOK_SECRET;
-  if (!authSecret) {
+function parseElevenLabsSignatureHeader(header) {
+  if (header == null || header === "") return null;
+  const parts = String(header).split(",").map((s) => s.trim());
+  let t;
+  let v0;
+  for (const p of parts) {
+    if (p.startsWith("t=")) t = p.slice(2);
+    else if (p.startsWith("v0=")) v0 = p.slice(3);
+  }
+  if (!t || !v0) return null;
+  return { t, v0 };
+}
+
+/**
+ * Post-call webhooks: ElevenLabs HMAC (header `elevenlabs-signature: t={unix},v0={hex}`).
+ * Signature = HMAC-SHA256(secret, `${t}.${rawBodyString}`). Must use raw bytes (see express.json verify in index.js).
+ */
+function assertElevenLabsPostCallWebhookAuth(req, res) {
+  const secret =
+    process.env.ELEVENLABS_WEBHOOK_SECRET || process.env.ELEVENLABS_POSTCALL_WEBHOOK_SECRET;
+  if (!secret) {
     console.error(
-      "[elevenlabs-webhook] ELEVENLABS_WEBHOOK_SECRET is not configured — rejecting webhook"
+      "[elevenlabs-webhook] ELEVENLABS_WEBHOOK_SECRET is not configured — rejecting post-call webhook"
     );
     res.status(503).json({ error: "Webhook auth not configured" });
     return false;
   }
-  const providedSecret =
-    req.headers["x-book8-webhook-secret"] ||
-    (typeof req.headers["authorization"] === "string" &&
-    req.headers["authorization"].startsWith("Bearer ")
-      ? req.headers["authorization"].slice(7)
-      : "");
-  if (!providedSecret || !safeCompare(providedSecret, authSecret)) {
-    console.warn("[elevenlabs-webhook] Auth failed — invalid or missing secret");
+
+  const sigHeader =
+    req.headers["elevenlabs-signature"] ||
+    req.headers["ElevenLabs-Signature"] ||
+    req.headers["x-elevenlabs-signature"];
+
+  if (!sigHeader) {
+    console.warn("[elevenlabs-webhook] Auth failed — missing elevenlabs-signature header");
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }
+
+  const rawBody = req.rawBody;
+  if (!Buffer.isBuffer(rawBody)) {
+    console.error("[elevenlabs-webhook] Post-call: raw body buffer missing for HMAC verification");
+    res.status(500).json({ error: "Internal auth error" });
+    return false;
+  }
+
+  const parsed = parseElevenLabsSignatureHeader(sigHeader);
+  if (!parsed) {
+    console.warn("[elevenlabs-webhook] Auth failed — malformed signature header");
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const tsSec = parseInt(parsed.t, 10);
+  if (Number.isNaN(tsSec) || Math.abs(nowSec - tsSec) > 30 * 60) {
+    console.warn("[elevenlabs-webhook] Auth failed — signature timestamp outside allowed window");
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+
+  const payloadStr = rawBody.toString("utf8");
+  const signedContent = `${parsed.t}.${payloadStr}`;
+  const expectedHex = createHmac("sha256", secret).update(signedContent, "utf8").digest("hex");
+
+  let ok = false;
+  try {
+    const a = Buffer.from(parsed.v0, "hex");
+    const b = Buffer.from(expectedHex, "hex");
+    if (a.length === b.length && a.length > 0) {
+      ok = timingSafeEqual(a, b);
+    }
+  } catch {
+    ok = false;
+  }
+
+  if (!ok) {
+    console.warn("[elevenlabs-webhook] Auth failed — invalid HMAC signature");
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+
   return true;
 }
 
@@ -364,7 +427,7 @@ router.post("/conversation-init/:token", async (req, res) => {
  * consecutive failures.
  */
 router.post("/post-call", async (req, res) => {
-  if (!assertElevenLabsWebhookAuth(req, res)) return;
+  if (!assertElevenLabsPostCallWebhookAuth(req, res)) return;
 
   const startTime = Date.now();
 
