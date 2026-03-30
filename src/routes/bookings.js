@@ -164,15 +164,16 @@ router.post("/", strictLimiter, async (req, res) => {
 router.post("/cancel-by-slot", strictLimiter, requireInternalAuth, async (req, res) => {
   try {
     const { businessId, slot } = req.body || {};
+    const slotStart = req.body.slot?.start || req.body.slotStart;
 
-    if (!businessId || !slot || typeof slot !== "object" || !slot.start) {
+    if (!businessId || slotStart == null || String(slotStart).trim() === "") {
       return res.status(400).json({
         ok: false,
-        error: "businessId and slot.start are required"
+        error: "businessId and slot.start (or slotStart) are required"
       });
     }
 
-    const rawStart = String(slot.start).trim();
+    const rawStart = String(slotStart).trim();
     const startMs = new Date(rawStart).getTime();
     if (Number.isNaN(startMs)) {
       return res.status(400).json({ ok: false, error: "slot.start must be a valid date/time" });
@@ -197,11 +198,12 @@ router.post("/cancel-by-slot", strictLimiter, requireInternalAuth, async (req, r
       return res.status(404).json({ ok: false, error: "Booking not found for slot" });
     }
 
-    if (slot.end) {
-      const rawEnd = String(slot.end).trim();
+    const slotEnd = slot?.end || req.body.slotEnd;
+    if (slotEnd) {
+      const rawEnd = String(slotEnd).trim();
       const endMs = new Date(rawEnd).getTime();
       if (Number.isNaN(endMs)) {
-        return res.status(400).json({ ok: false, error: "slot.end must be a valid date/time when provided" });
+        return res.status(400).json({ ok: false, error: "slot end must be a valid date/time when provided" });
       }
       const isoEnd = new Date(endMs).toISOString();
       const storedEnd = booking.slot?.end;
