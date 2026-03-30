@@ -259,12 +259,14 @@ router.post("/conversation-init/:token", async (req, res) => {
           ...dynamicExtras,
           business_name: businessName,
           business_id: businessId,
-          services_list: "",
-          business_hours: "",
+          services_list: "Not available on current plan",
+          services_json: "[]",
+          business_hours: "Not available on current plan",
           timezone: tz,
           today_date: today,
           caller_phone: caller_id || "",
-          business_category: "",
+          call_sid: call_sid || "",
+          business_category: business.category || "",
           greeting: `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`,
           ...languageDynamicVarsFromBusiness(business)
         }

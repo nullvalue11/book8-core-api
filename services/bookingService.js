@@ -112,10 +112,9 @@ export async function createBooking(input) {
 
   const slotDurationMs = new Date(slot.end) - new Date(slot.start);
   const slotDurationMinutes = Math.round(slotDurationMs / 60000);
-  if (slotDurationMinutes < service.durationMinutes) {
-    return { ok: false, error: "Slot duration is shorter than service duration" };
-  }
-  if (slotDurationMinutes > service.durationMinutes + 15) {
+  const minDuration = service.durationMinutes - 5;
+  const maxDuration = service.durationMinutes + 30;
+  if (slotDurationMinutes < minDuration || slotDurationMinutes > maxDuration) {
     return { ok: false, error: "Slot duration does not match service duration" };
   }
 

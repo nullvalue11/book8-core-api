@@ -2,7 +2,7 @@ import { Business } from "../../models/Business.js";
 import { isFeatureAllowed, isChannelAllowed } from "../config/plans.js";
 
 /**
- * Require a plan feature (e.g. aiPhoneAgent). Skips check if businessId is missing.
+ * Require a plan feature (e.g. aiPhoneAgent).
  * @param {string} featureName - key on plan features
  */
 export function requireFeature(featureName) {
@@ -13,7 +13,7 @@ export function requireFeature(featureName) {
       req.body?.input?.businessId;
 
     if (!businessId) {
-      return next();
+      return res.status(400).json({ ok: false, error: "businessId is required" });
     }
 
     try {
@@ -22,7 +22,7 @@ export function requireFeature(featureName) {
       }).lean();
 
       if (!business) {
-        return next();
+        return res.status(404).json({ ok: false, error: "Business not found" });
       }
 
       const plan = business.plan || "starter";
@@ -42,8 +42,8 @@ export function requireFeature(featureName) {
       req.businessPlan = plan;
       next();
     } catch (err) {
-      console.error("[planCheck] Error:", err);
-      next();
+      console.error("[planCheck] Error checking plan:", err.message);
+      return res.status(500).json({ ok: false, error: "Plan verification failed" });
     }
   };
 }
@@ -54,10 +54,11 @@ export function requireFeature(featureName) {
  */
 export function requireChannel(channel) {
   return async (req, res, next) => {
-    const businessId = req.params.businessId || req.body?.businessId;
+    const businessId =
+      req.params.businessId || req.body?.businessId || req.body?.input?.businessId;
 
     if (!businessId) {
-      return next();
+      return res.status(400).json({ ok: false, error: "businessId is required" });
     }
 
     try {
@@ -66,7 +67,7 @@ export function requireChannel(channel) {
       }).lean();
 
       if (!business) {
-        return next();
+        return res.status(404).json({ ok: false, error: "Business not found" });
       }
 
       const plan = business.plan || "starter";
@@ -83,7 +84,8 @@ export function requireChannel(channel) {
       req.businessPlan = plan;
       next();
     } catch (err) {
-      next();
+      console.error("[planCheck] Error checking plan:", err.message);
+      return res.status(500).json({ ok: false, error: "Plan verification failed" });
     }
   };
 }

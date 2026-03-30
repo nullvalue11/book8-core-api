@@ -1,6 +1,7 @@
 // src/routes/bookings.js
 import express from "express";
 import { strictLimiter } from "../middleware/strictLimiter.js";
+import { requireInternalAuth } from "../middleware/internalAuth.js";
 import { createBooking } from "../../services/bookingService.js";
 import { Booking } from "../../models/Booking.js";
 import {
@@ -96,8 +97,8 @@ router.post("/", strictLimiter, async (req, res) => {
   }
 });
 
-// PATCH /api/bookings/:bookingId/cancel
-router.patch("/:bookingId/cancel", async (req, res) => {
+// PATCH /api/bookings/:bookingId/cancel (dashboard/ops — internal secret required)
+router.patch("/:bookingId/cancel", strictLimiter, requireInternalAuth, async (req, res) => {
   try {
     const { bookingId } = req.params;
     const { reason } = req.body || {};

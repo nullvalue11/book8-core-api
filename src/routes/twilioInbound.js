@@ -98,6 +98,9 @@ router.post(
         business.handle || business.id || "book"
       )}`;
 
+      // NOTE: CANCEL and CANCEL BOOKING are allowed regardless of plan tier.
+      // A customer may have booked while the business was on a higher plan.
+      // Cancellation should always be available.
       // --- Legacy exact cancel phrase (kept for existing flows) ---
       if (upper === "CANCEL BOOKING") {
         const { reply } = await cancelUpcomingBookingForPhone(business, from);
@@ -134,6 +137,12 @@ router.post(
 
       // --- Two-way SMS booking (state machine by default; LLM if USE_LLM_SMS + OPENAI_API_KEY) ---
       if (rawBody.length > 0) {
+        if (!smsChannelOk) {
+          sendReply(`Thanks for reaching out! SMS booking isn't available on this business's current plan. Book online at https://book8.io/b/${encodeURIComponent(
+            business.handle || business.id || "book"
+          )}`);
+          return;
+        }
         try {
           const reply = await handleSmsBookingMessage(business, from, rawBody);
           sendReply(reply);
