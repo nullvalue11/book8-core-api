@@ -14,9 +14,15 @@ import { ensureBookableDefaultsForBusiness } from "../services/bookableBootstrap
 
 const TEST_BUSINESS_ID = "test-services-schedule-gym";
 const API_KEY = process.env.BOOK8_CORE_API_KEY || "test-api-key";
+const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET || "test-internal-secret";
 
 function apiKeyHeader(req) {
   req.set("x-book8-api-key", API_KEY);
+  return req;
+}
+
+function internalAuth(req) {
+  req.set("x-book8-internal-secret", INTERNAL_SECRET);
   return req;
 }
 
@@ -91,6 +97,34 @@ describe("Services and Schedule endpoints", () => {
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.ok, true);
     assert.strictEqual(res.body.business.assignedTwilioNumber, "+15551234567");
+  });
+
+  it("PATCH /api/businesses/:id/services/:serviceId returns 401 without internal auth", async () => {
+    const res = await request(app)
+      .patch(`/api/businesses/${TEST_BUSINESS_ID}/services/personal-training-60`)
+      .send({ price: 1 });
+    assert.strictEqual(res.status, 401);
+  });
+
+  it("PATCH /api/businesses/:id/services/:serviceId updates with internal auth", async () => {
+    const res = await internalAuth(
+      request(app)
+        .patch(`/api/businesses/${TEST_BUSINESS_ID}/services/personal-training-60`)
+        .send({
+          name: "Personal Training (updated)",
+          durationMinutes: 90,
+          price: 99,
+          currency: "cad",
+          active: true
+        })
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.strictEqual(res.body.service.name, "Personal Training (updated)");
+    assert.strictEqual(res.body.service.durationMinutes, 90);
+    assert.strictEqual(res.body.service.price, 99);
+    assert.strictEqual(res.body.service.currency, "CAD");
+    assert.strictEqual(res.body.service.active, true);
   });
 
   it("GET /api/businesses/:id/schedule returns 404 when business not found", async () => {
