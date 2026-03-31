@@ -25,7 +25,14 @@ describe("Services and Schedule endpoints", () => {
     if (!process.env.BOOK8_CORE_API_KEY) process.env.BOOK8_CORE_API_KEY = API_KEY;
     await Business.findOneAndUpdate(
       { id: TEST_BUSINESS_ID },
-      { $set: { id: TEST_BUSINESS_ID, name: "Test Services Gym", timezone: "America/Toronto" } },
+      {
+        $set: {
+          id: TEST_BUSINESS_ID,
+          name: "Test Services Gym",
+          timezone: "America/Toronto",
+          assignedTwilioNumber: "+15551234567"
+        }
+      },
       { upsert: true, new: true }
     );
   });
@@ -56,7 +63,9 @@ describe("Services and Schedule endpoints", () => {
         serviceId: "personal-training-60",
         name: "Personal Training",
         durationMinutes: 60,
-        active: true
+        active: true,
+        price: 75,
+        currency: "usd"
       })
     );
     assert.strictEqual(res.status, 201);
@@ -64,6 +73,24 @@ describe("Services and Schedule endpoints", () => {
     assert.strictEqual(res.body.service.serviceId, "personal-training-60");
     assert.strictEqual(res.body.service.name, "Personal Training");
     assert.strictEqual(res.body.service.durationMinutes, 60);
+    assert.strictEqual(res.body.service.price, 75);
+    assert.strictEqual(res.body.service.currency, "USD");
+  });
+
+  it("GET /api/businesses/:id/services returns price and currency", async () => {
+    const res = await request(app).get(`/api/businesses/${TEST_BUSINESS_ID}/services`);
+    assert.strictEqual(res.status, 200);
+    const svc = res.body.services.find((s) => s.serviceId === "personal-training-60");
+    assert.ok(svc);
+    assert.strictEqual(svc.price, 75);
+    assert.strictEqual(svc.currency, "USD");
+  });
+
+  it("GET /api/businesses/:id public payload includes assignedTwilioNumber", async () => {
+    const res = await request(app).get(`/api/businesses/${TEST_BUSINESS_ID}`);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.strictEqual(res.body.business.assignedTwilioNumber, "+15551234567");
   });
 
   it("GET /api/businesses/:id/schedule returns 404 when business not found", async () => {

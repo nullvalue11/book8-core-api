@@ -158,7 +158,8 @@ function toPublicBusinessPayload(business) {
     category: business.category,
     timezone: business.timezone,
     primaryLanguage: business.primaryLanguage,
-    multilingualEnabled: business.multilingualEnabled
+    multilingualEnabled: business.multilingualEnabled,
+    assignedTwilioNumber: business.assignedTwilioNumber || null
   };
 }
 
@@ -480,7 +481,7 @@ app.get("/api/businesses/:id/services", async (req, res) => {
 app.post("/api/businesses/:id/services", requireApiKey, async (req, res) => {
   try {
     const { id } = req.params;
-    const { serviceId, name, durationMinutes, active } = req.body;
+    const { serviceId, name, durationMinutes, active, price, currency } = req.body;
     const resolved = await findBusinessByParam(id);
     if (!resolved) {
       return res.status(404).json({ ok: false, error: "Business not found" });
@@ -502,13 +503,21 @@ app.post("/api/businesses/:id/services", requireApiKey, async (req, res) => {
         });
       }
     }
-    const doc = await Service.create({
+    const createDoc = {
       businessId,
       serviceId,
       name,
       durationMinutes: Number(durationMinutes),
       active: active !== false
-    });
+    };
+    if (price !== undefined && price !== null && price !== "") {
+      const n = Number(price);
+      if (!Number.isNaN(n)) createDoc.price = n;
+    }
+    if (currency !== undefined && currency !== null && String(currency).trim() !== "") {
+      createDoc.currency = String(currency).trim().toUpperCase().slice(0, 3);
+    }
+    const doc = await Service.create(createDoc);
     res.status(201).json({ ok: true, businessId, service: doc.toObject() });
   } catch (err) {
     if (err.code === 11000) {
@@ -526,7 +535,7 @@ app.post("/api/businesses/:id/services", requireApiKey, async (req, res) => {
 app.put("/api/businesses/:id/services/:serviceId", requireApiKey, async (req, res) => {
   try {
     const { id, serviceId } = req.params;
-    const { name, durationMinutes, active } = req.body;
+    const { name, durationMinutes, active, price, currency } = req.body;
     const resolved = await findBusinessByParam(id);
     if (!resolved) {
       return res.status(404).json({ ok: false, error: "Business not found" });
@@ -536,8 +545,22 @@ app.put("/api/businesses/:id/services/:serviceId", requireApiKey, async (req, re
     if (name !== undefined) update.name = name;
     if (durationMinutes !== undefined) update.durationMinutes = Number(durationMinutes);
     if (active !== undefined) update.active = !!active;
+    if (price !== undefined) {
+      if (price === null || price === "") update.price = null;
+      else {
+        const n = Number(price);
+        if (!Number.isNaN(n)) update.price = n;
+      }
+    }
+    if (currency !== undefined) {
+      if (currency === null || currency === "") update.currency = "USD";
+      else update.currency = String(currency).trim().toUpperCase().slice(0, 3);
+    }
     if (Object.keys(update).length === 0) {
-      return res.status(400).json({ ok: false, error: "At least one of name, durationMinutes, or active is required" });
+      return res.status(400).json({
+        ok: false,
+        error: "At least one of name, durationMinutes, active, price, or currency is required"
+      });
     }
     const service = await Service.findOneAndUpdate(
       { businessId, serviceId },

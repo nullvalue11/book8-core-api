@@ -7,6 +7,8 @@ const ServiceSchema = new mongoose.Schema(
     serviceId: { type: String, required: true, maxlength: 128, trim: true },
     name: { type: String, required: true, maxlength: 200, trim: true },
     durationMinutes: { type: Number, required: true },
+    price: { type: Number, default: null, min: 0 },
+    currency: { type: String, default: "USD", maxlength: 3, trim: true, uppercase: true },
     active: { type: Boolean, default: true }
   },
   { timestamps: true }

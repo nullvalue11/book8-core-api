@@ -84,7 +84,7 @@ export function formatConfirmationSMS({ serviceName, businessName, date, time, c
     `Add to calendar: check your confirmation email for Google, Outlook, or Apple links.`,
     `See you then${customerName ? `, ${customerName}` : ""}!`,
     "",
-    `Need to cancel? Reply CANCEL BOOKING.`
+    `Need to cancel? Reply CANCEL BOOKING to this number.`
   ].join("\n");
 }
 

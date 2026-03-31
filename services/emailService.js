@@ -35,6 +35,13 @@ function resolveEmailTimezone(booking, business) {
 /**
  * Format slot start in business timezone for display (not UTC / server local).
  */
+function bookingCancelFooterText(business) {
+  const businessPhone = business?.assignedTwilioNumber;
+  return businessPhone
+    ? `Need to cancel? Text CANCEL BOOKING to ${businessPhone}, or call us to reschedule.`
+    : `Need to cancel? Visit your confirmation email link to cancel or reschedule.`;
+}
+
 function formatDateAndTime(slotStart, timezone) {
   const tz = timezone || "America/Toronto";
   const d = new Date(slotStart);
@@ -119,7 +126,7 @@ export async function sendConfirmation(booking, business, service, customer) {
       <a href="${outlookUrl}" style="${btn}">📅 Outlook</a>
       <a href="${icsDataUrl}" style="${btn}" download="book8-appointment.ics">📅 Apple / Download .ics</a>
     </div>
-    <p style="margin:0 0 0 0;color:#666;font-size:14px;">Need to cancel? Text CANCEL BOOKING to your booking number, or call us to reschedule.</p>
+    <p style="margin:0 0 0 0;color:#666;font-size:14px;">${escapeHtml(bookingCancelFooterText(business))}</p>
   `;
 
   try {
@@ -175,7 +182,7 @@ export async function sendReminder(booking, business, service, customer, type) {
     <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
     <p style="margin:0 0 16px 0;color:#2563eb;font-weight:600;">${headerText}</p>
     <p style="margin:0 0 16px 0;">${escapeHtml(bodyText)}</p>
-    <p style="margin:0 0 0 0;color:#666;font-size:14px;">Need to cancel? Text CANCEL BOOKING to your booking number, or call us to reschedule.</p>
+    <p style="margin:0 0 0 0;color:#666;font-size:14px;">${escapeHtml(bookingCancelFooterText(business))}</p>
   `;
 
   try {
