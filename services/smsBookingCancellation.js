@@ -12,25 +12,8 @@ import {
   resolveCalendarProviderForBusiness,
   updateGcalEvent
 } from "./gcalService.js";
-
-function formatSlotInTz(slotStart, timezone) {
-  const tz = timezone || "America/Toronto";
-  const d = new Date(slotStart);
-  const dateStr = d.toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    timeZone: tz
-  });
-  const timeStr = d.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: tz
-  });
-  return { dateStr, timeStr };
-}
+import { formatSlotDateTime } from "./localeFormat.js";
+import { getSmsTemplate } from "./templates/smsTemplates.js";
 
 export async function cancelUpcomingBookingForPhone(business, customerPhoneE164) {
   const now = new Date().toISOString();
@@ -62,7 +45,8 @@ export async function cancelUpcomingBookingForPhone(business, customerPhoneE164)
   );
 
   const tz = business.timezone || "America/Toronto";
-  const { dateStr, timeStr } = formatSlotInTz(booking.slot.start, tz);
+  const lang = booking.language || "en";
+  const { dateStr, timeStr } = formatSlotDateTime(booking.slot.start, tz, lang);
   let serviceDisplay = booking.serviceId || "Appointment";
   try {
     const svc = await Service.findOne({ businessId: business.id, serviceId: booking.serviceId }).lean();
@@ -70,8 +54,14 @@ export async function cancelUpcomingBookingForPhone(business, customerPhoneE164)
   } catch {
     // keep
   }
-  const businessName = business.name || business.id;
-  const replyMsg = `Your ${serviceDisplay} appointment at ${businessName} on ${dateStr} at ${timeStr} has been cancelled. If you need to rebook, just call us!`;
+  const cancelTpl = getSmsTemplate(lang, "cancellation");
+  const replyMsg = cancelTpl({
+    serviceName: serviceDisplay,
+    businessName: business.name || business.id,
+    date: dateStr,
+    time: timeStr,
+    customerName: ""
+  });
 
   if (booking.customer?.email) {
     const serviceForEmail = await Service.findOne({

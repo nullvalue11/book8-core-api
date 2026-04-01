@@ -8,6 +8,7 @@ import { Booking } from "../models/Booking.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { randomBytes } from "crypto";
 import { sendSMS, formatConfirmationSMS } from "./smsService.js";
+import { formatSlotDateTime } from "./localeFormat.js";
 import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
 import { createGcalEvent, resolveCalendarProviderForBusiness } from "./gcalService.js";
 import { isFeatureAllowed } from "../src/config/plans.js";
@@ -66,8 +67,11 @@ export async function createBooking(input) {
     notes,
     source,
     timezone: inputTimezone,
-    language: inputLanguage
+    language: inputLanguageRaw,
+    lang: inputLangAlias
   } = input;
+
+  const inputLanguage = inputLanguageRaw ?? inputLangAlias;
 
   if (!businessId || !serviceId) {
     return { ok: false, error: "businessId and serviceId are required" };
@@ -150,7 +154,7 @@ export async function createBooking(input) {
     source: source || "web",
     language:
       typeof inputLanguage === "string" && inputLanguage.trim()
-        ? inputLanguage.trim()
+        ? inputLanguage.trim().toLowerCase().slice(0, 5)
         : "en",
     notes: notes || ""
   });
@@ -194,20 +198,8 @@ export async function createBooking(input) {
       }
 
       const bizTz = bizForSms?.timezone || timezone || "America/Toronto";
-      const slotDate = new Date(normStart);
-      const dateStr = slotDate.toLocaleDateString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        timeZone: bizTz
-      });
-      const timeStr = slotDate.toLocaleTimeString("en-US", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-        timeZone: bizTz
-      });
+      const smsLang = booking.language || "en";
+      const { dateStr, timeStr } = formatSlotDateTime(normStart, bizTz, smsLang);
 
       let serviceName = serviceId || "Appointment";
       try {
@@ -217,14 +209,13 @@ export async function createBooking(input) {
         // fallback to serviceId
       }
 
-      // TODO: Localize SMS confirmations based on booking.language
-      // Templates needed: fr, es, ar at minimum. For now, all confirmations sent in English.
       const smsBody = formatConfirmationSMS({
         serviceName,
         businessName: bizForSms.name || businessId,
         date: dateStr,
         time: timeStr,
-        customerName: customer.name?.split(" ")[0] || ""
+        customerName: customer.name?.split(" ")[0] || "",
+        language: smsLang
       });
 
       const smsResult = await sendSMS({

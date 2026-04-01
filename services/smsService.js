@@ -3,6 +3,7 @@
 
 import twilio from "twilio";
 import { maskPhone } from "../src/utils/maskPhone.js";
+import { getSmsTemplate } from "./templates/smsTemplates.js";
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -74,18 +75,18 @@ export async function sendSMS({ to, from, body }) {
  * @param {string} params.date - e.g. "Tuesday, March 17"
  * @param {string} params.time - e.g. "2:00 PM"
  * @param {string} params.customerName - e.g. "John"
+ * @param {string} [params.language] - ISO 639-1 booking language (en, fr, es, ar, …)
  * @returns {string}
  */
-// TODO: Localize SMS confirmations based on booking.language (see bookingService).
-// For now, all confirmations sent in English.
-export function formatConfirmationSMS({ serviceName, businessName, date, time, customerName }) {
-  return [
-    `✅ Booked! ${serviceName} on ${date} at ${time} at ${businessName}.`,
-    `Add to calendar: check your confirmation email for Google, Outlook, or Apple links.`,
-    `See you then${customerName ? `, ${customerName}` : ""}!`,
-    "",
-    `Need to cancel? Reply CANCEL BOOKING to this number.`
-  ].join("\n");
+export function formatConfirmationSMS({ serviceName, businessName, date, time, customerName, language }) {
+  const template = getSmsTemplate(language, "confirmation");
+  return template({
+    serviceName,
+    businessName,
+    date,
+    time,
+    customerName: customerName || ""
+  });
 }
 
 /**

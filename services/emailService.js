@@ -3,6 +3,13 @@
 
 import { Resend } from "resend";
 import { generateCalendarLinks } from "../utils/calendarLinks.js";
+import { formatSlotDateTime, normalizeLangCode } from "./localeFormat.js";
+import {
+  getEmailSubject,
+  getEmailHeadings,
+  getBookingCancelFooter,
+  buildCancellationEmail
+} from "./templates/emailTemplates.js";
 
 const apiKey = process.env.RESEND_API_KEY;
 const defaultFrom = "Book8 AI <noreply@book8.io>";
@@ -32,43 +39,27 @@ function resolveEmailTimezone(booking, business) {
   );
 }
 
-/**
- * Format slot start in business timezone for display (not UTC / server local).
- */
-function bookingCancelFooterText(business) {
-  const businessPhone = business?.assignedTwilioNumber;
-  return businessPhone
-    ? `Need to cancel? Text CANCEL BOOKING to ${businessPhone}, or call us to reschedule.`
-    : `Need to cancel? Visit your confirmation email link to cancel or reschedule.`;
+function formatDateAndTime(slotStart, timezone, language = "en") {
+  return formatSlotDateTime(slotStart, timezone, language);
 }
 
-function formatDateAndTime(slotStart, timezone) {
-  const tz = timezone || "America/Toronto";
-  const d = new Date(slotStart);
-  const dateStr = d.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    timeZone: tz
-  });
-  const timeStr = d.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: tz
-  });
-  return { dateStr, timeStr };
+function emailHtmlLang(lang) {
+  const c = normalizeLangCode(lang);
+  if (c === "ar") return "ar";
+  if (c === "fr") return "fr";
+  if (c === "es") return "es";
+  return "en";
 }
 
 /**
  * Base HTML layout: max-width 600px, centered, mobile-friendly.
  */
-function baseHtml(content) {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;padding:24px;">
+function baseHtml(content, { rtl = false, poweredBy = "Powered by Book8 AI", htmlLang = "en" } = {}) {
+  const dir = rtl ? " direction:rtl;text-align:right;" : "";
+  return `<!DOCTYPE html><html lang="${escapeHtml(htmlLang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;padding:24px;${dir}">
 <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
 ${content}
-<p style="margin-top:32px;font-size:12px;color:#888;">Powered by Book8 AI</p>
+<p style="margin-top:32px;font-size:12px;color:#888;">${escapeHtml(poweredBy)}</p>
 </div></body></html>`;
 }
 
@@ -82,13 +73,16 @@ ${content}
 export async function sendConfirmation(booking, business, service, customer) {
   if (!resend || !customer?.email) return;
   console.log("[emailService] Sending confirmation email to:", customer.email);
+  const lang = booking?.language || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
   const tz = resolveEmailTimezone(booking, business);
-  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, tz);
+  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, tz, lang);
   const serviceName = service?.name || booking?.serviceId || "Appointment";
   const businessName = business?.name || booking?.businessId || "Business";
   const firstName = customer?.name?.split(" ")[0] || "";
 
-  const subject = `✅ Booking Confirmed — ${serviceName} at ${businessName}`;
+  const subject = getEmailSubject(lang, businessName);
+  const headings = getEmailHeadings(lang);
   const slotStart = booking.slot?.start;
   let slotEnd = booking.slot?.end;
   if (slotStart && !slotEnd) {
@@ -116,17 +110,17 @@ export async function sendConfirmation(booking, business, service, customer) {
 
   const content = `
     <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
-    <p style="margin:0 0 16px 0;color:#22c55e;font-weight:600;">Confirmed</p>
+    <p style="margin:0 0 16px 0;color:#22c55e;font-weight:600;">${escapeHtml(headings.confirmed)}</p>
     <p style="margin:0 0 8px 0;"><strong>${escapeHtml(serviceName)}</strong></p>
     <p style="margin:0 0 16px 0;">${dateStr} at ${timeStr}</p>
-    <p style="margin:0 0 16px 0;">See you then${firstName ? `, ${escapeHtml(firstName)}` : ""}!</p>
+    <p style="margin:0 0 16px 0;">${escapeHtml(headings.seeYou)}${firstName ? `, ${escapeHtml(firstName)}` : ""}!</p>
     <div style="margin:24px 0;text-align:center;">
-      <p style="color:#94A3B8;font-size:14px;margin-bottom:12px;">Add to your calendar</p>
+      <p style="color:#94A3B8;font-size:14px;margin-bottom:12px;">${escapeHtml(headings.addCalendar)}</p>
       <a href="${googleUrl}" style="${btn}">📅 Google Calendar</a>
       <a href="${outlookUrl}" style="${btn}">📅 Outlook</a>
       <a href="${icsDataUrl}" style="${btn}" download="book8-appointment.ics">📅 Apple / Download .ics</a>
     </div>
-    <p style="margin:0 0 0 0;color:#666;font-size:14px;">${escapeHtml(bookingCancelFooterText(business))}</p>
+    <p style="margin:0 0 0 0;color:#666;font-size:14px;">${escapeHtml(getBookingCancelFooter(lang, business))}</p>
   `;
 
   try {
@@ -134,7 +128,7 @@ export async function sendConfirmation(booking, business, service, customer) {
       from: getFrom(),
       to: customer.email,
       subject,
-      html: baseHtml(content)
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
     });
     if (error) {
       console.warn("[emailService] Confirmation send failed:", error.message);
@@ -156,8 +150,11 @@ export async function sendConfirmation(booking, business, service, customer) {
  */
 export async function sendReminder(booking, business, service, customer, type) {
   if (!resend || !customer?.email) return;
+  const lang = booking?.language || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
   const tz = resolveEmailTimezone(booking, business);
-  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, tz);
+  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, tz, lang);
   const serviceName = service?.name || booking?.serviceId || "Appointment";
   const businessName = business?.name || booking?.businessId || "Business";
 
@@ -182,7 +179,7 @@ export async function sendReminder(booking, business, service, customer, type) {
     <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
     <p style="margin:0 0 16px 0;color:#2563eb;font-weight:600;">${headerText}</p>
     <p style="margin:0 0 16px 0;">${escapeHtml(bodyText)}</p>
-    <p style="margin:0 0 0 0;color:#666;font-size:14px;">${escapeHtml(bookingCancelFooterText(business))}</p>
+    <p style="margin:0 0 0 0;color:#666;font-size:14px;">${escapeHtml(getBookingCancelFooter(lang, business))}</p>
   `;
 
   try {
@@ -190,7 +187,7 @@ export async function sendReminder(booking, business, service, customer, type) {
       from: getFrom(),
       to: customer.email,
       subject,
-      html: baseHtml(content)
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
     });
     if (error) {
       console.warn("[emailService] Reminder send failed:", error.message);
@@ -211,26 +208,38 @@ export async function sendReminder(booking, business, service, customer, type) {
  */
 export async function sendCancellation(booking, business, service, customer) {
   if (!resend || !customer?.email) return;
+  const lang = booking?.language || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
   const tz = resolveEmailTimezone(booking, business);
-  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, tz);
+  const { dateStr, timeStr } = formatDateAndTime(booking.slot?.start, tz, lang);
   const serviceName = service?.name || booking?.serviceId || "Appointment";
   const businessName = business?.name || booking?.businessId || "Business";
-  const callNumber = business?.assignedTwilioNumber ? `call ${business.assignedTwilioNumber}` : "call us";
+  const serviceNameEsc = escapeHtml(serviceName);
+  const businessNameEsc = escapeHtml(businessName);
+  const parts = buildCancellationEmail(
+    lang,
+    serviceName,
+    businessName,
+    serviceNameEsc,
+    businessNameEsc,
+    dateStr,
+    timeStr,
+    business?.assignedTwilioNumber || null
+  );
 
-  const subject = `Booking Cancelled — ${serviceName} at ${businessName}`;
   const content = `
-    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
-    <p style="margin:0 0 16px 0;color:#b91c1c;font-weight:600;">Booking cancelled</p>
-    <p style="margin:0 0 8px 0;">Your <strong>${escapeHtml(serviceName)}</strong> appointment at ${escapeHtml(businessName)} on ${dateStr} at ${timeStr} has been cancelled.</p>
-    <p style="margin:0 0 0 0;color:#666;font-size:14px;">To rebook or reschedule, ${callNumber}.</p>
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${businessNameEsc}</h1>
+    <p style="margin:0 0 16px 0;color:#b91c1c;font-weight:600;">${escapeHtml(parts.title)}</p>
+    ${parts.bodyHtml}
   `;
 
   try {
     const { data, error } = await resend.emails.send({
       from: getFrom(),
       to: customer.email,
-      subject,
-      html: baseHtml(content)
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
     });
     if (error) {
       console.warn("[emailService] Cancellation send failed:", error.message);

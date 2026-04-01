@@ -28,8 +28,8 @@ const BookingSchema = new mongoose.Schema(
     slot: { type: SlotSchema, required: true },
     status: { type: String, default: "confirmed", maxlength: 32, trim: true },
     source: { type: String, default: "voice-agent", maxlength: 64, trim: true },
-    /** ISO 639-1; SMS/email may stay English until templates exist */
-    language: { type: String, default: "en", maxlength: 16, trim: true },
+    /** ISO 639-1 (e.g. en, fr, es, ar); drives SMS/email confirmation language */
+    language: { type: String, default: "en", maxlength: 5, trim: true, lowercase: true },
     notes: { type: String, maxlength: 1000, trim: true },
 
     /** Google/Outlook calendar event id from book8-ai after successful create */

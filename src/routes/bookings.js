@@ -118,7 +118,7 @@ router.get("/", strictLimiter, async (req, res) => {
 // POST /api/bookings
 router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) => {
   try {
-    const { businessId, serviceId, customer, slot, notes, source, language } = req.body;
+    const { businessId, serviceId, customer, slot, notes, source, language, lang } = req.body;
 
     if (!businessId || !serviceId) {
       return res.status(400).json({
@@ -146,7 +146,7 @@ router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) 
       slot,
       notes,
       source,
-      language
+      language: language ?? lang
     });
 
     if (!result.ok) {

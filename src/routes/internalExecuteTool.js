@@ -154,7 +154,8 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
           notes,
           source,
           timezone,
-          language
+          language,
+          lang
         } = payload;
         let customer = rawCustomer || customerName;
         if (typeof customer === "string") customer = { name: customer };
@@ -178,7 +179,7 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
             notes,
             source: source || "voice-agent",
             timezone,
-            language
+            language: language ?? lang
           });
           if (!result.ok) {
             outcome = {
