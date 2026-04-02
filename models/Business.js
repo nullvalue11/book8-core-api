@@ -41,6 +41,39 @@ const WeeklyScheduleSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const BusinessProfileAddressSchema = new mongoose.Schema(
+  {
+    street: { type: String, maxlength: 200, trim: true },
+    city: { type: String, maxlength: 120, trim: true },
+    province: { type: String, maxlength: 120, trim: true },
+    postalCode: { type: String, maxlength: 32, trim: true },
+    country: { type: String, maxlength: 120, trim: true }
+  },
+  { _id: false }
+);
+
+const BusinessProfileSocialSchema = new mongoose.Schema(
+  {
+    instagram: { type: String, maxlength: 512, trim: true },
+    facebook: { type: String, maxlength: 512, trim: true },
+    tiktok: { type: String, maxlength: 512, trim: true }
+  },
+  { _id: false }
+);
+
+/** Public-facing contact + bio for booking pages (distinct from Book8 Twilio / root onboarding fields). */
+const BusinessProfileSchema = new mongoose.Schema(
+  {
+    address: BusinessProfileAddressSchema,
+    phone: { type: String, maxlength: 32, trim: true },
+    email: { type: String, maxlength: 254, trim: true },
+    website: { type: String, maxlength: 2048, trim: true },
+    description: { type: String, maxlength: 500, trim: true },
+    socialLinks: BusinessProfileSocialSchema
+  },
+  { _id: false }
+);
+
 /** Mirrors book8-ai business.calendar — must be in schema or paths can be omitted on read/write. */
 const CalendarSchema = new mongoose.Schema(
   {
@@ -65,6 +98,9 @@ const BusinessSchema = new mongoose.Schema(
 
     phoneNumber: { type: String, index: true, unique: true, sparse: true, maxlength: 32, trim: true },
     email: { type: String, maxlength: 254, trim: true },
+
+    /** Nested public profile for /b/[handle]; root email/phone/description remain for legacy/onboarding. */
+    businessProfile: BusinessProfileSchema,
 
     assignedTwilioNumber: { type: String, index: true, unique: true, sparse: true, maxlength: 32, trim: true },
     forwardingEnabled: { type: Boolean, default: false },

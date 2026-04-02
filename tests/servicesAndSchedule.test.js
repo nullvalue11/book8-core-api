@@ -29,6 +29,7 @@ function internalAuth(req) {
 describe("Services and Schedule endpoints", () => {
   before(async () => {
     if (!process.env.BOOK8_CORE_API_KEY) process.env.BOOK8_CORE_API_KEY = API_KEY;
+    if (!process.env.INTERNAL_API_SECRET) process.env.INTERNAL_API_SECRET = INTERNAL_SECRET;
     await Business.findOneAndUpdate(
       { id: TEST_BUSINESS_ID },
       {
@@ -36,6 +37,7 @@ describe("Services and Schedule endpoints", () => {
           id: TEST_BUSINESS_ID,
           name: "Test Services Gym",
           timezone: "America/Toronto",
+          phoneNumber: "+16135550100",
           assignedTwilioNumber: "+15551234567"
         }
       },
@@ -92,11 +94,60 @@ describe("Services and Schedule endpoints", () => {
     assert.strictEqual(svc.currency, "USD");
   });
 
-  it("GET /api/businesses/:id public payload includes assignedTwilioNumber", async () => {
+  it("GET /api/businesses/:id public payload includes businessProfile and not Book8 Twilio number", async () => {
     const res = await request(app).get(`/api/businesses/${TEST_BUSINESS_ID}`);
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.ok, true);
-    assert.strictEqual(res.body.business.assignedTwilioNumber, "+15551234567");
+    assert.strictEqual(res.body.business.assignedTwilioNumber, undefined);
+    assert.ok(res.body.business.businessProfile);
+    assert.strictEqual(res.body.business.businessProfile.phone, "+16135550100");
+  });
+
+  it("GET /api/businesses/:id/public returns public-safe booking payload", async () => {
+    const res = await request(app).get(`/api/businesses/${TEST_BUSINESS_ID}/public`);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.strictEqual(res.body.businessName, "Test Services Gym");
+    assert.ok(Array.isArray(res.body.services));
+    assert.ok(res.body.businessHours?.weeklyHours);
+    assert.strictEqual(res.body.businessProfile?.phone, "+16135550100");
+    assert.strictEqual(res.body.assignedTwilioNumber, undefined);
+    assert.strictEqual(res.body.stripeCustomerId, undefined);
+  });
+
+  it("PATCH /api/businesses/:id/profile returns 401 without internal auth", async () => {
+    const res = await request(app)
+      .patch(`/api/businesses/${TEST_BUSINESS_ID}/profile`)
+      .send({ businessProfile: { website: "https://example.com" } });
+    assert.strictEqual(res.status, 401);
+  });
+
+  it("PATCH /api/businesses/:id/profile updates nested businessProfile", async () => {
+    const res = await internalAuth(
+      request(app).patch(`/api/businesses/${TEST_BUSINESS_ID}/profile`).send({
+        businessProfile: {
+          phone: "+16135550100",
+          email: "hello@example.com",
+          website: "https://gym.example.com",
+          address: { city: "Ottawa", country: "CA" },
+          socialLinks: { instagram: "https://instagram.com/testgym" }
+        }
+      })
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.strictEqual(res.body.business.businessProfile.phone, "+16135550100");
+    assert.strictEqual(res.body.business.businessProfile.address.city, "Ottawa");
+  });
+
+  it("PATCH /api/businesses/:id/profile rejects invalid phone", async () => {
+    const res = await internalAuth(
+      request(app).patch(`/api/businesses/${TEST_BUSINESS_ID}/profile`).send({
+        businessProfile: { phone: "555-0100" }
+      })
+    );
+    assert.strictEqual(res.status, 400);
+    assert.ok(String(res.body.error).includes("E.164"));
   });
 
   it("PATCH /api/businesses/:id/services/:serviceId returns 401 without internal auth", async () => {

@@ -8,10 +8,7 @@ import { normalizeLangCode } from "../localeFormat.js";
 const SMS_TEMPLATES = {
   en: {
     confirmation: (data) =>
-      `✅ Booked! ${data.serviceName} on ${data.date} at ${data.time} at ${data.businessName}.\n` +
-      `Add to calendar: check your confirmation email for Google, Outlook, or Apple links.\n` +
-      `See you then${data.customerName ? `, ${data.customerName}` : ""}!\n\n` +
-      `Need to cancel? Reply CANCEL BOOKING to this number.`,
+      `Your appointment at ${data.businessName} is confirmed for ${data.date} at ${data.time}. To cancel, reply CANCEL BOOKING.`,
 
     cancellation: (data) =>
       `Your ${data.serviceName} appointment on ${data.date} at ${data.time} has been cancelled.\n` +
@@ -20,10 +17,7 @@ const SMS_TEMPLATES = {
 
   fr: {
     confirmation: (data) =>
-      `✅ Réservé! ${data.serviceName} le ${data.date} à ${data.time} chez ${data.businessName}.\n` +
-      `Ajoutez à votre calendrier : consultez votre courriel de confirmation pour les liens Google, Outlook ou Apple.\n` +
-      `À bientôt${data.customerName ? `, ${data.customerName}` : ""}!\n\n` +
-      `Besoin d'annuler? Répondez CANCEL BOOKING à ce numéro.`,
+      `Votre rendez-vous chez ${data.businessName} est confirmé pour le ${data.date} à ${data.time}. Pour annuler, répondez CANCEL BOOKING.`,
 
     cancellation: (data) =>
       `Votre rendez-vous ${data.serviceName} du ${data.date} à ${data.time} a été annulé.\n` +
@@ -32,10 +26,7 @@ const SMS_TEMPLATES = {
 
   es: {
     confirmation: (data) =>
-      `✅ ¡Reservado! ${data.serviceName} el ${data.date} a las ${data.time} en ${data.businessName}.\n` +
-      `Agregue a su calendario: revise su correo de confirmación para los enlaces de Google, Outlook o Apple.\n` +
-      `¡Nos vemos${data.customerName ? `, ${data.customerName}` : ""}!\n\n` +
-      `¿Necesita cancelar? Responda CANCEL BOOKING a este número.`,
+      `Su cita en ${data.businessName} está confirmada para el ${data.date} a las ${data.time}. Para cancelar, responda CANCEL BOOKING.`,
 
     cancellation: (data) =>
       `Su cita de ${data.serviceName} del ${data.date} a las ${data.time} ha sido cancelada.\n` +
@@ -44,10 +35,7 @@ const SMS_TEMPLATES = {
 
   ar: {
     confirmation: (data) =>
-      `✅ تم الحجز! ${data.serviceName} يوم ${data.date} الساعة ${data.time} في ${data.businessName}.\n` +
-      `أضف إلى تقويمك: تحقق من بريدك الإلكتروني للحصول على روابط Google أو Outlook أو Apple.\n` +
-      `نراك قريباً${data.customerName ? `، ${data.customerName}` : ""}!\n\n` +
-      `هل تحتاج للإلغاء؟ أرسل CANCEL BOOKING إلى هذا الرقم.`,
+      `تم تأكيد موعدك في ${data.businessName} بتاريخ ${data.date} الساعة ${data.time}. للإلغاء، أرسل CANCEL BOOKING.`,
 
     cancellation: (data) =>
       `تم إلغاء موعد ${data.serviceName} يوم ${data.date} الساعة ${data.time}.\n` +

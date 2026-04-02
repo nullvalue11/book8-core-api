@@ -68,14 +68,14 @@ export async function sendSMS({ to, from, body }) {
 }
 
 /**
- * Format a booking into a confirmation SMS message.
+ * Format a booking into a confirmation SMS message (BOO-34A short copy; locale + CANCEL BOOKING).
  * @param {object} params
- * @param {string} params.serviceName - e.g. "Men's Haircut"
  * @param {string} params.businessName - e.g. "Downtown Barber Co."
  * @param {string} params.date - e.g. "Tuesday, March 17"
  * @param {string} params.time - e.g. "2:00 PM"
- * @param {string} params.customerName - e.g. "John"
  * @param {string} [params.language] - ISO 639-1 booking language (en, fr, es, ar, …)
+ * @param {string} [params.serviceName] - reserved for callers; confirmation template uses businessName/date/time only
+ * @param {string} [params.customerName] - reserved for callers; not used in short confirmation copy
  * @returns {string}
  */
 export function formatConfirmationSMS({ serviceName, businessName, date, time, customerName, language }) {

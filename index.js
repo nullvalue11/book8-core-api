@@ -23,6 +23,11 @@ import {
   safeCompare
 } from "./src/middleware/internalAuth.js";
 import { strictLimiter } from "./src/middleware/strictLimiter.js";
+import {
+  buildPublicBusinessProfile,
+  mergeBusinessProfile,
+  validateBusinessProfileMerged
+} from "./src/utils/businessProfile.js";
 import { getPlanLimits, isFeatureAllowed } from "./services/planLimits.js";
 import internalCallsRouter from "./src/routes/internalCalls.js";
 import internalUsageRouter from "./src/routes/internalUsage.js";
@@ -68,7 +73,7 @@ app.use(
     origin: process.env.CORS_ORIGINS
       ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
       : ["https://www.book8.io", "https://book8.io"],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -146,7 +151,7 @@ const requireInternalSecretOrApiKey = (req, res, next) => {
   });
 };
 
-/** Public booking / widget: no email, phones, Stripe, plan, etc. */
+/** Public booking / widget: no Stripe, plan, Book8 Twilio number, or internal-only fields. */
 function toPublicBusinessPayload(business) {
   const id = business.id ?? business.businessId;
   return {
@@ -159,7 +164,7 @@ function toPublicBusinessPayload(business) {
     timezone: business.timezone,
     primaryLanguage: business.primaryLanguage,
     multilingualEnabled: business.multilingualEnabled,
-    assignedTwilioNumber: business.assignedTwilioNumber || null
+    businessProfile: buildPublicBusinessProfile(business)
   };
 }
 
@@ -678,6 +683,86 @@ app.put("/api/businesses/:id/schedule", requireApiKey, async (req, res) => {
     res.json({ ok: true, businessId, schedule });
   } catch (err) {
     console.error("Error in PUT /api/businesses/:id/schedule:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- GET PUBLIC BOOKING PAGE PAYLOAD (no auth) ----------
+app.get("/api/businesses/:id/public", strictLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resolved = await findBusinessByParam(id);
+    if (!resolved) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+    const { business, businessId } = resolved;
+    const services = await Service.find({ businessId, active: true }).lean();
+    let schedule = await Schedule.findOne({ businessId }).lean();
+    if (!schedule) {
+      schedule = {
+        timezone: business.timezone || "America/Toronto",
+        weeklyHours:
+          business.weeklySchedule?.weeklyHours || {
+            monday: [],
+            tuesday: [],
+            wednesday: [],
+            thursday: [],
+            friday: [],
+            saturday: [],
+            sunday: []
+          }
+      };
+    }
+    const publicServices = services.map((s) => ({
+      serviceId: s.serviceId,
+      name: s.name,
+      durationMinutes: s.durationMinutes,
+      price: s.price,
+      currency: s.currency
+    }));
+    res.json({
+      ok: true,
+      businessName: business.name,
+      handle: business.handle ?? null,
+      timezone: business.timezone || "America/Toronto",
+      businessProfile: buildPublicBusinessProfile(business),
+      services: publicServices,
+      businessHours: {
+        timezone: schedule.timezone,
+        weeklyHours: schedule.weeklyHours
+      }
+    });
+  } catch (err) {
+    console.error("Error in GET /api/businesses/:id/public:", err);
+    res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- PATCH BUSINESS PROFILE (internal) ----------
+app.patch("/api/businesses/:id/profile", strictLimiter, requireInternalAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const partial = req.body?.businessProfile;
+    if (partial == null || typeof partial !== "object" || Array.isArray(partial)) {
+      return res.status(400).json({
+        ok: false,
+        error: "businessProfile object is required"
+      });
+    }
+    const doc = await Business.findOne({ $or: [{ id }, { businessId: id }] });
+    if (!doc) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+    const merged = mergeBusinessProfile(doc.businessProfile, partial);
+    const v = validateBusinessProfileMerged(merged);
+    if (!v.ok) {
+      return res.status(400).json({ ok: false, error: v.error });
+    }
+    doc.businessProfile = merged;
+    await doc.save();
+    res.json({ ok: true, business: doc.toObject() });
+  } catch (err) {
+    console.error("Error in PATCH /api/businesses/:id/profile:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
