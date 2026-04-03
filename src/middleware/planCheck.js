@@ -1,6 +1,22 @@
 import { Business } from "../../models/Business.js";
 import { isFeatureAllowed, isChannelAllowed } from "../config/plans.js";
 
+/** Minimum plan tier that unlocks each feature (403 `requiredPlan` must match this, not a constant). */
+export const FEATURE_PLAN_MAP = {
+  aiPhoneAgent: "growth",
+  smsConfirmations: "growth",
+  voiceBooking: "growth",
+  outlookCalendar: "growth",
+  multilingual: "growth",
+  customVoice: "enterprise",
+  whiteLabel: "enterprise",
+  apiAccess: "enterprise"
+};
+
+export function requiredPlanForFeature(featureName) {
+  return FEATURE_PLAN_MAP[featureName] || "growth";
+}
+
 /**
  * Require a plan feature (e.g. aiPhoneAgent).
  * @param {string} featureName - key on plan features
@@ -34,7 +50,7 @@ export function requireFeature(featureName) {
           error: "This feature requires a higher plan.",
           feature: featureName,
           currentPlan: plan,
-          requiredPlan: "growth",
+          requiredPlan: requiredPlanForFeature(featureName),
           upgrade: true
         });
       }

@@ -146,7 +146,7 @@ function getSlotsFromWeeklySchedule({ from, to, timezone, durationMinutes, weekl
   const seen = new Set();
   let cursor = new Date(start);
 
-  while (cursor < end && slots.length < 50) {
+  while (cursor < end && slots.length < 200) {
     const { year, month, day, weekday } = getLocalDatePartsInTz(cursor, timezone);
     const key = `${year}-${month}-${day}`;
     if (!seen.has(key)) {

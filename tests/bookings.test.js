@@ -4,21 +4,22 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert";
 import request from "supertest";
-import mongoose from "mongoose";
 import { app } from "../index.js";
 import { Business } from "../models/Business.js";
 import { Service } from "../models/Service.js";
 import { Booking } from "../models/Booking.js";
 
 const TEST_BUSINESS_ID = "test-bookings-gym";
+const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET || "test-internal-secret";
 const SLOT = {
   start: "2026-03-08T14:00:00-05:00",
   end: "2026-03-08T15:00:00-05:00",
   timezone: "America/Toronto"
 };
 
-describe("POST /api/bookings", () => {
+describe("Bookings API", () => {
   before(async () => {
+    if (!process.env.INTERNAL_API_SECRET) process.env.INTERNAL_API_SECRET = INTERNAL_SECRET;
     await Business.findOneAndUpdate(
       { id: TEST_BUSINESS_ID },
       {
@@ -50,7 +51,6 @@ describe("POST /api/bookings", () => {
     await Booking.deleteMany({ businessId: TEST_BUSINESS_ID });
     await Service.deleteMany({ businessId: TEST_BUSINESS_ID });
     await Business.deleteOne({ id: TEST_BUSINESS_ID });
-    await mongoose.connection.close();
   });
 
   it("returns 400 when businessId is missing", async () => {
@@ -170,5 +170,52 @@ describe("POST /api/bookings", () => {
     assert.strictEqual(second.status, 409);
     assert.strictEqual(second.body.ok, false);
     assert.ok(second.body.error?.toLowerCase().includes("no longer available") || second.body.error?.toLowerCase().includes("slot"));
+  });
+
+  it("GET /api/bookings returns 401 without internal auth (QA-004)", async () => {
+    const res = await request(app).get(`/api/bookings?businessId=${TEST_BUSINESS_ID}`);
+    assert.strictEqual(res.status, 401);
+  });
+
+  it("GET /api/bookings returns 200 with internal auth", async () => {
+    const res = await request(app)
+      .get(`/api/bookings?businessId=${TEST_BUSINESS_ID}`)
+      .set("x-book8-internal-secret", INTERNAL_SECRET);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.ok(Array.isArray(res.body.bookings));
+  });
+
+  it("PATCH cancel twice returns 404 on second call (QA-001)", async () => {
+    const slot = {
+      start: "2027-06-15T15:00:00-04:00",
+      end: "2027-06-15T16:00:00-04:00",
+      timezone: "America/Toronto"
+    };
+    const create = await request(app)
+      .post("/api/bookings")
+      .send({
+        businessId: TEST_BUSINESS_ID,
+        serviceId: "personal-training-60",
+        customer: { name: "Cancel Twice", phone: "+16475559998", email: "cancel2@example.com" },
+        slot,
+        source: "voice-agent"
+      });
+    assert.strictEqual(create.status, 201, create.body?.error || "");
+    const bookingId = create.body.booking.id;
+    const first = await request(app)
+      .patch(`/api/bookings/${bookingId}/cancel`)
+      .set("x-book8-internal-secret", INTERNAL_SECRET);
+    assert.strictEqual(first.status, 200);
+    const second = await request(app)
+      .patch(`/api/bookings/${bookingId}/cancel`)
+      .set("x-book8-internal-secret", INTERNAL_SECRET);
+    assert.strictEqual(second.status, 404);
+    assert.strictEqual(second.body.ok, false);
+    assert.ok(
+      String(second.body.error || "")
+        .toLowerCase()
+        .includes("already cancelled") || String(second.body.error || "").includes("not found")
+    );
   });
 });

@@ -1133,6 +1133,9 @@ app.get("/api/cron/send-reminders", async (req, res) => {
           continue;
         }
 
+        const plan = business?.plan || "starter";
+        const smsAllowed = isFeatureAllowed(plan, "smsConfirmations");
+
         const tz = business?.timezone || booking.slot?.timezone || "America/Toronto";
         const slotDate = new Date(booking.slot.start);
         const dateStr = slotDate.toLocaleDateString("en-US", {
@@ -1168,20 +1171,30 @@ app.get("/api/cron/send-reminders", async (req, res) => {
           isOneHour: false
         });
 
-        const smsResult = await sendSMS({
-          to: customerPhone,
-          from: fromNumber,
-          body: smsBody
-        });
+        if (smsAllowed) {
+          const smsResult = await sendSMS({
+            to: customerPhone,
+            from: fromNumber,
+            body: smsBody
+          });
 
-        if (smsResult.ok) {
+          if (smsResult.ok) {
+            await Booking.findOneAndUpdate(
+              { id: booking.id },
+              { $set: { reminderSentAt: new Date(), reminderSid: smsResult.messageSid } }
+            );
+            sent++;
+          } else {
+            failed++;
+          }
+        } else {
+          console.log(
+            `[send-reminders] SMS skipped — plan "${plan}" has no smsConfirmations (${booking.businessId})`
+          );
           await Booking.findOneAndUpdate(
             { id: booking.id },
-            { $set: { reminderSentAt: new Date(), reminderSid: smsResult.messageSid } }
+            { $set: { reminderSentAt: new Date() } }
           );
-          sent++;
-        } else {
-          failed++;
         }
 
         if (booking.customer?.email && !booking.reminderEmailSentAt) {
@@ -1223,6 +1236,9 @@ app.get("/api/cron/send-reminders", async (req, res) => {
         const fromNumber = business?.assignedTwilioNumber;
         if (!fromNumber) continue;
 
+        const plan = business?.plan || "starter";
+        const smsAllowed = isFeatureAllowed(plan, "smsConfirmations");
+
         let serviceName = booking.serviceId || "Appointment";
         try {
           const svc = await Service.findOne({
@@ -1242,20 +1258,30 @@ app.get("/api/cron/send-reminders", async (req, res) => {
           isOneHour: true
         });
 
-        const smsResult = await sendSMS({
-          to: customerPhone,
-          from: fromNumber,
-          body: smsBody
-        });
+        if (smsAllowed) {
+          const smsResult = await sendSMS({
+            to: customerPhone,
+            from: fromNumber,
+            body: smsBody
+          });
 
-        if (smsResult.ok) {
+          if (smsResult.ok) {
+            await Booking.findOneAndUpdate(
+              { id: booking.id },
+              { $set: { shortReminderSentAt: new Date(), shortReminderSid: smsResult.messageSid } }
+            );
+            sent++;
+          } else {
+            failed++;
+          }
+        } else {
+          console.log(
+            `[send-reminders] 1h SMS skipped — plan "${plan}" has no smsConfirmations (${booking.businessId})`
+          );
           await Booking.findOneAndUpdate(
             { id: booking.id },
-            { $set: { shortReminderSentAt: new Date(), shortReminderSid: smsResult.messageSid } }
+            { $set: { shortReminderSentAt: new Date() } }
           );
-          sent++;
-        } else {
-          failed++;
         }
 
         if (booking.customer?.email && !booking.shortReminderEmailSentAt) {
@@ -1297,6 +1323,9 @@ app.get("/api/cron/send-reminders", async (req, res) => {
         const fromNumber = business?.assignedTwilioNumber;
         if (!fromNumber) continue;
 
+        const plan = business?.plan || "starter";
+        const smsAllowed = isFeatureAllowed(plan, "smsConfirmations");
+
         let serviceName = booking.serviceId || "Appointment";
         try {
           const svc = await Service.findOne({
@@ -1317,20 +1346,35 @@ app.get("/api/cron/send-reminders", async (req, res) => {
           isThirtyMinutes: true
         });
 
-        const smsResult = await sendSMS({
-          to: customerPhone,
-          from: fromNumber,
-          body: smsBody
-        });
+        if (smsAllowed) {
+          const smsResult = await sendSMS({
+            to: customerPhone,
+            from: fromNumber,
+            body: smsBody
+          });
 
-        if (smsResult.ok) {
+          if (smsResult.ok) {
+            await Booking.findOneAndUpdate(
+              { id: booking.id },
+              {
+                $set: {
+                  lastMinuteReminderSentAt: new Date(),
+                  lastMinuteReminderSid: smsResult.messageSid
+                }
+              }
+            );
+            sent++;
+          } else {
+            failed++;
+          }
+        } else {
+          console.log(
+            `[send-reminders] 30min SMS skipped — plan "${plan}" has no smsConfirmations (${booking.businessId})`
+          );
           await Booking.findOneAndUpdate(
             { id: booking.id },
-            { $set: { lastMinuteReminderSentAt: new Date(), lastMinuteReminderSid: smsResult.messageSid } }
+            { $set: { lastMinuteReminderSentAt: new Date() } }
           );
-          sent++;
-        } else {
-          failed++;
         }
 
         if (booking.customer?.email && !booking.lastMinuteReminderEmailSentAt) {
@@ -1355,7 +1399,8 @@ app.get("/api/cron/send-reminders", async (req, res) => {
     console.log(`[send-reminders] Done: ${sent} sent, ${failed} failed`);
     return res.json({
       ok: true,
-      processed: bookingsToRemind.length + shortReminders.length,
+      processed:
+        bookingsToRemind.length + shortReminders.length + lastMinuteReminders.length,
       sent,
       failed
     });

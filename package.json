@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "set NODE_ENV=test&& node --test tests/*.js",
+    "test": "set NODE_ENV=test&& node --test --test-concurrency=1 tests/*.js",
     "purge:bookings": "node scripts/purgeBookingsAllBusinesses.js",
     "purge:bookings:dry": "node scripts/purgeBookingsAllBusinesses.js --dry-run",
     "backfill:plans": "node scripts/backfillPlans.js",

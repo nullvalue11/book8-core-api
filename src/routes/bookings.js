@@ -1,5 +1,6 @@
 // src/routes/bookings.js
 import express from "express";
+import mongoose from "mongoose";
 import { strictLimiter } from "../middleware/strictLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
 import { requireChannel } from "../middleware/planCheck.js";
@@ -15,6 +16,15 @@ import { Service } from "../../models/Service.js";
 import { sendCancellation } from "../../services/emailService.js";
 
 const router = express.Router();
+
+/** Match by custom `id` (e.g. bk_…) and/or Mongo `_id` without casting bk_* to ObjectId. */
+function bookingLookupFilter(bookingId) {
+  const or = [{ id: bookingId }];
+  if (mongoose.isValidObjectId(bookingId)) {
+    or.push({ _id: bookingId });
+  }
+  return { $or: or };
+}
 
 function requireBookingChannelBySource(req, res, next) {
   const source = req.body?.source || req.body?.input?.source;
@@ -87,8 +97,8 @@ async function applyCancelSideEffects(booking) {
 }
 
 // GET /api/bookings?businessId=xxx
-// Returns bookings for a business, sorted by slot start time
-router.get("/", strictLimiter, async (req, res) => {
+// Returns bookings for a business, sorted by slot start time (dashboard only — customer PII).
+router.get("/", requireInternalAuth, strictLimiter, async (req, res) => {
   try {
     const { businessId, status, limit: limitParam } = req.query;
 
@@ -265,7 +275,10 @@ router.patch("/:bookingId/cancel", strictLimiter, requireInternalAuth, async (re
     }
 
     const booking = await Booking.findOneAndUpdate(
-      { $or: [{ id: bookingId }, { _id: bookingId }] },
+      {
+        ...bookingLookupFilter(bookingId),
+        status: "confirmed"
+      },
       {
         $set: {
           status: "cancelled",
@@ -277,7 +290,10 @@ router.patch("/:bookingId/cancel", strictLimiter, requireInternalAuth, async (re
     ).lean();
 
     if (!booking) {
-      return res.status(404).json({ ok: false, error: "Booking not found" });
+      return res.status(404).json({
+        ok: false,
+        error: "Booking not found or already cancelled"
+      });
     }
 
     await applyCancelSideEffects(booking);

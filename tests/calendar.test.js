@@ -4,7 +4,6 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert";
 import request from "supertest";
-import mongoose from "mongoose";
 import { app } from "../index.js";
 import { Business } from "../models/Business.js";
 import { Service } from "../models/Service.js";
@@ -63,7 +62,6 @@ describe("POST /api/calendar/availability", () => {
     await Service.deleteMany({ businessId: TEST_BUSINESS_ID });
     await Schedule.deleteOne({ businessId: TEST_BUSINESS_ID });
     await Business.deleteOne({ id: TEST_BUSINESS_ID });
-    await mongoose.connection.close();
   });
 
   it("returns 400 when businessId is missing", async () => {
