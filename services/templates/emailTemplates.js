@@ -5,10 +5,10 @@
 import { normalizeLangCode } from "../localeFormat.js";
 
 export const EMAIL_SUBJECTS = {
-  en: (businessName) => `Booking Confirmed — ${businessName}`,
-  fr: (businessName) => `Rendez-vous confirmé — ${businessName}`,
-  es: (businessName) => `Cita confirmada — ${businessName}`,
-  ar: (businessName) => `تم تأكيد الحجز — ${businessName}`
+  en: (serviceName, businessName) => `Booking Confirmed — ${serviceName} at ${businessName}`,
+  fr: (serviceName, businessName) => `Rendez-vous confirmé — ${serviceName} chez ${businessName}`,
+  es: (serviceName, businessName) => `Reserva confirmada — ${serviceName} en ${businessName}`,
+  ar: (serviceName, businessName) => `تم تأكيد الحجز — ${serviceName} في ${businessName}`
 };
 
 export const EMAIL_HEADINGS = {
@@ -59,10 +59,175 @@ const CANCEL_NO_PHONE = {
   ar: () => `هل تحتاج للإلغاء؟ استخدم الرابط في بريد التأكيد للإلغاء أو إعادة الجدولة.`
 };
 
-export function getEmailSubject(language, businessName) {
+export function getEmailSubject(language, serviceName, businessName) {
   const lang = normalizeLangCode(language);
   const subjectFn = EMAIL_SUBJECTS[lang] || EMAIL_SUBJECTS.en;
-  return subjectFn(businessName);
+  return subjectFn(serviceName, businessName);
+}
+
+/**
+ * Read `language` from a Mongoose document or plain object (BOO-38A: email must follow booking language).
+ */
+export function getBookingLanguageRaw(booking) {
+  if (!booking || typeof booking !== "object") return undefined;
+  const o = typeof booking.toObject === "function" ? booking.toObject({ flattenMaps: true }) : booking;
+  const raw = o?.language;
+  if (raw == null || raw === "") return undefined;
+  return String(raw).trim();
+}
+
+/** Date + time line in confirmation body (localized connector, not English-only "at"). */
+export function getConfirmationSlotDisplay(language, dateStr, timeStr) {
+  const code = normalizeLangCode(language);
+  if (code === "fr") return `${dateStr} à ${timeStr}`;
+  if (code === "es") return `${dateStr} a las ${timeStr}`;
+  if (code === "ar") return `${dateStr} الساعة ${timeStr}`;
+  return `${dateStr} at ${timeStr}`;
+}
+
+/** Calendar button labels for confirmation email. */
+export function getCalendarLinkLabels(language) {
+  const code = normalizeLangCode(language);
+  const packs = {
+    en: { google: "Google Calendar", outlook: "Outlook", apple: "Apple / Download .ics" },
+    fr: { google: "Google Agenda", outlook: "Outlook", apple: "Apple / Télécharger .ics" },
+    es: { google: "Google Calendar", outlook: "Outlook", apple: "Apple / Descargar .ics" },
+    ar: { google: "تقويم Google", outlook: "Outlook", apple: "Apple / تنزيل .ics" }
+  };
+  return packs[code] || packs.en;
+}
+
+/**
+ * Reminder email subject + body (24h / 1h / 30min) in booking language.
+ */
+export function getReminderEmailParts(language, type, { serviceName, businessName, timeStr }) {
+  const code = normalizeLangCode(language);
+  const s = serviceName;
+  const b = businessName;
+  const t = timeStr;
+  if (type === "30min") {
+    const packs = {
+      en: {
+        subject: `Starting soon: ${s} at ${b} in 30 minutes`,
+        headerText: "Starting in 30 minutes",
+        bodyText: `Your ${s} appointment at ${b} starts in 30 minutes! See you at ${t}!`
+      },
+      fr: {
+        subject: `Bientôt : ${s} chez ${b} dans 30 minutes`,
+        headerText: "Dans 30 minutes",
+        bodyText: `Votre rendez-vous ${s} chez ${b} commence dans 30 minutes ! Rendez-vous à ${t} !`
+      },
+      es: {
+        subject: `Pronto: ${s} en ${b} en 30 minutos`,
+        headerText: "En 30 minutos",
+        bodyText: `Su cita de ${s} en ${b} comienza en 30 minutos. ¡Nos vemos a las ${t}!`
+      },
+      ar: {
+        subject: `قريباً: ${s} في ${b} خلال 30 دقيقة`,
+        headerText: "خلال 30 دقيقة",
+        bodyText: `موعدك ${s} في ${b} يبدأ خلال 30 دقيقة! نراك الساعة ${t}!`
+      }
+    };
+    return packs[code] || packs.en;
+  }
+  if (type === "1h") {
+    const packs = {
+      en: {
+        subject: `Starting soon: ${s} at ${b} in 1 hour`,
+        headerText: "Starting in 1 hour",
+        bodyText: `Your ${s} appointment at ${b} starts in 1 hour at ${t}. See you soon!`
+      },
+      fr: {
+        subject: `Bientôt : ${s} chez ${b} dans 1 heure`,
+        headerText: "Dans 1 heure",
+        bodyText: `Votre rendez-vous ${s} chez ${b} commence dans 1 heure à ${t}. À bientôt !`
+      },
+      es: {
+        subject: `Pronto: ${s} en ${b} en 1 hora`,
+        headerText: "En 1 hora",
+        bodyText: `Su cita de ${s} en ${b} comienza en 1 hora a las ${t}. ¡Hasta pronto!`
+      },
+      ar: {
+        subject: `قريباً: ${s} في ${b} خلال ساعة`,
+        headerText: "خلال ساعة",
+        bodyText: `موعدك ${s} في ${b} يبدأ خلال ساعة عند ${t}. نراك قريباً!`
+      }
+    };
+    return packs[code] || packs.en;
+  }
+  const packs24 = {
+    en: {
+      subject: `Reminder: ${s} at ${b} tomorrow`,
+      headerText: "Appointment tomorrow",
+      bodyText: `Just a reminder — your ${s} appointment at ${b} is tomorrow at ${t}. See you then!`
+    },
+    fr: {
+      subject: `Rappel : ${s} chez ${b} demain`,
+      headerText: "Rendez-vous demain",
+      bodyText: `Petit rappel — votre rendez-vous ${s} chez ${b} est demain à ${t}. À bientôt !`
+    },
+    es: {
+      subject: `Recordatorio: ${s} en ${b} mañana`,
+      headerText: "Cita mañana",
+      bodyText: `Recordatorio: su cita de ${s} en ${b} es mañana a las ${t}. ¡Nos vemos!`
+    },
+    ar: {
+      subject: `تذكير: ${s} في ${b} غداً`,
+      headerText: "موعد غداً",
+      bodyText: `تذكير — موعدك ${s} في ${b} غداً الساعة ${t}. نراك!`
+    }
+  };
+  return packs24[code] || packs24.en;
+}
+
+/** ICS / calendar event description in the booking language. */
+export function buildIcsEventDescription(
+  language,
+  { serviceName, businessName, dateStr, timeStr, bookingId }
+) {
+  const code = normalizeLangCode(language);
+  const slotLine = getConfirmationSlotDisplay(language, dateStr, timeStr);
+  const id = bookingId ? String(bookingId) : "";
+  const packs = {
+    en: () =>
+      [
+        `${serviceName} at ${businessName}`,
+        slotLine,
+        id ? `Booking ref: ${id}` : null,
+        "Booked via Book8 AI"
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    fr: () =>
+      [
+        `${serviceName} chez ${businessName}`,
+        slotLine,
+        id ? `Réf. réservation : ${id}` : null,
+        "Réservé via Book8 AI"
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    es: () =>
+      [
+        `${serviceName} en ${businessName}`,
+        slotLine,
+        id ? `Ref. reserva: ${id}` : null,
+        "Reservado con Book8 AI"
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ar: () =>
+      [
+        `${serviceName} في ${businessName}`,
+        slotLine,
+        id ? `مرجع الحجز: ${id}` : null,
+        "محجوز عبر Book8 AI"
+      ]
+        .filter(Boolean)
+        .join("\n")
+  };
+  const fn = packs[code] || packs.en;
+  return fn();
 }
 
 export function getEmailHeadings(language) {
@@ -98,8 +263,8 @@ export const EMAIL_CANCEL = {
       `<p style="margin:0 0 0 0;color:#666;font-size:14px;">${rebookLineEsc}</p>`
   },
   es: {
-    subject: (serviceName, businessName) => `Cita cancelada — ${serviceName} en ${businessName}`,
-    title: "Cita cancelada",
+    subject: (serviceName, businessName) => `Reserva cancelada — ${serviceName} en ${businessName}`,
+    title: "Reserva cancelada",
     bodyHtml: (serviceNameEsc, businessNameEsc, dateStr, timeStr, rebookLineEsc) =>
       `<p style="margin:0 0 8px 0;">Su cita <strong>${serviceNameEsc}</strong> en ${businessNameEsc} el ${dateStr} a las ${timeStr} ha sido cancelada.</p>` +
       `<p style="margin:0 0 0 0;color:#666;font-size:14px;">${rebookLineEsc}</p>`

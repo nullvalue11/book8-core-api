@@ -245,7 +245,8 @@ export async function createBooking(input) {
   });
 
   if (customer.email && isFeatureAllowed(business.plan || "starter", "emailConfirmations")) {
-    sendConfirmationEmail(booking, business, service, customer)
+    const bookingForEmail = typeof booking.toObject === "function" ? booking.toObject() : booking;
+    sendConfirmationEmail(bookingForEmail, business, service, customer)
       .then(async (result) => {
         if (result?.id) {
           await Booking.findOneAndUpdate(
