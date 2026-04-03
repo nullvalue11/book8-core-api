@@ -93,6 +93,19 @@ const CalendarSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/** BOO-45A: optional card-on-file + cancellation / no-show fees */
+const NoShowProtectionSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    feeType: { type: String, enum: ["fixed", "percentage"], default: "fixed" },
+    feeAmount: { type: Number, default: 0 },
+    cancellationWindowHours: { type: Number, default: 24 },
+    autoCharge: { type: Boolean, default: false },
+    currency: { type: String, maxlength: 8, trim: true, lowercase: true }
+  },
+  { _id: false }
+);
+
 const BusinessSchema = new mongoose.Schema(
   {
     id: { type: String, unique: true, index: true, maxlength: 128, trim: true }, // slug/handle e.g. "waismofit"
@@ -146,7 +159,9 @@ const BusinessSchema = new mongoose.Schema(
 
     services: [ServiceSchema],
     bookingSettings: BookingSettingsSchema,
-    weeklySchedule: WeeklyScheduleSchema
+    weeklySchedule: WeeklyScheduleSchema,
+
+    noShowProtection: NoShowProtectionSchema
   },
   { timestamps: true }
 );

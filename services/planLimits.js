@@ -32,7 +32,8 @@ export function getPlanLimits(plan) {
     whiteLabel: !!f.whiteLabel,
     callMinuteRate: 0.1,
     publicBookingPage: true,
-    maxProviders: typeof f.maxProviders === "number" ? f.maxProviders : 0
+    maxProviders: typeof f.maxProviders === "number" ? f.maxProviders : 0,
+    noShowProtection: !!f.noShowProtection
   };
 }
 

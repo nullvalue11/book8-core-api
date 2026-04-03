@@ -320,3 +320,63 @@ export function buildCancellationEmail(
     bodyHtml: pack.bodyHtml(serviceNameEsc, businessNameEsc, dateStr, timeStr, rebookEsc)
   };
 }
+
+/** BOO-45A: no-show fee charged (multilingual). */
+export function buildNoShowChargeEmail(language, { serviceName, businessName, amountFormatted, cardLast4, contactPhone }) {
+  const lang = normalizeLangCode(language);
+  const card = cardLast4 ? `•••• ${String(cardLast4).slice(-4)}` : "••••";
+  const phoneLine = contactPhone ? escapeHtmlFragment(contactPhone) : "";
+  const packs = {
+    en: {
+      subject: `No-show fee charged — ${serviceName} at ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 12px 0;">A no-show fee of <strong>${escapeHtmlFragment(amountFormatted)}</strong> has been charged to ${card} for your missed appointment: <strong>${escapeHtmlFragment(serviceName)}</strong> at ${escapeHtmlFragment(businessName)}.</p>` +
+        (phoneLine ? `<p style="margin:0;color:#666;font-size:14px;">Questions? Call ${phoneLine}.</p>` : "")
+    },
+    fr: {
+      subject: `Frais d'absence facturés — ${serviceName} chez ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 12px 0;">Des frais d'absence de <strong>${escapeHtmlFragment(amountFormatted)}</strong> ont été débités sur ${card} pour le rendez-vous manqué : <strong>${escapeHtmlFragment(serviceName)}</strong> chez ${escapeHtmlFragment(businessName)}.</p>` +
+        (phoneLine ? `<p style="margin:0;color:#666;font-size:14px;">Questions ? Appelez le ${phoneLine}.</p>` : "")
+    },
+    es: {
+      subject: `Cargo por inasistencia — ${serviceName} en ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 12px 0;">Se ha cargado una tarifa por inasistencia de <strong>${escapeHtmlFragment(amountFormatted)}</strong> a ${card} por la cita perdida: <strong>${escapeHtmlFragment(serviceName)}</strong> en ${escapeHtmlFragment(businessName)}.</p>` +
+        (phoneLine ? `<p style="margin:0;color:#666;font-size:14px;">¿Preguntas? Llame al ${phoneLine}.</p>` : "")
+    },
+    ar: {
+      subject: `تم خصم رسوم عدم الحضور — ${serviceName} في ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 12px 0;">تم خصم رسوم عدم حضور بقيمة <strong>${escapeHtmlFragment(amountFormatted)}</strong> من ${card} للموعد الفائت: <strong>${escapeHtmlFragment(serviceName)}</strong> في ${escapeHtmlFragment(businessName)}.</p>` +
+        (phoneLine ? `<p style="margin:0;color:#666;font-size:14px;">للاستفسار اتصل على ${phoneLine}.</p>` : "")
+    }
+  };
+  const p = packs[lang] || packs.en;
+  return { subject: p.subject, bodyHtml: p.bodyHtml };
+}
+
+/** BOO-45A: booking cancelled and cancellation fee charged. */
+export function buildCancellationWithFeeEmail(
+  language,
+  { serviceName, businessName, amountFormatted, cardLast4 }
+) {
+  const lang = normalizeLangCode(language);
+  const card = cardLast4 ? `•••• ${String(cardLast4).slice(-4)}` : "••••";
+  const packs = {
+    en: {
+      subject: `Booking cancelled — a cancellation fee of ${amountFormatted} has been charged`,
+      bodyHtml: `<p style="margin:0 0 12px 0;">Your booking for <strong>${escapeHtmlFragment(serviceName)}</strong> at ${escapeHtmlFragment(businessName)} has been cancelled. A cancellation fee of <strong>${escapeHtmlFragment(amountFormatted)}</strong> was charged to ${card} because you cancelled within the policy window.</p>`
+    },
+    fr: {
+      subject: `Rendez-vous annulé — des frais d'annulation de ${amountFormatted} ont été prélevés`,
+      bodyHtml: `<p style="margin:0 0 12px 0;">Votre rendez-vous pour <strong>${escapeHtmlFragment(serviceName)}</strong> chez ${escapeHtmlFragment(businessName)} a été annulé. Des frais de <strong>${escapeHtmlFragment(amountFormatted)}</strong> ont été débités sur ${card} (fenêtre d'annulation).</p>`
+    },
+    es: {
+      subject: `Reserva cancelada — se ha cobrado una tarifa de cancelación de ${amountFormatted}`,
+      bodyHtml: `<p style="margin:0 0 12px 0;">Su reserva de <strong>${escapeHtmlFragment(serviceName)}</strong> en ${escapeHtmlFragment(businessName)} ha sido cancelada. Se cobró una tarifa de <strong>${escapeHtmlFragment(amountFormatted)}</strong> a ${card} por cancelar dentro del plazo.</p>`
+    },
+    ar: {
+      subject: `تم إلغاء الحجز — تم خصم رسوم إلغاء قدرها ${amountFormatted}`,
+      bodyHtml: `<p style="margin:0 0 12px 0;">تم إلغاء حجزك لـ <strong>${escapeHtmlFragment(serviceName)}</strong> في ${escapeHtmlFragment(businessName)}. تم خصم <strong>${escapeHtmlFragment(amountFormatted)}</strong> من ${card} بسبب الإلغاء ضمن نافذة السياسة.</p>`
+    }
+  };
+  const p = packs[lang] || packs.en;
+  return { subject: p.subject, bodyHtml: p.bodyHtml };
+}

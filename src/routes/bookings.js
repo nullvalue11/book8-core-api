@@ -13,7 +13,8 @@ import {
 } from "../../services/gcalService.js";
 import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
-import { sendCancellation } from "../../services/emailService.js";
+import { sendCancellation, sendCancellationWithFeeEmail } from "../../services/emailService.js";
+import { tryChargeCancellationFee } from "../../services/bookingFeeCharge.js";
 
 const router = express.Router();
 
@@ -38,7 +39,8 @@ function requireBookingChannelBySource(req, res, next) {
 }
 
 /** Calendar + cancellation email after a booking is marked cancelled (fire-and-forget for async I/O). */
-async function applyCancelSideEffects(booking) {
+async function applyCancelSideEffects(booking, options = {}) {
+  const { cancellationFeeAmount } = options;
   const business = await Business.findOne({ id: booking.businessId }).lean();
   const calProvider = resolveCalendarProviderForBusiness(business);
 
@@ -83,12 +85,22 @@ async function applyCancelSideEffects(booking) {
         } catch {
           // keep fallback
         }
-        await sendCancellation(
-          booking,
-          business || { id: booking.businessId, name: booking.businessId },
-          serviceForEmail,
-          booking.customer
-        );
+        if (cancellationFeeAmount != null && cancellationFeeAmount > 0) {
+          await sendCancellationWithFeeEmail(
+            booking,
+            business || { id: booking.businessId, name: booking.businessId },
+            serviceForEmail,
+            booking.customer,
+            { amountMajor: cancellationFeeAmount }
+          );
+        } else {
+          await sendCancellation(
+            booking,
+            business || { id: booking.businessId, name: booking.businessId },
+            serviceForEmail,
+            booking.customer
+          );
+        }
       } catch (err) {
         console.error("[bookings.cancel] Cancellation email failed:", err.message);
       }
@@ -223,6 +235,21 @@ router.post("/cancel-by-slot", strictLimiter, requireInternalAuth, async (req, r
       return res.status(404).json({ ok: false, error: "Booking not found for slot" });
     }
 
+    const businessForFee = await Business.findOne({
+      $or: [{ id: businessId }, { businessId }]
+    }).lean();
+    const serviceForFee = await Service.findOne({
+      businessId,
+      serviceId: booking.serviceId
+    }).lean();
+    const feeTry = await tryChargeCancellationFee(booking.toObject(), businessForFee, serviceForFee);
+    if (!feeTry.ok) {
+      return res.status(402).json({
+        ok: false,
+        error: feeTry.error || "Cancellation fee could not be charged"
+      });
+    }
+
     const slotEnd = slot?.end || req.body.slotEnd;
     if (slotEnd) {
       const rawEnd = String(slotEnd).trim();
@@ -241,13 +268,25 @@ router.post("/cancel-by-slot", strictLimiter, requireInternalAuth, async (req, r
       }
     }
 
+    const feeSet =
+      feeTry.charged && feeTry.paymentIntentId
+        ? {
+            cancellationFeeCharged: true,
+            cancellationFeeChargedAt: new Date(),
+            cancellationFeeAmount: feeTry.amountMajor,
+            cancellationFeeChargeId: feeTry.paymentIntentId
+          }
+        : {};
+
     const updated = await Booking.findOneAndUpdate(
       { _id: booking._id, status: "confirmed" },
       {
         $set: {
           status: "cancelled",
           cancelledAt: new Date(),
-          cancellationMethod: "dashboard"
+          cancellationMethod: "dashboard",
+          smsCancelAwaitingConfirm: false,
+          ...feeSet
         }
       },
       { new: true }
@@ -260,7 +299,9 @@ router.post("/cancel-by-slot", strictLimiter, requireInternalAuth, async (req, r
       });
     }
 
-    await applyCancelSideEffects(updated);
+    await applyCancelSideEffects(updated, {
+      cancellationFeeAmount: feeTry.charged ? feeTry.amountMajor : undefined
+    });
     return res.json({ ok: true, booking: updated });
   } catch (err) {
     console.error("Error in POST /api/bookings/cancel-by-slot:", err);
@@ -277,29 +318,70 @@ router.patch("/:bookingId/cancel", strictLimiter, requireInternalAuth, async (re
       return res.status(400).json({ ok: false, error: "bookingId is required" });
     }
 
-    const booking = await Booking.findOneAndUpdate(
-      {
-        ...bookingLookupFilter(bookingId),
-        status: "confirmed"
-      },
-      {
-        $set: {
-          status: "cancelled",
-          cancelledAt: new Date(),
-          cancellationMethod: "api"
-        }
-      },
-      { new: true }
-    ).lean();
+    const bookingDoc = await Booking.findOne({
+      ...bookingLookupFilter(bookingId),
+      status: "confirmed"
+    });
 
-    if (!booking) {
+    if (!bookingDoc) {
       return res.status(404).json({
         ok: false,
         error: "Booking not found or already cancelled"
       });
     }
 
-    await applyCancelSideEffects(booking);
+    const businessForFee = await Business.findOne({
+      $or: [{ id: bookingDoc.businessId }, { businessId: bookingDoc.businessId }]
+    }).lean();
+    const serviceForFee = await Service.findOne({
+      businessId: bookingDoc.businessId,
+      serviceId: bookingDoc.serviceId
+    }).lean();
+    const feeTry = await tryChargeCancellationFee(bookingDoc.toObject(), businessForFee, serviceForFee);
+    if (!feeTry.ok) {
+      return res.status(402).json({
+        ok: false,
+        error: feeTry.error || "Cancellation fee could not be charged"
+      });
+    }
+
+    const feeSet =
+      feeTry.charged && feeTry.paymentIntentId
+        ? {
+            cancellationFeeCharged: true,
+            cancellationFeeChargedAt: new Date(),
+            cancellationFeeAmount: feeTry.amountMajor,
+            cancellationFeeChargeId: feeTry.paymentIntentId
+          }
+        : {};
+
+    const booking = await Booking.findOneAndUpdate(
+      {
+        _id: bookingDoc._id,
+        status: "confirmed"
+      },
+      {
+        $set: {
+          status: "cancelled",
+          cancelledAt: new Date(),
+          cancellationMethod: "api",
+          smsCancelAwaitingConfirm: false,
+          ...feeSet
+        }
+      },
+      { new: true }
+    ).lean();
+
+    if (!booking) {
+      return res.status(409).json({
+        ok: false,
+        error: "Booking could not be cancelled (may have been modified)"
+      });
+    }
+
+    await applyCancelSideEffects(booking, {
+      cancellationFeeAmount: feeTry.charged ? feeTry.amountMajor : undefined
+    });
     return res.json({ ok: true, booking });
   } catch (err) {
     console.error("Error in PATCH /api/bookings/:bookingId/cancel:", err);

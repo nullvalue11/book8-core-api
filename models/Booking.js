@@ -59,7 +59,29 @@ const BookingSchema = new mongoose.Schema(
     shortReminderEmailSentAt: { type: Date },
     shortReminderEmailId: { type: String, maxlength: 256, trim: true },
     lastMinuteReminderEmailSentAt: { type: Date },
-    lastMinuteReminderEmailId: { type: String, maxlength: 256, trim: true }
+    lastMinuteReminderEmailId: { type: String, maxlength: 256, trim: true },
+
+    /** BOO-45A: Stripe card on file (SetupIntent + PaymentMethod) */
+    stripeCustomerId: { type: String, maxlength: 128, trim: true, sparse: true },
+    stripePaymentMethodId: { type: String, maxlength: 128, trim: true, sparse: true },
+    cardLast4: { type: String, maxlength: 8, trim: true },
+    cardBrand: { type: String, maxlength: 32, trim: true },
+
+    noShow: { type: Boolean, default: false },
+    noShowMarkedAt: { type: Date },
+    noShowCharged: { type: Boolean, default: false },
+    noShowChargedAt: { type: Date },
+    noShowChargeAmount: { type: Number },
+    noShowChargeId: { type: String, maxlength: 128, trim: true },
+
+    cancellationFeeCharged: { type: Boolean, default: false },
+    cancellationFeeChargedAt: { type: Date },
+    cancellationFeeAmount: { type: Number },
+    cancellationFeeChargeId: { type: String, maxlength: 128, trim: true },
+
+    /** SMS two-step cancel when a fee may apply */
+    smsCancelAwaitingConfirm: { type: Boolean, default: false },
+    smsCancelPromptSentAt: { type: Date }
   },
   { timestamps: true }
 );

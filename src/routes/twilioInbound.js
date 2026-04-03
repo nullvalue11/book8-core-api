@@ -6,15 +6,10 @@
 import express from "express";
 import twilio from "twilio";
 import { Business } from "../../models/Business.js";
-import { Service } from "../../models/Service.js";
-import { Booking } from "../../models/Booking.js";
-import { sendCancellation } from "../../services/emailService.js";
 import {
-  deleteGcalEvent,
-  resolveCalendarProviderForBusiness,
-  updateGcalEvent
-} from "../../services/gcalService.js";
-import { cancelUpcomingBookingForPhone } from "../../services/smsBookingCancellation.js";
+  cancelUpcomingBookingForPhone,
+  confirmSmsCancelForPhone
+} from "../../services/smsBookingCancellation.js";
 import {
   normalizeE164,
   handleSmsBookingMessage,
@@ -101,6 +96,13 @@ router.post(
       // NOTE: CANCEL and CANCEL BOOKING are allowed regardless of plan tier.
       // A customer may have booked while the business was on a higher plan.
       // Cancellation should always be available.
+      // BOO-45A: confirm fee warning step
+      if (upper === "CONFIRM CANCEL") {
+        const { reply } = await confirmSmsCancelForPhone(business, from);
+        sendReply(reply);
+        return;
+      }
+
       // --- Legacy exact cancel phrase (kept for existing flows) ---
       if (upper === "CANCEL BOOKING") {
         const { reply } = await cancelUpcomingBookingForPhone(business, from);

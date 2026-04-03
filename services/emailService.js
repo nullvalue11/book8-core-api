@@ -9,12 +9,15 @@ import {
   getEmailHeadings,
   getBookingCancelFooter,
   buildCancellationEmail,
+  buildNoShowChargeEmail,
+  buildCancellationWithFeeEmail,
   getBookingLanguageRaw,
   getConfirmationSlotDisplay,
   getCalendarLinkLabels,
   buildIcsEventDescription,
   getReminderEmailParts
 } from "./templates/emailTemplates.js";
+import { formatMoneyForLocale, resolveCurrency } from "./noShowProtection.js";
 
 const apiKey = process.env.RESEND_API_KEY;
 const defaultFrom = "Book8 AI <noreply@book8.io>";
@@ -204,6 +207,80 @@ export async function sendReminder(booking, business, service, customer, type) {
  * @param {object} service - service doc (name)
  * @param {object} customer - customer (name, email)
  */
+/**
+ * BOO-45A: email after a no-show fee PaymentIntent succeeds.
+ */
+export async function sendNoShowChargeEmail(booking, business, service, customer, { amountMajor }) {
+  if (!resend || !customer?.email) return;
+  const lang = getBookingLanguageRaw(booking) || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
+  const currency = resolveCurrency(business);
+  const amountFormatted = formatMoneyForLocale(amountMajor, currency, lang);
+  const serviceName = service?.name || booking?.serviceId || "Appointment";
+  const businessName = business?.name || booking?.businessId || "Business";
+  const parts = buildNoShowChargeEmail(lang, {
+    serviceName,
+    businessName,
+    amountFormatted,
+    cardLast4: booking?.cardLast4,
+    contactPhone: business?.businessProfile?.phone || business?.assignedTwilioNumber || ""
+  });
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    <p style="margin:0 0 16px 0;color:#b45309;font-weight:600;">${escapeHtml(lang === "fr" ? "Frais facturés" : lang === "es" ? "Cargo aplicado" : lang === "ar" ? "تم الخصم" : "Fee charged")}</p>
+    ${parts.bodyHtml}
+  `;
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
+    });
+    if (error) console.warn("[emailService] No-show charge email failed:", error.message);
+    return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] No-show charge email error:", err.message);
+  }
+}
+
+/**
+ * BOO-45A: cancellation within policy window with fee charged.
+ */
+export async function sendCancellationWithFeeEmail(booking, business, service, customer, { amountMajor }) {
+  if (!resend || !customer?.email) return;
+  const lang = getBookingLanguageRaw(booking) || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
+  const currency = resolveCurrency(business);
+  const amountFormatted = formatMoneyForLocale(amountMajor, currency, lang);
+  const serviceName = service?.name || booking?.serviceId || "Appointment";
+  const businessName = business?.name || booking?.businessId || "Business";
+  const parts = buildCancellationWithFeeEmail(lang, {
+    serviceName,
+    businessName,
+    amountFormatted,
+    cardLast4: booking?.cardLast4
+  });
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    ${parts.bodyHtml}
+  `;
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
+    });
+    if (error) console.warn("[emailService] Cancellation+fee email failed:", error.message);
+    return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] Cancellation+fee email error:", err.message);
+  }
+}
+
 export async function sendCancellation(booking, business, service, customer) {
   if (!resend || !customer?.email) return;
   const lang = getBookingLanguageRaw(booking) || "en";

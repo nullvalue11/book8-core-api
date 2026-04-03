@@ -12,7 +12,9 @@ const SMS_TEMPLATES = {
 
     cancellation: (data) =>
       `Your ${data.serviceName} appointment on ${data.date} at ${data.time} has been cancelled.\n` +
-      `If you need to rebook, call us!`
+      `If you need to rebook, call us!`,
+
+    cancelFeeWarning: (data) => data.message
   },
 
   fr: {
@@ -21,7 +23,9 @@ const SMS_TEMPLATES = {
 
     cancellation: (data) =>
       `Votre rendez-vous ${data.serviceName} du ${data.date} à ${data.time} a été annulé.\n` +
-      `Pour reprendre un rendez-vous, appelez-nous!`
+      `Pour reprendre un rendez-vous, appelez-nous!`,
+
+    cancelFeeWarning: (data) => data.message
   },
 
   es: {
@@ -30,7 +34,9 @@ const SMS_TEMPLATES = {
 
     cancellation: (data) =>
       `Su cita de ${data.serviceName} del ${data.date} a las ${data.time} ha sido cancelada.\n` +
-      `Si necesita reservar de nuevo, ¡llámenos!`
+      `Si necesita reservar de nuevo, ¡llámenos!`,
+
+    cancelFeeWarning: (data) => data.message
   },
 
   ar: {
@@ -39,13 +45,16 @@ const SMS_TEMPLATES = {
 
     cancellation: (data) =>
       `تم إلغاء موعد ${data.serviceName} يوم ${data.date} الساعة ${data.time}.\n` +
-      `لإعادة الحجز، اتصل بنا!`
+      `لإعادة الحجز، اتصل بنا!`,
+
+    /** BOO-45A: fee warning — body must include CONFIRM CANCEL instruction */
+    cancelFeeWarning: (data) => data.message
   }
 };
 
 /**
  * @param {string} language - booking language (e.g. fr, fr-CA)
- * @param {'confirmation'|'cancellation'} type
+ * @param {'confirmation'|'cancellation'|'cancelFeeWarning'} type
  */
 export function getSmsTemplate(language, type) {
   const lang = normalizeLangCode(language);

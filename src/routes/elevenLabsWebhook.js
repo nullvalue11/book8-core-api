@@ -7,6 +7,7 @@ import { Schedule } from "../../models/Schedule.js";
 import { Call } from "../models/Call.js";
 import { isFeatureAllowed } from "../config/plans.js";
 import { safeCompare } from "../middleware/internalAuth.js";
+import { clampWindowHours } from "../../services/noShowProtection.js";
 import { maskPhone } from "../utils/maskPhone.js";
 
 const router = express.Router();
@@ -104,6 +105,15 @@ function languageDynamicVarsFromBusiness(business) {
     primary_language: business.primaryLanguage || "en",
     multilingual_enabled: business.multilingualEnabled !== false
   };
+}
+
+/** BOO-45A: spoken policy line for voice confirmation (ElevenLabs dynamic variable). */
+function noShowPolicyDynamicVar(business) {
+  if (!business?.noShowProtection?.enabled) return "";
+  const plan = business.plan || "starter";
+  if (!isFeatureAllowed(plan, "noShowProtection")) return "";
+  const h = clampWindowHours(business.noShowProtection.cancellationWindowHours);
+  return `Please note, if you need to cancel, please do so at least ${h} hours in advance to avoid a cancellation fee.`;
 }
 
 /** ElevenLabs sends caller_id, called_number, agent_id, call_sid — accept common aliases. */
@@ -234,6 +244,7 @@ router.post("/conversation-init/:token", async (req, res) => {
           timezone: "America/Toronto",
           today_date: todayIso,
           caller_phone: caller_id || "",
+          noShowPolicy: "",
           ...languageDynamicVarsFromBusiness(null)
         },
         conversation_config_override: {
@@ -268,6 +279,7 @@ router.post("/conversation-init/:token", async (req, res) => {
           call_sid: call_sid || "",
           business_category: business.category || "",
           greeting: `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`,
+          noShowPolicy: noShowPolicyDynamicVar(business),
           ...languageDynamicVarsFromBusiness(business)
         }
       });
@@ -381,6 +393,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         today_date: todayIso,
         caller_phone: caller_id || "",
         call_sid: call_sid || "",
+        noShowPolicy: noShowPolicyDynamicVar(business),
         ...languageDynamicVarsFromBusiness(business)
       },
       conversation_config_override: {
@@ -407,6 +420,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         timezone: "America/Toronto",
         today_date: todayIsoErr,
         caller_phone: parsed.caller_id || "",
+        noShowPolicy: "",
         ...languageDynamicVarsFromBusiness(null)
       },
       conversation_config_override: {

@@ -24,7 +24,9 @@ export const PLANS = {
       apiAccess: false,
       customVoice: false,
       whiteLabel: false,
-      prioritySupport: false
+      prioritySupport: false,
+      /** BOO-45A */
+      noShowProtection: false
     }
   },
   growth: {
@@ -48,7 +50,8 @@ export const PLANS = {
       apiAccess: false,
       customVoice: false,
       whiteLabel: false,
-      prioritySupport: true
+      prioritySupport: true,
+      noShowProtection: true
     }
   },
   enterprise: {
@@ -71,7 +74,8 @@ export const PLANS = {
       apiAccess: true,
       customVoice: true,
       whiteLabel: true,
-      prioritySupport: true
+      prioritySupport: true,
+      noShowProtection: true
     }
   }
 };

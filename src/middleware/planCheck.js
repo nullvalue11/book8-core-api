@@ -8,6 +8,7 @@ export const FEATURE_PLAN_MAP = {
   voiceBooking: "growth",
   outlookCalendar: "growth",
   multilingual: "growth",
+  noShowProtection: "growth",
   customVoice: "enterprise",
   whiteLabel: "enterprise",
   apiAccess: "enterprise"
@@ -25,6 +26,7 @@ export function requireFeature(featureName) {
   return async (req, res, next) => {
     const businessId =
       req.params.businessId ||
+      req.params.id ||
       req.body?.businessId ||
       req.body?.input?.businessId;
 
