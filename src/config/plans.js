@@ -19,6 +19,8 @@ export const PLANS = {
       analytics: "basic",
       maxCallMinutes: 0,
       teamMembers: 1,
+      /** BOO-44A: staff/providers; Starter = single operator only */
+      maxProviders: 0,
       apiAccess: false,
       customVoice: false,
       whiteLabel: false,
@@ -41,6 +43,8 @@ export const PLANS = {
       analytics: "full",
       maxCallMinutes: 200,
       teamMembers: 3,
+      /** BOO-44A: up to 5 staff/providers */
+      maxProviders: 5,
       apiAccess: false,
       customVoice: false,
       whiteLabel: false,
@@ -63,6 +67,7 @@ export const PLANS = {
       analytics: "full",
       maxCallMinutes: -1,
       teamMembers: -1,
+      maxProviders: -1,
       apiAccess: true,
       customVoice: true,
       whiteLabel: true,

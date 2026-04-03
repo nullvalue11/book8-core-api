@@ -42,6 +42,7 @@ import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
 import twilioInboundRouter from "./src/routes/twilioInbound.js";
 import twilioPoolRouter from "./src/routes/twilioPool.js";
 import businessLogoRouter from "./src/routes/businessLogo.js";
+import providersRouter from "./src/routes/providers.js";
 import { configureTwilioVoiceForPoolNumber } from "./services/twilioNumberSetup.js";
 
 const app = express();
@@ -467,6 +468,7 @@ async function findBusinessByParam(param) {
 }
 
 app.use("/api/businesses", businessLogoRouter);
+app.use("/api/businesses", providersRouter);
 
 // ---------- GET BUSINESS SERVICES ----------
 app.get("/api/businesses/:id/services", async (req, res) => {

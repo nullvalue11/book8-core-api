@@ -5,6 +5,7 @@
 import { Business } from "../models/Business.js";
 import { Service } from "../models/Service.js";
 import { Booking } from "../models/Booking.js";
+import { Provider } from "../models/Provider.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { randomBytes } from "crypto";
 import { sendSMS, formatConfirmationSMS } from "./smsService.js";
@@ -29,19 +30,26 @@ export function generateBookingId() {
  * from the compound unique index on Booking { businessId, slot.start, status }.
  * See createBooking() below for the catch on duplicate key errors.
  */
-export async function isSlotAvailable(businessId, slot) {
+export async function isSlotAvailable(businessId, slot, providerId = null) {
   const start = new Date(slot.start);
   const end = new Date(slot.end);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
     return false;
   }
-  const overlapping = await Booking.findOne({
+  const q = {
     businessId,
     status: "confirmed",
-    $or: [
-      { "slot.start": { $lt: slot.end }, "slot.end": { $gt: slot.start } }
-    ]
-  }).lean();
+    "slot.start": { $lt: slot.end },
+    "slot.end": { $gt: slot.start }
+  };
+  if (providerId) {
+    q.$or = [
+      { providerId },
+      { providerId: null },
+      { providerId: { $exists: false } }
+    ];
+  }
+  const overlapping = await Booking.findOne(q).lean();
   return !overlapping;
 }
 
@@ -68,7 +76,9 @@ export async function createBooking(input) {
     source,
     timezone: inputTimezone,
     language: inputLanguageRaw,
-    lang: inputLangAlias
+    lang: inputLangAlias,
+    providerId: inputProviderId,
+    providerName: inputProviderName
   } = input;
 
   const inputLanguage = inputLanguageRaw ?? inputLangAlias;
@@ -105,6 +115,26 @@ export async function createBooking(input) {
     return { ok: false, error: "Service is not active" };
   }
 
+  let resolvedProviderName =
+    typeof inputProviderName === "string" && inputProviderName.trim()
+      ? inputProviderName.trim().slice(0, 200)
+      : null;
+  if (inputProviderId) {
+    const prov = await Provider.findOne({ businessId, id: String(inputProviderId).trim() }).lean();
+    if (!prov) {
+      return { ok: false, error: "Provider not found" };
+    }
+    if (!prov.isActive) {
+      return { ok: false, error: "Provider is not active" };
+    }
+    if (Array.isArray(prov.services) && prov.services.length > 0 && !prov.services.includes(serviceId)) {
+      return { ok: false, error: "Service is not offered by this provider" };
+    }
+    if (!resolvedProviderName && prov.name) {
+      resolvedProviderName = prov.name;
+    }
+  }
+
   // Voice agent often sends only slot start; derive end from service duration
   if (!slot.end) {
     const startMs = new Date(slot.start).getTime();
@@ -128,7 +158,8 @@ export async function createBooking(input) {
   const normEnd = new Date(slot.end).toISOString();
   const slotForQuery = { start: normStart, end: normEnd };
 
-  const available = await isSlotAvailable(businessId, slotForQuery);
+  const providerForSlot = inputProviderId ? String(inputProviderId).trim() : null;
+  const available = await isSlotAvailable(businessId, slotForQuery, providerForSlot);
   if (!available) {
     return { ok: false, error: "Selected slot is no longer available" };
   }
@@ -140,6 +171,8 @@ export async function createBooking(input) {
     id: bookingId,
     businessId,
     serviceId: serviceId || "",
+    providerId: providerForSlot || undefined,
+    providerName: resolvedProviderName || undefined,
     customer: {
       name: customer.name,
       phone: customer.phone || "",
@@ -316,6 +349,8 @@ export async function createBooking(input) {
       id: booking.id,
       businessId: booking.businessId,
       serviceId: booking.serviceId,
+      providerId: booking.providerId ?? null,
+      providerName: booking.providerName ?? null,
       customer: booking.customer,
       slot: booking.slot,
       status: booking.status,

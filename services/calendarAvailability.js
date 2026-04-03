@@ -7,8 +7,10 @@ import { Business } from "../models/Business.js";
 import { Service } from "../models/Service.js";
 import { Schedule } from "../models/Schedule.js";
 import { Booking } from "../models/Booking.js";
+import { Provider } from "../models/Provider.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { getGcalBusyPeriods, resolveCalendarProviderForBusiness } from "./gcalService.js";
+import { providerWeeklyHoursToBlocks } from "../src/utils/providerSchedule.js";
 
 /**
  * Get available appointment slots for a business/service in a date range.
@@ -18,7 +20,7 @@ import { getGcalBusyPeriods, resolveCalendarProviderForBusiness } from "./gcalSe
  * @returns {Promise<{ ok: boolean, error?: string, businessId?: string, serviceId?: string, timezone?: string, slots?: Array<{ start: string, end: string, display: string }> }>}
  */
 export async function getAvailability(params) {
-  const { businessId, serviceId, from, to, timezone } = params;
+  const { businessId, serviceId, from, to, timezone, providerId } = params;
 
   const normalizedFrom = ensureTimezoneOffset(from, timezone || "America/Toronto");
   const normalizedTo = ensureTimezoneOffset(to, timezone || "America/Toronto");
@@ -50,8 +52,26 @@ export async function getAvailability(params) {
     weeklyHours = business.weeklySchedule?.weeklyHours;
     scheduleTz = business.weeklySchedule?.timezone || scheduleTz;
   }
+
+  if (providerId) {
+    const provider = await Provider.findOne({ businessId, id: providerId }).lean();
+    if (!provider) {
+      return { ok: false, error: "Provider not found" };
+    }
+    if (!provider.isActive) {
+      return { ok: false, error: "Provider is not active" };
+    }
+    if (Array.isArray(provider.services) && provider.services.length > 0 && !provider.services.includes(serviceId)) {
+      return { ok: false, error: "Service is not offered by this provider" };
+    }
+    const fromProvider = providerWeeklyHoursToBlocks(provider.schedule?.weeklyHours);
+    if (fromProvider) {
+      weeklyHours = fromProvider;
+    }
+  }
+
   if (!weeklyHours || typeof weeklyHours !== "object") {
-    return { ok: true, businessId, serviceId, timezone: scheduleTz, slots: [] };
+    return { ok: true, businessId, serviceId, timezone: scheduleTz, slots: [], providerId: providerId || null };
   }
 
   const candidateSlots = getSlotsFromWeeklySchedule({
@@ -62,7 +82,7 @@ export async function getAvailability(params) {
     weeklyHours
   });
 
-  const conflictingStarts = await getBookedSlotStarts(businessId, normalizedFrom, normalizedTo);
+  const conflictingStarts = await getBookedSlotStarts(businessId, normalizedFrom, normalizedTo, providerId || null);
   let slots = candidateSlots.filter(
     (s) => !conflictingStarts.some((booked) => slotsOverlap(s, booked))
   );
@@ -85,6 +105,7 @@ export async function getAvailability(params) {
     businessId,
     serviceId,
     timezone: scheduleTz,
+    providerId: providerId || null,
     slots: slots.slice(0, 50).map((s) => ({
       ...s,
       display: formatSlotDisplay(s.start, scheduleTz)
@@ -100,15 +121,21 @@ function slotOverlapsBusy(slot, busy) {
   return slot.start < busy.end && slot.end > busy.start;
 }
 
-async function getBookedSlotStarts(businessId, from, to) {
-  const bookings = await Booking.find({
+async function getBookedSlotStarts(businessId, from, to, providerId) {
+  const q = {
     businessId,
     status: "confirmed",
     "slot.start": { $lt: to },
     "slot.end": { $gt: from }
-  })
-    .select("slot.start slot.end")
-    .lean();
+  };
+  if (providerId) {
+    q.$or = [
+      { providerId },
+      { providerId: null },
+      { providerId: { $exists: false } }
+    ];
+  }
+  const bookings = await Booking.find(q).select("slot.start slot.end").lean();
   return bookings.map((b) => ({ start: b.slot.start, end: b.slot.end }));
 }
 

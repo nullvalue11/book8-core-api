@@ -102,7 +102,7 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
         break;
       }
       case "calendar.availability": {
-        const { businessId, serviceId, from, to, timezone, durationMinutes } = payload;
+        const { businessId, serviceId, from, to, timezone, durationMinutes, providerId } = payload;
         if (!businessId || !serviceId || !from || !to) {
           outcome = {
             ok: false,
@@ -117,6 +117,7 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
             from,
             to,
             timezone,
+            providerId: providerId || undefined,
             durationMinutes: durationMinutes ?? 60
           });
           if (!result.ok) {
@@ -134,6 +135,7 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
                 businessId: result.businessId,
                 serviceId: result.serviceId,
                 timezone: result.timezone,
+                providerId: result.providerId ?? null,
                 slots: result.slots
               },
               error: null
@@ -155,7 +157,9 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
           source,
           timezone,
           language,
-          lang
+          lang,
+          providerId,
+          providerName
         } = payload;
         let customer = rawCustomer || customerName;
         if (typeof customer === "string") customer = { name: customer };
@@ -179,7 +183,9 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
             notes,
             source: source || "voice-agent",
             timezone,
-            language: language ?? lang
+            language: language ?? lang,
+            providerId,
+            providerName
           });
           if (!result.ok) {
             outcome = {

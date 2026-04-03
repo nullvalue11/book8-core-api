@@ -24,6 +24,9 @@ const BookingSchema = new mongoose.Schema(
     id: { type: String, unique: true, index: true, maxlength: 128, trim: true },
     businessId: { type: String, required: true, index: true, maxlength: 128, trim: true },
     serviceId: { type: String, required: true, maxlength: 128, trim: true },
+    /** BOO-44A: optional staff/provider when business uses multi-provider */
+    providerId: { type: String, maxlength: 128, trim: true, default: null },
+    providerName: { type: String, maxlength: 200, trim: true, default: null },
     customer: { type: CustomerSchema, required: true },
     slot: { type: SlotSchema, required: true },
     status: { type: String, default: "confirmed", maxlength: 32, trim: true },
@@ -70,7 +73,7 @@ const BookingSchema = new mongoose.Schema(
 // partialFilterExpression limits the constraint to confirmed bookings
 // only, so cancelled bookings don't block future slots.
 BookingSchema.index(
-  { businessId: 1, "slot.start": 1, status: 1 },
+  { businessId: 1, "slot.start": 1, providerId: 1, status: 1 },
   {
     unique: true,
     partialFilterExpression: { status: "confirmed" }

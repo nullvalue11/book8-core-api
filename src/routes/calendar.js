@@ -8,7 +8,7 @@ const router = express.Router();
 // POST /api/calendar/availability
 router.post("/availability", strictLimiter, async (req, res) => {
   try {
-    const { businessId, serviceId, from, to, timezone, durationMinutes } = req.body;
+    const { businessId, serviceId, from, to, timezone, durationMinutes, providerId } = req.body;
 
     if (!businessId || !serviceId || !from || !to) {
       return res.status(400).json({
@@ -22,12 +22,16 @@ router.post("/availability", strictLimiter, async (req, res) => {
       serviceId,
       from,
       to,
-      timezone
+      timezone,
+      providerId: providerId || undefined
     });
 
     if (!result.ok) {
-      const status =
-        result.error === "Business not found" || result.error === "Service not found" ? 404 : 400;
+      const notFound =
+        result.error === "Business not found" ||
+        result.error === "Service not found" ||
+        result.error === "Provider not found";
+      const status = notFound ? 404 : 400;
       return res.status(status).json({ ok: false, error: result.error });
     }
 
@@ -36,6 +40,7 @@ router.post("/availability", strictLimiter, async (req, res) => {
       businessId: result.businessId,
       serviceId: result.serviceId,
       timezone: result.timezone,
+      providerId: result.providerId ?? null,
       slots: result.slots
     });
   } catch (err) {
