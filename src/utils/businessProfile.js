@@ -135,6 +135,7 @@ export function buildPublicBusinessProfile(business) {
       instagram: bp.socialLinks?.instagram ?? null,
       facebook: bp.socialLinks?.facebook ?? null,
       tiktok: bp.socialLinks?.tiktok ?? null
-    }
+    },
+    logo: bp.logo?.url ? { url: bp.logo.url } : null
   };
 }

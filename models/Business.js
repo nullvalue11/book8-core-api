@@ -61,6 +61,14 @@ const BusinessProfileSocialSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const BusinessProfileLogoSchema = new mongoose.Schema(
+  {
+    url: { type: String, maxlength: 2048, trim: true },
+    publicId: { type: String, maxlength: 512, trim: true }
+  },
+  { _id: false }
+);
+
 /** Public-facing contact + bio for booking pages (distinct from Book8 Twilio / root onboarding fields). */
 const BusinessProfileSchema = new mongoose.Schema(
   {
@@ -69,7 +77,8 @@ const BusinessProfileSchema = new mongoose.Schema(
     email: { type: String, maxlength: 254, trim: true },
     website: { type: String, maxlength: 2048, trim: true },
     description: { type: String, maxlength: 500, trim: true },
-    socialLinks: BusinessProfileSocialSchema
+    socialLinks: BusinessProfileSocialSchema,
+    logo: BusinessProfileLogoSchema
   },
   { _id: false }
 );
