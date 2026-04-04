@@ -106,6 +106,37 @@ const NoShowProtectionSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/** BOO-54A: cached Google Places metadata (photo refs are proxied via /api/places/photo). */
+const GooglePlacesPhotoSchema = new mongoose.Schema(
+  {
+    reference: { type: String, maxlength: 1024, trim: true },
+    width: { type: Number },
+    height: { type: Number }
+  },
+  { _id: false }
+);
+
+const GooglePlacesLocationSchema = new mongoose.Schema(
+  {
+    lat: { type: Number },
+    lng: { type: Number }
+  },
+  { _id: false }
+);
+
+const GooglePlacesSchema = new mongoose.Schema(
+  {
+    placeId: { type: String, maxlength: 512, trim: true },
+    rating: { type: Number },
+    reviewCount: { type: Number },
+    photos: [GooglePlacesPhotoSchema],
+    location: GooglePlacesLocationSchema,
+    googleMapsUrl: { type: String, maxlength: 2048, trim: true },
+    lastSynced: { type: Date }
+  },
+  { _id: false }
+);
+
 const BusinessSchema = new mongoose.Schema(
   {
     id: { type: String, unique: true, index: true, maxlength: 128, trim: true }, // slug/handle e.g. "waismofit"
@@ -161,7 +192,9 @@ const BusinessSchema = new mongoose.Schema(
     bookingSettings: BookingSettingsSchema,
     weeklySchedule: WeeklyScheduleSchema,
 
-    noShowProtection: NoShowProtectionSchema
+    noShowProtection: NoShowProtectionSchema,
+
+    googlePlaces: GooglePlacesSchema
   },
   { timestamps: true }
 );

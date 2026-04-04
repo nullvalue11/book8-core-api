@@ -45,6 +45,10 @@ import businessLogoRouter from "./src/routes/businessLogo.js";
 import providersRouter from "./src/routes/providers.js";
 import noShowBusinessRouter from "./src/routes/noShowBusiness.js";
 import bookingNoShowExtras from "./src/routes/bookingNoShowExtras.js";
+import placesRouter from "./src/routes/places.js";
+import { toPublicGooglePlaces } from "./src/utils/googlePlacesPublic.js";
+import { placeDetails, isGooglePlacesConfigured } from "./services/googlePlacesApi.js";
+import { applyGooglePlacesToBusiness } from "./services/googlePlacesSync.js";
 import { configureTwilioVoiceForPoolNumber } from "./services/twilioNumberSetup.js";
 
 const app = express();
@@ -728,7 +732,8 @@ app.get("/api/businesses/:id/public", strictLimiter, async (req, res) => {
       price: s.price,
       currency: s.currency
     }));
-    res.json({
+    const publicGooglePlaces = toPublicGooglePlaces(business.googlePlaces);
+    const publicPayload = {
       ok: true,
       businessName: business.name,
       handle: business.handle ?? null,
@@ -739,7 +744,11 @@ app.get("/api/businesses/:id/public", strictLimiter, async (req, res) => {
         timezone: schedule.timezone,
         weeklyHours: schedule.weeklyHours
       }
-    });
+    };
+    if (publicGooglePlaces) {
+      publicPayload.googlePlaces = publicGooglePlaces;
+    }
+    res.json(publicPayload);
   } catch (err) {
     console.error("Error in GET /api/businesses/:id/public:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
@@ -772,6 +781,34 @@ app.patch("/api/businesses/:id/profile", strictLimiter, requireInternalAuth, asy
   } catch (err) {
     console.error("Error in PATCH /api/businesses/:id/profile:", err);
     res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// ---------- SYNC GOOGLE PLACES (BOO-54A) ----------
+app.post("/api/businesses/:id/sync-google-places", strictLimiter, requireInternalAuth, async (req, res) => {
+  try {
+    if (!isGooglePlacesConfigured()) {
+      return res.status(503).json({ ok: false, error: "Google Places is not configured" });
+    }
+    const { id } = req.params;
+    const placeId = req.body?.placeId;
+    if (!placeId || typeof placeId !== "string" || !placeId.trim()) {
+      return res.status(400).json({ ok: false, error: "placeId is required" });
+    }
+    const doc = await Business.findOne({ $or: [{ id }, { businessId: id }] });
+    if (!doc) {
+      return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+    const r = await placeDetails(placeId.trim());
+    if (!r.ok) {
+      return res.status(400).json({ ok: false, error: r.error });
+    }
+    applyGooglePlacesToBusiness(doc, r.place);
+    await doc.save();
+    return res.json({ ok: true, business: doc.toObject() });
+  } catch (err) {
+    console.error("Error in POST /api/businesses/:id/sync-google-places:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
 
@@ -1093,6 +1130,7 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
 
 // ---------- CALENDAR & BOOKINGS ----------
 app.use("/api/calendar", calendarRouter);
+app.use("/api/places", placesRouter);
 app.use("/api/bookings", bookingNoShowExtras);
 app.use("/api/bookings", bookingsRouter);
 app.use("/api/twilio", twilioInboundRouter);
