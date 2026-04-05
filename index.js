@@ -36,6 +36,9 @@ import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 
 const app = express();
 
+// BOO-64A: Render / reverse proxy — required for express-rate-limit + accurate req.ip (X-Forwarded-For)
+app.set("trust proxy", 1);
+
 const PORT = process.env.PORT || 5050;
 const MONGODB_URI =
   process.env.MONGODB_URI ||
@@ -149,12 +152,14 @@ app.use(rootHealthRouter);
 app.use("/api", createApiOnboardingRouter({ requireApiKey }));
 app.use("/api", categoriesRouter);
 
+// BOO-64A: Core /api/businesses/:id/* routes must mount before feature routers (logo, portfolio, …)
+// so schedule/services/public/:id are not skipped by the middleware stack.
+app.use("/api/businesses", businessesHttpRouter);
 app.use("/api/businesses", businessLogoRouter);
 app.use("/api/businesses", businessPortfolioRouter);
 app.use("/api/businesses", providersRouter);
 app.use("/api/businesses", noShowBusinessRouter);
 app.use("/api/businesses", waitlistRouter);
-app.use("/api/businesses", businessesHttpRouter);
 
 app.use("/api/calendar", calendarRouter);
 app.use("/api/places", placesRouter);
