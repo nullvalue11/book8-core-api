@@ -24,3 +24,20 @@ describe("SMS confirmation templates (BOO-34A)", () => {
     });
   }
 });
+
+describe("SMS review request templates (BOO-58A)", () => {
+  const data = {
+    serviceName: "Massage",
+    businessName: "Spa Co",
+    link: "https://www.book8.io/review/tok"
+  };
+  for (const lang of ["en", "fr", "es", "ar"]) {
+    it(`${lang} reviewRequest includes link and service`, () => {
+      const fn = getSmsTemplate(lang, "reviewRequest");
+      const text = fn(data);
+      assert.ok(text.includes(data.link));
+      assert.ok(text.includes("Massage"));
+      assert.ok(text.includes("Spa Co"));
+    });
+  }
+});

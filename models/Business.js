@@ -138,6 +138,16 @@ const GooglePlacesSchema = new mongoose.Schema(
 );
 
 /** BOO-57A: owner-uploaded work gallery (Cloudinary). */
+/** BOO-58A: cached aggregates for public review list */
+const ReviewStatsSchema = new mongoose.Schema(
+  {
+    averageRating: { type: Number, default: 0 },
+    totalReviews: { type: Number, default: 0 },
+    lastReviewAt: { type: Date, default: null }
+  },
+  { _id: false }
+);
+
 const PortfolioItemSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, maxlength: 64, trim: true },
@@ -209,6 +219,8 @@ const BusinessSchema = new mongoose.Schema(
     noShowProtection: NoShowProtectionSchema,
 
     googlePlaces: GooglePlacesSchema,
+
+    reviewStats: { type: ReviewStatsSchema, default: undefined },
 
     portfolio: [PortfolioItemSchema]
   },

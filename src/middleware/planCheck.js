@@ -9,6 +9,7 @@ export const FEATURE_PLAN_MAP = {
   outlookCalendar: "growth",
   multilingual: "growth",
   noShowProtection: "growth",
+  reviewRequests: "growth",
   customVoice: "enterprise",
   whiteLabel: "enterprise",
   apiAccess: "enterprise"

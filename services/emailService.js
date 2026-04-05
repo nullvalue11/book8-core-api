@@ -15,7 +15,8 @@ import {
   getConfirmationSlotDisplay,
   getCalendarLinkLabels,
   buildIcsEventDescription,
-  getReminderEmailParts
+  getReminderEmailParts,
+  buildReviewRequestEmail
 } from "./templates/emailTemplates.js";
 import { formatMoneyForLocale, resolveCurrency } from "./noShowProtection.js";
 
@@ -197,6 +198,38 @@ export async function sendReminder(booking, business, service, customer, type) {
     return { id: data?.id };
   } catch (err) {
     console.error("[emailService] Reminder error:", err.message);
+  }
+}
+
+/**
+ * BOO-58A: review request after appointment (multilingual).
+ */
+export async function sendReviewRequestEmail(booking, business, service, customer, { link }) {
+  if (!resend || !customer?.email || !link) return;
+  const lang = getBookingLanguageRaw(booking) || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
+  const serviceName = service?.name || booking?.serviceId || "Appointment";
+  const businessName = business?.name || booking?.businessId || "Business";
+  const parts = buildReviewRequestEmail(lang, { serviceName, businessName, link });
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    ${parts.bodyHtml}
+  `;
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
+    });
+    if (error) {
+      console.warn("[emailService] Review request email failed:", error.message);
+      return;
+    }
+    return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] Review request email error:", err.message);
   }
 }
 

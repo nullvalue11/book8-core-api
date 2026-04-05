@@ -380,3 +380,39 @@ export function buildCancellationWithFeeEmail(
   const p = packs[lang] || packs.en;
   return { subject: p.subject, bodyHtml: p.bodyHtml };
 }
+
+/** BOO-58A: post-appointment review request */
+export function buildReviewRequestEmail(language, { serviceName, businessName, link }) {
+  const lang = normalizeLangCode(language);
+  const linkEsc = escapeHtmlFragment(link);
+  const svc = escapeHtmlFragment(serviceName);
+  const biz = escapeHtmlFragment(businessName);
+  const packs = {
+    en: {
+      subject: `How was your visit at ${businessName}?`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">How was your <strong>${svc}</strong> at <strong>${biz}</strong>? We'd love your feedback.</p>
+<p style="margin:0 0 24px 0;text-align:center;"><a href="${linkEsc}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;border-radius:8px;color:#fff;text-decoration:none;font-size:16px;">Leave a quick review</a></p>
+<p style="margin:0;font-size:13px;color:#666;">Or copy this link:<br/><span style="word-break:break-all;">${linkEsc}</span></p>`
+    },
+    fr: {
+      subject: `Comment s'est passée votre visite chez ${businessName} ?`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Comment s'est passé votre rendez-vous <strong>${svc}</strong> chez <strong>${biz}</strong> ? Votre avis nous intéresse.</p>
+<p style="margin:0 0 24px 0;text-align:center;"><a href="${linkEsc}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;border-radius:8px;color:#fff;text-decoration:none;font-size:16px;">Laisser un avis</a></p>
+<p style="margin:0;font-size:13px;color:#666;">Ou copiez ce lien :<br/><span style="word-break:break-all;">${linkEsc}</span></p>`
+    },
+    es: {
+      subject: `¿Cómo fue su visita en ${businessName}?`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">¿Cómo fue su <strong>${svc}</strong> en <strong>${biz}</strong>? Nos encantaría conocer su opinión.</p>
+<p style="margin:0 0 24px 0;text-align:center;"><a href="${linkEsc}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;border-radius:8px;color:#fff;text-decoration:none;font-size:16px;">Dejar una reseña</a></p>
+<p style="margin:0;font-size:13px;color:#666;">O copie este enlace:<br/><span style="word-break:break-all;">${linkEsc}</span></p>`
+    },
+    ar: {
+      subject: `كيف كانت زيارتك إلى ${businessName}؟`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">كيف كانت تجربتك مع <strong>${svc}</strong> في <strong>${biz}</strong>؟ نقدّر رأيك.</p>
+<p style="margin:0 0 24px 0;text-align:center;"><a href="${linkEsc}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;border-radius:8px;color:#fff;text-decoration:none;font-size:16px;">اترك تقييماً سريعاً</a></p>
+<p style="margin:0;font-size:13px;color:#666;">أو انسخ الرابط:<br/><span style="word-break:break-all;">${linkEsc}</span></p>`
+    }
+  };
+  const p = packs[lang] || packs.en;
+  return { subject: p.subject, bodyHtml: p.bodyHtml };
+}

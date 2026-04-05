@@ -14,7 +14,11 @@ const SMS_TEMPLATES = {
       `Your ${data.serviceName} appointment on ${data.date} at ${data.time} has been cancelled.\n` +
       `If you need to rebook, call us!`,
 
-    cancelFeeWarning: (data) => data.message
+    cancelFeeWarning: (data) => data.message,
+
+    /** BOO-58A */
+    reviewRequest: (data) =>
+      `How was your ${data.serviceName} at ${data.businessName}? We'd love your feedback: ${data.link}`
   },
 
   fr: {
@@ -25,7 +29,10 @@ const SMS_TEMPLATES = {
       `Votre rendez-vous ${data.serviceName} du ${data.date} à ${data.time} a été annulé.\n` +
       `Pour reprendre un rendez-vous, appelez-nous!`,
 
-    cancelFeeWarning: (data) => data.message
+    cancelFeeWarning: (data) => data.message,
+
+    reviewRequest: (data) =>
+      `Comment s'est passé votre ${data.serviceName} chez ${data.businessName} ? Donnez-nous votre avis : ${data.link}`
   },
 
   es: {
@@ -36,7 +43,10 @@ const SMS_TEMPLATES = {
       `Su cita de ${data.serviceName} del ${data.date} a las ${data.time} ha sido cancelada.\n` +
       `Si necesita reservar de nuevo, ¡llámenos!`,
 
-    cancelFeeWarning: (data) => data.message
+    cancelFeeWarning: (data) => data.message,
+
+    reviewRequest: (data) =>
+      `¿Cómo fue su ${data.serviceName} en ${data.businessName}? Nos encantaría su opinión: ${data.link}`
   },
 
   ar: {
@@ -48,13 +58,16 @@ const SMS_TEMPLATES = {
       `لإعادة الحجز، اتصل بنا!`,
 
     /** BOO-45A: fee warning — body must include CONFIRM CANCEL instruction */
-    cancelFeeWarning: (data) => data.message
+    cancelFeeWarning: (data) => data.message,
+
+    reviewRequest: (data) =>
+      `كيف كانت تجربتك مع ${data.serviceName} في ${data.businessName}؟ نقدر رأيك: ${data.link}`
   }
 };
 
 /**
  * @param {string} language - booking language (e.g. fr, fr-CA)
- * @param {'confirmation'|'cancellation'|'cancelFeeWarning'} type
+ * @param {'confirmation'|'cancellation'|'cancelFeeWarning'|'reviewRequest'} type
  */
 export function getSmsTemplate(language, type) {
   const lang = normalizeLangCode(language);

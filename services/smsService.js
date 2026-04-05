@@ -94,6 +94,18 @@ export function formatConfirmationSMS({ serviceName, businessName, date, time, c
  * @param {object} params
  * @returns {string}
  */
+/**
+ * BOO-58A: post-appointment review request SMS (multilingual).
+ */
+export function formatReviewRequestSMS({ serviceName, businessName, link, language }) {
+  const template = getSmsTemplate(language, "reviewRequest");
+  return template({
+    serviceName: serviceName || "visit",
+    businessName: businessName || "us",
+    link: link || ""
+  });
+}
+
 export function formatReminderSMS({ serviceName, businessName, date, time, isOneHour, isThirtyMinutes }) {
   if (isThirtyMinutes) {
     return `Your ${serviceName} appointment at ${businessName} starts in 30 minutes. See you soon!`;

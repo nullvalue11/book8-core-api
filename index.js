@@ -47,6 +47,8 @@ import providersRouter from "./src/routes/providers.js";
 import noShowBusinessRouter from "./src/routes/noShowBusiness.js";
 import bookingNoShowExtras from "./src/routes/bookingNoShowExtras.js";
 import placesRouter from "./src/routes/places.js";
+import reviewsRouter, { handleGetBusinessReviews } from "./src/routes/reviews.js";
+import { processReviewRequests } from "./services/reviewRequestCron.js";
 import { toPublicGooglePlaces } from "./src/utils/googlePlacesPublic.js";
 import { toPublicPortfolio } from "./src/utils/businessPortfolioPublic.js";
 import { placeDetails, isGooglePlacesConfigured } from "./services/googlePlacesApi.js";
@@ -819,6 +821,9 @@ app.post("/api/businesses/:id/sync-google-places", strictLimiter, requireInterna
   }
 });
 
+// ---------- GET PUBLIC REVIEWS (BOO-58A — before :id so "reviews" is not matched as business id) ----------
+app.get("/api/businesses/:id/reviews", strictLimiter, handleGetBusinessReviews);
+
 // ---------- GET BUSINESS BY ID ----------
 app.get("/api/businesses/:id", strictLimiter, async (req, res) => {
   try {
@@ -1138,6 +1143,7 @@ app.post("/api/businesses", requireApiKey, async (req, res) => {
 // ---------- CALENDAR & BOOKINGS ----------
 app.use("/api/calendar", calendarRouter);
 app.use("/api/places", placesRouter);
+app.use("/api/reviews", reviewsRouter);
 app.use("/api/bookings", bookingNoShowExtras);
 app.use("/api/bookings", bookingsRouter);
 app.use("/api/twilio", twilioInboundRouter);
@@ -1451,12 +1457,21 @@ app.get("/api/cron/send-reminders", async (req, res) => {
     }
 
     console.log(`[send-reminders] Done: ${sent} sent, ${failed} failed`);
+
+    let reviewRequests = { processed: 0, marked: 0, failed: 0, skippedStarter: 0 };
+    try {
+      reviewRequests = await processReviewRequests();
+    } catch (rrErr) {
+      console.error("[send-reminders] reviewRequests:", rrErr.message);
+    }
+
     return res.json({
       ok: true,
       processed:
         bookingsToRemind.length + shortReminders.length + lastMinuteReminders.length,
       sent,
-      failed
+      failed,
+      reviewRequests
     });
   } catch (err) {
     console.error("[send-reminders] Error:", err);

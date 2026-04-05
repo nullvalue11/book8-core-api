@@ -81,7 +81,11 @@ const BookingSchema = new mongoose.Schema(
 
     /** SMS two-step cancel when a fee may apply */
     smsCancelAwaitingConfirm: { type: Boolean, default: false },
-    smsCancelPromptSentAt: { type: Date }
+    smsCancelPromptSentAt: { type: Date },
+
+    /** BOO-58A: post-appointment review request (SMS/email) */
+    reviewRequestSent: { type: Boolean, default: false },
+    reviewRequestSentAt: { type: Date }
   },
   { timestamps: true }
 );

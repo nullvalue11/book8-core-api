@@ -34,7 +34,8 @@ export function getPlanLimits(plan) {
     publicBookingPage: true,
     maxProviders: typeof f.maxProviders === "number" ? f.maxProviders : 0,
     noShowProtection: !!f.noShowProtection,
-    maxPortfolioPhotos: typeof f.maxPortfolioPhotos === "number" ? f.maxPortfolioPhotos : 5
+    maxPortfolioPhotos: typeof f.maxPortfolioPhotos === "number" ? f.maxPortfolioPhotos : 5,
+    reviewRequests: !!f.reviewRequests
   };
 }
 

@@ -28,7 +28,9 @@ export const PLANS = {
       /** BOO-45A */
       noShowProtection: false,
       /** BOO-57A: gallery photos on booking page */
-      maxPortfolioPhotos: 5
+      maxPortfolioPhotos: 5,
+      /** BOO-58A: automatic post-appointment review SMS/email */
+      reviewRequests: false
     }
   },
   growth: {
@@ -54,7 +56,8 @@ export const PLANS = {
       whiteLabel: false,
       prioritySupport: true,
       noShowProtection: true,
-      maxPortfolioPhotos: 20
+      maxPortfolioPhotos: 20,
+      reviewRequests: true
     }
   },
   enterprise: {
@@ -79,7 +82,8 @@ export const PLANS = {
       whiteLabel: true,
       prioritySupport: true,
       noShowProtection: true,
-      maxPortfolioPhotos: 50
+      maxPortfolioPhotos: 50,
+      reviewRequests: true
     }
   }
 };
