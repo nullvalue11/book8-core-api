@@ -19,6 +19,30 @@ const SlotSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/** BOO-60A: recurring / repeat appointments */
+const RecurringSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    frequency: {
+      type: String,
+      enum: ["weekly", "biweekly", "monthly", "custom"],
+      default: undefined
+    },
+    intervalDays: { type: Number, default: undefined },
+    seriesId: { type: String, maxlength: 128, trim: true, index: true, sparse: true },
+    occurrenceNumber: { type: Number, default: undefined },
+    totalOccurrences: { type: Number, default: undefined },
+    /** YYYY-MM-DD of next auto-booked occurrence (informational) */
+    nextBookingDate: { type: String, maxlength: 32, trim: true },
+    /** ISO start of next occurrence to create (cron watches this) */
+    nextSlotStart: { type: String, maxlength: 64, trim: true },
+    autoRenew: { type: Boolean, default: true },
+    endDate: { type: String, maxlength: 32, trim: true },
+    cancelledFromSeries: { type: Boolean, default: false }
+  },
+  { _id: false }
+);
+
 const BookingSchema = new mongoose.Schema(
   {
     id: { type: String, unique: true, index: true, maxlength: 128, trim: true },
@@ -85,7 +109,9 @@ const BookingSchema = new mongoose.Schema(
 
     /** BOO-58A: post-appointment review request (SMS/email) */
     reviewRequestSent: { type: Boolean, default: false },
-    reviewRequestSentAt: { type: Date }
+    reviewRequestSentAt: { type: Date },
+
+    recurring: { type: RecurringSchema, default: undefined }
   },
   { timestamps: true }
 );

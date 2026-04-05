@@ -11,6 +11,7 @@ export const FEATURE_PLAN_MAP = {
   noShowProtection: "growth",
   reviewRequests: "growth",
   waitlist: "growth",
+  recurringBookings: "growth",
   customVoice: "enterprise",
   whiteLabel: "enterprise",
   apiAccess: "enterprise"

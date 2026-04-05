@@ -19,7 +19,10 @@ import {
   buildReviewRequestEmail,
   buildWaitlistJoinEmail,
   buildWaitlistSlotOpenEmail,
-  buildWaitlistExpiredEmail
+  buildWaitlistExpiredEmail,
+  buildRecurringInitialEmail,
+  buildRecurringNextEmail,
+  buildRecurringUnavailableEmail
 } from "./templates/emailTemplates.js";
 import { formatMoneyForLocale, resolveCurrency } from "./noShowProtection.js";
 
@@ -319,6 +322,104 @@ export async function sendWaitlistExpiredEmail({ customer, business, serviceName
     else return { id: data?.id };
   } catch (err) {
     console.error("[emailService] Waitlist expired email error:", err.message);
+  }
+}
+
+/** BOO-60A */
+export async function sendRecurringInitialBookingEmail(booking, business, service, customer) {
+  if (!resend || !customer?.email) return;
+  const lang = getBookingLanguageRaw(booking) || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
+  const tz = booking?.slot?.timezone || business?.timezone || "America/Toronto";
+  const { dateStr, timeStr } = formatSlotDateTime(booking.slot?.start, tz, lang);
+  const serviceName = service?.name || booking?.serviceId || "Appointment";
+  const businessName = business?.name || booking?.businessId || "Business";
+  const r = booking.recurring;
+  const parts = buildRecurringInitialEmail(lang, {
+    serviceName,
+    businessName,
+    dateStr,
+    timeStr,
+    occurrence: r?.occurrenceNumber ?? 1,
+    total: r?.totalOccurrences ?? 1
+  });
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    ${parts.bodyHtml}
+  `;
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
+    });
+    if (error) console.warn("[emailService] Recurring initial email failed:", error.message);
+    else return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] Recurring initial email error:", err.message);
+  }
+}
+
+/** BOO-60A */
+export async function sendRecurringNextBookingEmail(booking, business, service, customer) {
+  if (!resend || !customer?.email) return;
+  const lang = getBookingLanguageRaw(booking) || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
+  const tz = booking?.slot?.timezone || business?.timezone || "America/Toronto";
+  const { dateStr, timeStr } = formatSlotDateTime(booking.slot?.start, tz, lang);
+  const serviceName = service?.name || booking?.serviceId || "Appointment";
+  const businessName = business?.name || booking?.businessId || "Business";
+  const parts = buildRecurringNextEmail(lang, { serviceName, businessName, dateStr, timeStr });
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    ${parts.bodyHtml}
+  `;
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
+    });
+    if (error) console.warn("[emailService] Recurring next email failed:", error.message);
+    else return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] Recurring next email error:", err.message);
+  }
+}
+
+/** BOO-60A — slot could not be booked for next occurrence */
+export async function sendRecurringUnavailableEmail(booking, business, service, customer, { dateLabel, bookingLink }) {
+  if (!resend || !customer?.email || !bookingLink) return;
+  const lang = getBookingLanguageRaw(booking) || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
+  const serviceName = service?.name || booking?.serviceId || "Appointment";
+  const businessName = business?.name || booking?.businessId || "Business";
+  const parts = buildRecurringUnavailableEmail(lang, {
+    serviceName,
+    businessName,
+    dateStr: dateLabel,
+    bookingLink
+  });
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    ${parts.bodyHtml}
+  `;
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
+    });
+    if (error) console.warn("[emailService] Recurring unavailable email failed:", error.message);
+    else return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] Recurring unavailable email error:", err.message);
   }
 }
 

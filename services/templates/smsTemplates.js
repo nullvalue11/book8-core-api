@@ -26,7 +26,15 @@ const SMS_TEMPLATES = {
     waitlistSlotOpen: (data) =>
       `A slot just opened at ${data.businessName}! ${data.serviceName} on ${data.date} at ${data.time}. Book now: ${data.link} — this offer expires in 4 hours.`,
     waitlistExpired: (data) =>
-      `Your waitlist request at ${data.businessName} for ${data.serviceName} has expired. Visit ${data.bookingLink} to check availability.`
+      `Your waitlist request at ${data.businessName} for ${data.serviceName} has expired. Visit ${data.bookingLink} to check availability.`,
+
+    /** BOO-60A */
+    recurringInitial: (data) =>
+      `Your recurring ${data.serviceName} at ${data.businessName} is confirmed for ${data.date} at ${data.time}. This is appointment ${data.occurrence} of ${data.total}. To cancel this occurrence, reply CANCEL BOOKING.`,
+    recurringNext: (data) =>
+      `Your next recurring ${data.serviceName} at ${data.businessName} has been booked for ${data.date} at ${data.time}. To cancel, reply CANCEL BOOKING.`,
+    recurringUnavailable: (data) =>
+      `Your recurring ${data.serviceName} at ${data.businessName} on ${data.date} couldn't be booked — the slot is taken. Book a different time: ${data.link}`
   },
 
   fr: {
@@ -47,7 +55,14 @@ const SMS_TEMPLATES = {
     waitlistSlotOpen: (data) =>
       `Un créneau vient de s'ouvrir chez ${data.businessName} ! ${data.serviceName} le ${data.date} à ${data.time}. Réservez : ${data.link} — offre valable 4 h.`,
     waitlistExpired: (data) =>
-      `Votre demande de liste d'attente chez ${data.businessName} pour ${data.serviceName} a expiré. Consultez ${data.bookingLink} pour les disponibilités.`
+      `Votre demande de liste d'attente chez ${data.businessName} pour ${data.serviceName} a expiré. Consultez ${data.bookingLink} pour les disponibilités.`,
+
+    recurringInitial: (data) =>
+      `Votre rendez-vous récurrent ${data.serviceName} chez ${data.businessName} est confirmé le ${data.date} à ${data.time}. Rendez-vous ${data.occurrence} sur ${data.total}. Pour annuler ce rendez-vous, répondez CANCEL BOOKING.`,
+    recurringNext: (data) =>
+      `Votre prochain rendez-vous récurrent ${data.serviceName} chez ${data.businessName} est réservé le ${data.date} à ${data.time}. Pour annuler, répondez CANCEL BOOKING.`,
+    recurringUnavailable: (data) =>
+      `Votre rendez-vous récurrent ${data.serviceName} chez ${data.businessName} le ${data.date} n'a pas pu être réservé — le créneau est pris. Réservez un autre horaire : ${data.link}`
   },
 
   es: {
@@ -68,7 +83,14 @@ const SMS_TEMPLATES = {
     waitlistSlotOpen: (data) =>
       `¡Acaba de liberarse un hueco en ${data.businessName}! ${data.serviceName} el ${data.date} a las ${data.time}. Reserve: ${data.link} — oferta 4 horas.`,
     waitlistExpired: (data) =>
-      `Su solicitud de lista de espera en ${data.businessName} para ${data.serviceName} ha caducado. Visite ${data.bookingLink} para ver disponibilidad.`
+      `Su solicitud de lista de espera en ${data.businessName} para ${data.serviceName} ha caducado. Visite ${data.bookingLink} para ver disponibilidad.`,
+
+    recurringInitial: (data) =>
+      `Su cita recurrente de ${data.serviceName} en ${data.businessName} está confirmada para el ${data.date} a las ${data.time}. Es la cita ${data.occurrence} de ${data.total}. Para cancelar esta cita, responda CANCEL BOOKING.`,
+    recurringNext: (data) =>
+      `Su próxima cita recurrente de ${data.serviceName} en ${data.businessName} ha sido reservada para el ${data.date} a las ${data.time}. Para cancelar, responda CANCEL BOOKING.`,
+    recurringUnavailable: (data) =>
+      `No se pudo reservar su cita recurrente de ${data.serviceName} en ${data.businessName} el ${data.date}: el hueco está ocupado. Reserve otra hora: ${data.link}`
   },
 
   ar: {
@@ -90,13 +112,20 @@ const SMS_TEMPLATES = {
     waitlistSlotOpen: (data) =>
       `توفّر موعد في ${data.businessName}! ${data.serviceName} يوم ${data.date} الساعة ${data.time}. احجز الآن: ${data.link} — العرض ينتهي خلال 4 ساعات.`,
     waitlistExpired: (data) =>
-      `انتهت صلاحية طلب قائمة الانتظار لدى ${data.businessName} لـ ${data.serviceName}. زُر ${data.bookingLink} للتحقق من المواعيد.`
+      `انتهت صلاحية طلب قائمة الانتظار لدى ${data.businessName} لـ ${data.serviceName}. زُر ${data.bookingLink} للتحقق من المواعيد.`,
+
+    recurringInitial: (data) =>
+      `تم تأكيد موعدك المتكرر لـ ${data.serviceName} في ${data.businessName} يوم ${data.date} الساعة ${data.time}. هذا الموعد ${data.occurrence} من ${data.total}. للإلغاء، أرسل CANCEL BOOKING.`,
+    recurringNext: (data) =>
+      `تم حجز موعدك المتكرر التالي لـ ${data.serviceName} في ${data.businessName} يوم ${data.date} الساعة ${data.time}. للإلغاء، أرسل CANCEL BOOKING.`,
+    recurringUnavailable: (data) =>
+      `تعذر حجز موعدك المتكرر لـ ${data.serviceName} في ${data.businessName} يوم ${data.date} — الموعد غير متاح. احجز وقتاً آخر: ${data.link}`
   }
 };
 
 /**
  * @param {string} language - booking language (e.g. fr, fr-CA)
- * @param {'confirmation'|'cancellation'|'cancelFeeWarning'|'reviewRequest'|'waitlistJoin'|'waitlistSlotOpen'|'waitlistExpired'} type
+ * @param {'confirmation'|'cancellation'|'cancelFeeWarning'|'reviewRequest'|'waitlistJoin'|'waitlistSlotOpen'|'waitlistExpired'|'recurringInitial'|'recurringNext'|'recurringUnavailable'} type
  */
 export function getSmsTemplate(language, type) {
   const lang = normalizeLangCode(language);

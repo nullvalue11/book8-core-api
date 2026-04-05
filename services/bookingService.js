@@ -14,6 +14,11 @@ import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
 import { createGcalEvent, resolveCalendarProviderForBusiness } from "./gcalService.js";
 import { isFeatureAllowed } from "../src/config/plans.js";
 import { tryMarkWaitlistBooked } from "./waitlistService.js";
+import { validateAndBuildRecurringMeta } from "./recurringBookingUtils.js";
+import {
+  sendRecurringInitialConfirmations,
+  sendRecurringNextConfirmations
+} from "./recurringBookingMessages.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -80,7 +85,10 @@ export async function createBooking(input) {
     lang: inputLangAlias,
     providerId: inputProviderId,
     providerName: inputProviderName,
-    waitlistId
+    waitlistId,
+    recurring: recurringInput,
+    recurringMetadata: recurringMetadataInput,
+    _recurringCron: isRecurringCron
   } = input;
 
   const inputLanguage = inputLanguageRaw ?? inputLangAlias;
@@ -160,6 +168,28 @@ export async function createBooking(input) {
   const normEnd = new Date(slot.end).toISOString();
   const slotForQuery = { start: normStart, end: normEnd };
 
+  let recurringDoc = undefined;
+  if (recurringMetadataInput && isRecurringCron) {
+    recurringDoc = recurringMetadataInput;
+  } else if (recurringInput?.enabled) {
+    const vr = validateAndBuildRecurringMeta({
+      plan: business.plan,
+      recurring: recurringInput,
+      normStartIso: normStart,
+      timezone: slot.timezone || business.timezone || "America/Toronto",
+      serviceDurationMinutes: service.durationMinutes
+    });
+    if (!vr.ok) {
+      return {
+        ok: false,
+        error: vr.error,
+        upgrade: !!vr.upgrade,
+        requiredPlan: vr.requiredPlan
+      };
+    }
+    recurringDoc = vr.recurring;
+  }
+
   const providerForSlot = inputProviderId ? String(inputProviderId).trim() : null;
   const available = await isSlotAvailable(businessId, slotForQuery, providerForSlot);
   if (!available) {
@@ -191,7 +221,8 @@ export async function createBooking(input) {
       typeof inputLanguage === "string" && inputLanguage.trim()
         ? inputLanguage.trim().toLowerCase().slice(0, 5)
         : "en",
-    notes: notes || ""
+    notes: notes || "",
+    ...(recurringDoc ? { recurring: recurringDoc } : {})
   });
 
   try {
@@ -252,14 +283,35 @@ export async function createBooking(input) {
         // fallback to serviceId
       }
 
-      const smsBody = formatConfirmationSMS({
-        serviceName,
-        businessName: bizForSms.name || businessId,
-        date: dateStr,
-        time: timeStr,
-        customerName: customer.name?.split(" ")[0] || "",
-        language: smsLang
-      });
+      let smsBody;
+      if (booking.recurring?.enabled && isRecurringCron) {
+        smsBody = sendRecurringNextConfirmations.buildSms({
+          serviceName,
+          businessName: bizForSms.name || businessId,
+          date: dateStr,
+          time: timeStr,
+          language: smsLang
+        });
+      } else if (booking.recurring?.enabled && booking.recurring.occurrenceNumber === 1) {
+        smsBody = sendRecurringInitialConfirmations.buildSms({
+          serviceName,
+          businessName: bizForSms.name || businessId,
+          date: dateStr,
+          time: timeStr,
+          occurrence: booking.recurring.occurrenceNumber,
+          total: booking.recurring.totalOccurrences,
+          language: smsLang
+        });
+      } else {
+        smsBody = formatConfirmationSMS({
+          serviceName,
+          businessName: bizForSms.name || businessId,
+          date: dateStr,
+          time: timeStr,
+          customerName: customer.name?.split(" ")[0] || "",
+          language: smsLang
+        });
+      }
 
       const smsResult = await sendSMS({
         to: customer.phone,
@@ -289,7 +341,14 @@ export async function createBooking(input) {
 
   if (customer.email && isFeatureAllowed(business.plan || "starter", "emailConfirmations")) {
     const bookingForEmail = typeof booking.toObject === "function" ? booking.toObject() : booking;
-    sendConfirmationEmail(bookingForEmail, business, service, customer)
+    const emailPromise =
+      booking.recurring?.enabled && isRecurringCron
+        ? sendRecurringNextConfirmations.sendEmail(bookingForEmail, business, service, customer)
+        : booking.recurring?.enabled && booking.recurring.occurrenceNumber === 1
+          ? sendRecurringInitialConfirmations.sendEmail(bookingForEmail, business, service, customer)
+          : sendConfirmationEmail(bookingForEmail, business, service, customer);
+
+    emailPromise
       .then(async (result) => {
         if (result?.id) {
           await Booking.findOneAndUpdate(
@@ -353,19 +412,27 @@ export async function createBooking(input) {
   const display = formatSlotDisplay(normStart, timezone);
   const summary = `Booked ${customer.name} for ${display}.`;
 
+  const bookingOut = {
+    id: booking.id,
+    businessId: booking.businessId,
+    serviceId: booking.serviceId,
+    providerId: booking.providerId ?? null,
+    providerName: booking.providerName ?? null,
+    customer: booking.customer,
+    slot: booking.slot,
+    status: booking.status,
+    language: booking.language
+  };
+  if (booking.recurring) {
+    bookingOut.recurring = booking.recurring;
+    if (booking.recurring.seriesId) {
+      bookingOut.seriesId = booking.recurring.seriesId;
+    }
+  }
+
   return {
     ok: true,
-    booking: {
-      id: booking.id,
-      businessId: booking.businessId,
-      serviceId: booking.serviceId,
-      providerId: booking.providerId ?? null,
-      providerName: booking.providerName ?? null,
-      customer: booking.customer,
-      slot: booking.slot,
-      status: booking.status,
-      language: booking.language
-    },
+    booking: bookingOut,
     summary
   };
 }

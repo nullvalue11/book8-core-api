@@ -154,7 +154,8 @@ router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) 
       lang,
       providerId,
       providerName,
-      waitlistId
+      waitlistId,
+      recurring
     } = req.body;
 
     if (!businessId || !serviceId) {
@@ -186,10 +187,19 @@ router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) 
       language: language ?? lang,
       providerId,
       providerName,
-      waitlistId
+      waitlistId,
+      recurring
     });
 
     if (!result.ok) {
+      if (result.upgrade || result.requiredPlan) {
+        return res.status(403).json({
+          ok: false,
+          error: result.error,
+          upgrade: !!result.upgrade,
+          requiredPlan: result.requiredPlan
+        });
+      }
       const notFound = result.error === "Business not found" || result.error === "Service not found";
       const status = notFound ? 404 : 400;
       const conflict = result.error === "Selected slot is no longer available";
@@ -204,6 +214,147 @@ router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) 
     });
   } catch (err) {
     console.error("Error in POST /api/bookings:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+// GET /api/bookings/series/:seriesId — list bookings in a recurring series (internal auth)
+router.get("/series/:seriesId", strictLimiter, requireInternalAuth, async (req, res) => {
+  try {
+    const { seriesId } = req.params;
+    if (!seriesId) {
+      return res.status(400).json({ ok: false, error: "seriesId is required" });
+    }
+    const bookings = await Booking.find({ "recurring.seriesId": seriesId })
+      .sort({ "recurring.occurrenceNumber": 1, "slot.start": 1 })
+      .lean();
+    return res.json({ ok: true, seriesId, bookings });
+  } catch (err) {
+    console.error("Error in GET /api/bookings/series/:seriesId:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+/**
+ * DELETE /api/bookings/series/:seriesId
+ * Body: { bookingId, scope?: "single" | "future" } — cancel one occurrence or this and all later in the series.
+ */
+router.delete("/series/:seriesId", strictLimiter, requireInternalAuth, async (req, res) => {
+  try {
+    const { seriesId } = req.params;
+    const { bookingId, scope } = req.body || {};
+    if (!seriesId || !bookingId) {
+      return res.status(400).json({ ok: false, error: "seriesId and bookingId are required" });
+    }
+
+    const anchor = await Booking.findOne({
+      ...bookingLookupFilter(bookingId),
+      "recurring.seriesId": seriesId,
+      status: "confirmed"
+    });
+
+    if (!anchor) {
+      return res.status(404).json({ ok: false, error: "Booking not found in series" });
+    }
+
+    const scopeMode = scope === "future" ? "future" : "single";
+    const occ = anchor.recurring?.occurrenceNumber;
+    let toCancelDocs;
+    if (scopeMode === "single" || typeof occ !== "number") {
+      toCancelDocs = [anchor];
+    } else {
+      toCancelDocs = await Booking.find({
+        "recurring.seriesId": seriesId,
+        status: "confirmed",
+        "recurring.occurrenceNumber": { $gte: occ }
+      })
+        .sort({ "recurring.occurrenceNumber": 1 })
+        .lean();
+    }
+
+    const cancelledStarts = [];
+    const results = [];
+
+    for (const doc of toCancelDocs) {
+      const bookingDoc =
+        doc && typeof doc.toObject === "function" ? doc : await Booking.findById(doc._id);
+      if (!bookingDoc || bookingDoc.status !== "confirmed") continue;
+
+      const businessForFee = await Business.findOne({
+        $or: [{ id: bookingDoc.businessId }, { businessId: bookingDoc.businessId }]
+      }).lean();
+      const serviceForFee = await Service.findOne({
+        businessId: bookingDoc.businessId,
+        serviceId: bookingDoc.serviceId
+      }).lean();
+      const feeTry = await tryChargeCancellationFee(bookingDoc.toObject(), businessForFee, serviceForFee);
+      if (!feeTry.ok) {
+        return res.status(402).json({
+          ok: false,
+          error: feeTry.error || "Cancellation fee could not be charged"
+        });
+      }
+
+      const feeSet =
+        feeTry.charged && feeTry.paymentIntentId
+          ? {
+              cancellationFeeCharged: true,
+              cancellationFeeChargedAt: new Date(),
+              cancellationFeeAmount: feeTry.amountMajor,
+              cancellationFeeChargeId: feeTry.paymentIntentId
+            }
+          : {};
+
+      const updated = await Booking.findOneAndUpdate(
+        { _id: bookingDoc._id, status: "confirmed" },
+        {
+          $set: {
+            status: "cancelled",
+            cancelledAt: new Date(),
+            cancellationMethod: "api",
+            smsCancelAwaitingConfirm: false,
+            "recurring.cancelledFromSeries": true,
+            ...feeSet
+          }
+        },
+        { new: true }
+      ).lean();
+
+      if (!updated) {
+        return res.status(409).json({
+          ok: false,
+          error: "One booking could not be cancelled (may have been modified)"
+        });
+      }
+
+      const iso = new Date(updated.slot.start).toISOString();
+      cancelledStarts.push(iso);
+      results.push(updated);
+      await applyCancelSideEffects(updated, {
+        cancellationFeeAmount: feeTry.charged ? feeTry.amountMajor : undefined
+      });
+    }
+
+    if (cancelledStarts.length > 0) {
+      await Booking.updateMany(
+        {
+          businessId: anchor.businessId,
+          "recurring.seriesId": seriesId,
+          status: "confirmed",
+          "recurring.nextSlotStart": { $in: cancelledStarts }
+        },
+        { $unset: { "recurring.nextSlotStart": 1 }, $set: { "recurring.autoRenew": false } }
+      );
+    }
+
+    return res.json({
+      ok: true,
+      scope: scopeMode,
+      cancelled: results.map((b) => b.id),
+      bookings: results
+    });
+  } catch (err) {
+    console.error("Error in DELETE /api/bookings/series/:seriesId:", err);
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });

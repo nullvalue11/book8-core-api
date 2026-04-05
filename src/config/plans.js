@@ -33,7 +33,10 @@ export const PLANS = {
       reviewRequests: false,
       /** BOO-59A: waitlist when no slots */
       waitlist: false,
-      maxWaitlistEntries: 0
+      maxWaitlistEntries: 0,
+      /** BOO-60A */
+      recurringBookings: false,
+      maxRecurringOccurrencesPerSeries: 0
     }
   },
   growth: {
@@ -62,7 +65,9 @@ export const PLANS = {
       maxPortfolioPhotos: 20,
       reviewRequests: true,
       waitlist: true,
-      maxWaitlistEntries: 50
+      maxWaitlistEntries: 50,
+      recurringBookings: true,
+      maxRecurringOccurrencesPerSeries: 12
     }
   },
   enterprise: {
@@ -90,7 +95,9 @@ export const PLANS = {
       maxPortfolioPhotos: 50,
       reviewRequests: true,
       waitlist: true,
-      maxWaitlistEntries: -1
+      maxWaitlistEntries: -1,
+      recurringBookings: true,
+      maxRecurringOccurrencesPerSeries: -1
     }
   }
 };

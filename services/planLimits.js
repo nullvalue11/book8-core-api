@@ -38,7 +38,12 @@ export function getPlanLimits(plan) {
     reviewRequests: !!f.reviewRequests,
     waitlist: !!f.waitlist,
     maxWaitlistEntries:
-      typeof f.maxWaitlistEntries === "number" ? f.maxWaitlistEntries : 0
+      typeof f.maxWaitlistEntries === "number" ? f.maxWaitlistEntries : 0,
+    recurringBookings: !!f.recurringBookings,
+    maxRecurringOccurrencesPerSeries:
+      typeof f.maxRecurringOccurrencesPerSeries === "number"
+        ? f.maxRecurringOccurrencesPerSeries
+        : 0
   };
 }
 

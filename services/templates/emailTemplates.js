@@ -518,3 +518,100 @@ export function buildWaitlistExpiredEmail(language, { serviceName, businessName,
   const p = packs[lang] || packs.en;
   return { subject: p.subject, bodyHtml: p.bodyHtml };
 }
+
+/** BOO-60A */
+export function buildRecurringInitialEmail(
+  language,
+  { serviceName, businessName, dateStr, timeStr, occurrence, total }
+) {
+  const lang = normalizeLangCode(language);
+  const svc = escapeHtmlFragment(serviceName);
+  const biz = escapeHtmlFragment(businessName);
+  const d = escapeHtmlFragment(dateStr);
+  const t = escapeHtmlFragment(timeStr);
+  const packs = {
+    en: {
+      subject: `Recurring booking confirmed — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Your recurring <strong>${svc}</strong> at <strong>${biz}</strong> is confirmed for <strong>${d}</strong> at <strong>${t}</strong>.</p>
+<p style="margin:0;">This is appointment <strong>${occurrence}</strong> of <strong>${total}</strong>. To cancel this occurrence, use your booking link or reply CANCEL BOOKING to SMS reminders.</p>`
+    },
+    fr: {
+      subject: `Série de rendez-vous confirmée — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Votre rendez-vous récurrent <strong>${svc}</strong> chez <strong>${biz}</strong> est confirmé le <strong>${d}</strong> à <strong>${t}</strong>.</p>
+<p style="margin:0;">Rendez-vous <strong>${occurrence}</strong> sur <strong>${total}</strong>.</p>`
+    },
+    es: {
+      subject: `Serie de citas confirmada — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Su cita recurrente <strong>${svc}</strong> en <strong>${biz}</strong> está confirmada para el <strong>${d}</strong> a las <strong>${t}</strong>.</p>
+<p style="margin:0;">Cita <strong>${occurrence}</strong> de <strong>${total}</strong>.</p>`
+    },
+    ar: {
+      subject: `تم تأكيد المواعيد المتكررة — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">تم تأكيد موعدك المتكرر لـ <strong>${svc}</strong> في <strong>${biz}</strong> يوم <strong>${d}</strong> الساعة <strong>${t}</strong>.</p>
+<p style="margin:0;">الموعد <strong>${occurrence}</strong> من <strong>${total}</strong>.</p>`
+    }
+  };
+  const p = packs[lang] || packs.en;
+  return { subject: p.subject, bodyHtml: p.bodyHtml };
+}
+
+export function buildRecurringNextEmail(language, { serviceName, businessName, dateStr, timeStr }) {
+  const lang = normalizeLangCode(language);
+  const svc = escapeHtmlFragment(serviceName);
+  const biz = escapeHtmlFragment(businessName);
+  const d = escapeHtmlFragment(dateStr);
+  const t = escapeHtmlFragment(timeStr);
+  const packs = {
+    en: {
+      subject: `Next recurring appointment — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Your next recurring <strong>${svc}</strong> at <strong>${biz}</strong> has been booked for <strong>${d}</strong> at <strong>${t}</strong>.</p>
+<p style="margin:0;">To cancel, reply CANCEL BOOKING to SMS reminders when applicable.</p>`
+    },
+    fr: {
+      subject: `Prochain rendez-vous récurrent — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Votre prochain rendez-vous récurrent <strong>${svc}</strong> chez <strong>${biz}</strong> est réservé le <strong>${d}</strong> à <strong>${t}</strong>.</p>`
+    },
+    es: {
+      subject: `Próxima cita recurrente — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Su próxima cita recurrente <strong>${svc}</strong> en <strong>${biz}</strong> ha sido reservada para el <strong>${d}</strong> a las <strong>${t}</strong>.</p>`
+    },
+    ar: {
+      subject: `الموعد المتكرر التالي — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">تم حجز موعدك المتكرر التالي لـ <strong>${svc}</strong> في <strong>${biz}</strong> يوم <strong>${d}</strong> الساعة <strong>${t}</strong>.</p>`
+    }
+  };
+  const p = packs[lang] || packs.en;
+  return { subject: p.subject, bodyHtml: p.bodyHtml };
+}
+
+export function buildRecurringUnavailableEmail(language, { serviceName, businessName, dateStr, bookingLink }) {
+  const lang = normalizeLangCode(language);
+  const svc = escapeHtmlFragment(serviceName);
+  const biz = escapeHtmlFragment(businessName);
+  const d = escapeHtmlFragment(dateStr);
+  const linkEsc = escapeHtmlFragment(bookingLink);
+  const packs = {
+    en: {
+      subject: `Recurring slot unavailable — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Your recurring <strong>${svc}</strong> at <strong>${biz}</strong> on <strong>${d}</strong> couldn't be booked — the slot was taken.</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">Book a different time</a></p>`
+    },
+    fr: {
+      subject: `Créneau indisponible — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Votre rendez-vous récurrent <strong>${svc}</strong> chez <strong>${biz}</strong> le <strong>${d}</strong> n'a pas pu être réservé.</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">Choisir un autre horaire</a></p>`
+    },
+    es: {
+      subject: `Hueco no disponible — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">No se pudo reservar su cita recurrente <strong>${svc}</strong> en <strong>${biz}</strong> el <strong>${d}</strong>.</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">Elegir otra hora</a></p>`
+    },
+    ar: {
+      subject: `الموعد غير متاح — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">تعذر حجز موعدك المتكرر لـ <strong>${svc}</strong> في <strong>${biz}</strong> يوم <strong>${d}</strong>.</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">اختر وقتاً آخر</a></p>`
+    }
+  };
+  const p = packs[lang] || packs.en;
+  return { subject: p.subject, bodyHtml: p.bodyHtml };
+}

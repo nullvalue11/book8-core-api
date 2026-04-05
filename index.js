@@ -51,6 +51,7 @@ import reviewsRouter, { handleGetBusinessReviews } from "./src/routes/reviews.js
 import waitlistRouter from "./src/routes/waitlist.js";
 import { processReviewRequests } from "./services/reviewRequestCron.js";
 import { processWaitlistCronJobs } from "./services/waitlistService.js";
+import { processRecurringBookingCron } from "./services/recurringBookingCron.js";
 import { toPublicGooglePlaces } from "./src/utils/googlePlacesPublic.js";
 import { toPublicPortfolio } from "./src/utils/businessPortfolioPublic.js";
 import { placeDetails, isGooglePlacesConfigured } from "./services/googlePlacesApi.js";
@@ -1475,6 +1476,13 @@ app.get("/api/cron/send-reminders", async (req, res) => {
       console.error("[send-reminders] waitlistCron:", wlErr.message);
     }
 
+    let recurringCron = { created: 0, failed: 0, skipped: 0 };
+    try {
+      recurringCron = await processRecurringBookingCron();
+    } catch (rbErr) {
+      console.error("[send-reminders] recurringCron:", rbErr.message);
+    }
+
     return res.json({
       ok: true,
       processed:
@@ -1482,7 +1490,8 @@ app.get("/api/cron/send-reminders", async (req, res) => {
       sent,
       failed,
       reviewRequests,
-      waitlistCron
+      waitlistCron,
+      recurringCron
     });
   } catch (err) {
     console.error("[send-reminders] Error:", err);
