@@ -416,3 +416,105 @@ export function buildReviewRequestEmail(language, { serviceName, businessName, l
   const p = packs[lang] || packs.en;
   return { subject: p.subject, bodyHtml: p.bodyHtml };
 }
+
+/** BOO-59A: waitlist join confirmation */
+export function buildWaitlistJoinEmail(language, { serviceName, businessName, bookingLink }) {
+  const lang = normalizeLangCode(language);
+  const svc = escapeHtmlFragment(serviceName);
+  const biz = escapeHtmlFragment(businessName);
+  const linkEsc = escapeHtmlFragment(bookingLink);
+  const packs = {
+    en: {
+      subject: `You're on the waitlist — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">You're on the waitlist at <strong>${biz}</strong> for <strong>${svc}</strong>. We'll notify you when a slot opens up!</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">${linkEsc}</a></p>`
+    },
+    fr: {
+      subject: `Liste d'attente — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Vous êtes sur la liste d'attente chez <strong>${biz}</strong> pour <strong>${svc}</strong>. Nous vous préviendrons dès qu'un créneau se libère !</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">${linkEsc}</a></p>`
+    },
+    es: {
+      subject: `Lista de espera — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Está en la lista de espera en <strong>${biz}</strong> para <strong>${svc}</strong>. ¡Le avisaremos cuando haya un hueco!</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">${linkEsc}</a></p>`
+    },
+    ar: {
+      subject: `قائمة الانتظار — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">أنت على قائمة الانتظار في <strong>${biz}</strong> لـ <strong>${svc}</strong>. سنُعلمك عند توفر موعد!</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">${linkEsc}</a></p>`
+    }
+  };
+  const p = packs[lang] || packs.en;
+  return { subject: p.subject, bodyHtml: p.bodyHtml };
+}
+
+/** BOO-59A: slot freed — book now */
+export function buildWaitlistSlotOpenEmail(language, { serviceName, businessName, date, time, link }) {
+  const lang = normalizeLangCode(language);
+  const svc = escapeHtmlFragment(serviceName);
+  const biz = escapeHtmlFragment(businessName);
+  const d = escapeHtmlFragment(date);
+  const t = escapeHtmlFragment(time);
+  const linkEsc = escapeHtmlFragment(link);
+  const packs = {
+    en: {
+      subject: `A slot opened at ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Great news! A slot opened at <strong>${biz}</strong> for <strong>${svc}</strong> on <strong>${d}</strong> at <strong>${t}</strong>.</p>
+<p style="margin:0 0 24px 0;text-align:center;"><a href="${linkEsc}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;border-radius:8px;color:#fff;text-decoration:none;font-size:16px;">Book now</a></p>
+<p style="margin:0;font-size:13px;color:#666;">This offer expires in 4 hours.</p>`
+    },
+    fr: {
+      subject: `Créneau disponible chez ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Bonne nouvelle ! Un créneau s'est libéré chez <strong>${biz}</strong> pour <strong>${svc}</strong> le <strong>${d}</strong> à <strong>${t}</strong>.</p>
+<p style="margin:0 0 24px 0;text-align:center;"><a href="${linkEsc}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;border-radius:8px;color:#fff;text-decoration:none;font-size:16px;">Réserver</a></p>
+<p style="margin:0;font-size:13px;color:#666;">Offre valable 4 heures.</p>`
+    },
+    es: {
+      subject: `Hueco disponible en ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">¡Buenas noticias! Hay un hueco en <strong>${biz}</strong> para <strong>${svc}</strong> el <strong>${d}</strong> a las <strong>${t}</strong>.</p>
+<p style="margin:0 0 24px 0;text-align:center;"><a href="${linkEsc}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;border-radius:8px;color:#fff;text-decoration:none;font-size:16px;">Reservar</a></p>
+<p style="margin:0;font-size:13px;color:#666;">Oferta válida 4 horas.</p>`
+    },
+    ar: {
+      subject: `موعد متاح في ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">أخبار سارّة! توفّر موعد في <strong>${biz}</strong> لـ <strong>${svc}</strong> يوم <strong>${d}</strong> الساعة <strong>${t}</strong>.</p>
+<p style="margin:0 0 24px 0;text-align:center;"><a href="${linkEsc}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;border-radius:8px;color:#fff;text-decoration:none;font-size:16px;">احجز الآن</a></p>
+<p style="margin:0;font-size:13px;color:#666;">ينتهي العرض خلال 4 ساعات.</p>`
+    }
+  };
+  const p = packs[lang] || packs.en;
+  return { subject: p.subject, bodyHtml: p.bodyHtml };
+}
+
+/** BOO-59A: waitlist row expired (14d) */
+export function buildWaitlistExpiredEmail(language, { serviceName, businessName, bookingLink }) {
+  const lang = normalizeLangCode(language);
+  const svc = escapeHtmlFragment(serviceName);
+  const biz = escapeHtmlFragment(businessName);
+  const linkEsc = escapeHtmlFragment(bookingLink);
+  const packs = {
+    en: {
+      subject: `Waitlist request expired — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Your waitlist request at <strong>${biz}</strong> for <strong>${svc}</strong> has expired.</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">Check availability</a></p>`
+    },
+    fr: {
+      subject: `Liste d'attente expirée — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Votre demande de liste d'attente chez <strong>${biz}</strong> pour <strong>${svc}</strong> a expiré.</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">Voir les disponibilités</a></p>`
+    },
+    es: {
+      subject: `Lista de espera caducada — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">Su solicitud de lista de espera en <strong>${biz}</strong> para <strong>${svc}</strong> ha caducado.</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">Ver disponibilidad</a></p>`
+    },
+    ar: {
+      subject: `انتهت قائمة الانتظار — ${businessName}`,
+      bodyHtml: `<p style="margin:0 0 16px 0;">انتهت صلاحية طلب قائمة الانتظار لدى <strong>${biz}</strong> لـ <strong>${svc}</strong>.</p>
+<p style="margin:0;"><a href="${linkEsc}" style="color:#2563eb;">التحقق من المواعيد</a></p>`
+    }
+  };
+  const p = packs[lang] || packs.en;
+  return { subject: p.subject, bodyHtml: p.bodyHtml };
+}

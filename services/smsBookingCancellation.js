@@ -19,6 +19,7 @@ import {
   isNoShowProtectionPlanOk
 } from "./noShowProtection.js";
 import { tryChargeCancellationFee } from "./bookingFeeCharge.js";
+import { notifyWaitlistAfterCancellation } from "./waitlistService.js";
 
 async function notifySmsCancelComplete(booking, business, serviceDisplay, cancellationFeeAmount) {
   const serviceForEmail = await Service.findOne({
@@ -148,6 +149,7 @@ export async function confirmSmsCancelForPhone(business, customerPhoneE164) {
   });
 
   console.log("[sms-cancel] Booking cancelled (confirmed):", booking.id);
+  notifyWaitlistAfterCancellation(booking);
   return { ok: true, reply: replyMsg };
 }
 
@@ -261,5 +263,6 @@ export async function cancelUpcomingBookingForPhone(business, customerPhoneE164)
   });
 
   console.log("[sms-cancel] Booking cancelled:", booking.id);
+  notifyWaitlistAfterCancellation(booking);
   return { ok: true, reply: replyMsg };
 }

@@ -159,7 +159,8 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
           language,
           lang,
           providerId,
-          providerName
+          providerName,
+          waitlistId
         } = payload;
         let customer = rawCustomer || customerName;
         if (typeof customer === "string") customer = { name: customer };
@@ -185,7 +186,8 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
             timezone,
             language: language ?? lang,
             providerId,
-            providerName
+            providerName,
+            waitlistId
           });
           if (!result.ok) {
             outcome = {

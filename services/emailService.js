@@ -16,7 +16,10 @@ import {
   getCalendarLinkLabels,
   buildIcsEventDescription,
   getReminderEmailParts,
-  buildReviewRequestEmail
+  buildReviewRequestEmail,
+  buildWaitlistJoinEmail,
+  buildWaitlistSlotOpenEmail,
+  buildWaitlistExpiredEmail
 } from "./templates/emailTemplates.js";
 import { formatMoneyForLocale, resolveCurrency } from "./noShowProtection.js";
 
@@ -230,6 +233,92 @@ export async function sendReviewRequestEmail(booking, business, service, custome
     return { id: data?.id };
   } catch (err) {
     console.error("[emailService] Review request email error:", err.message);
+  }
+}
+
+/** BOO-59A */
+export async function sendWaitlistJoinEmail({ customer, business, serviceName, bookingLink, language }) {
+  if (!resend || !customer?.email || !bookingLink) return;
+  const lang = language || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
+  const businessName = business?.name || business?.id || "Business";
+  const parts = buildWaitlistJoinEmail(lang, { serviceName, businessName, bookingLink });
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    ${parts.bodyHtml}
+  `;
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
+    });
+    if (error) console.warn("[emailService] Waitlist join email failed:", error.message);
+    else return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] Waitlist join email error:", err.message);
+  }
+}
+
+/** BOO-59A */
+export async function sendWaitlistSlotOpenEmail({
+  customer,
+  business,
+  serviceName,
+  date,
+  time,
+  link,
+  language
+}) {
+  if (!resend || !customer?.email || !link) return;
+  const lang = language || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
+  const businessName = business?.name || business?.id || "Business";
+  const parts = buildWaitlistSlotOpenEmail(lang, { serviceName, businessName, date, time, link });
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    ${parts.bodyHtml}
+  `;
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
+    });
+    if (error) console.warn("[emailService] Waitlist slot email failed:", error.message);
+    else return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] Waitlist slot email error:", err.message);
+  }
+}
+
+/** BOO-59A */
+export async function sendWaitlistExpiredEmail({ customer, business, serviceName, bookingLink, language }) {
+  if (!resend || !customer?.email || !bookingLink) return;
+  const lang = language || "en";
+  const rtl = normalizeLangCode(lang) === "ar";
+  const headings = getEmailHeadings(lang);
+  const businessName = business?.name || business?.id || "Business";
+  const parts = buildWaitlistExpiredEmail(lang, { serviceName, businessName, bookingLink });
+  const content = `
+    <h1 style="margin:0 0 8px 0;font-size:24px;">${escapeHtml(businessName)}</h1>
+    ${parts.bodyHtml}
+  `;
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: customer.email,
+      subject: parts.subject,
+      html: baseHtml(content, { rtl, poweredBy: headings.poweredBy, htmlLang: emailHtmlLang(lang) })
+    });
+    if (error) console.warn("[emailService] Waitlist expired email failed:", error.message);
+    else return { id: data?.id };
+  } catch (err) {
+    console.error("[emailService] Waitlist expired email error:", err.message);
   }
 }
 

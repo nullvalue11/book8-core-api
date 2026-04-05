@@ -10,6 +10,7 @@ export const FEATURE_PLAN_MAP = {
   multilingual: "growth",
   noShowProtection: "growth",
   reviewRequests: "growth",
+  waitlist: "growth",
   customVoice: "enterprise",
   whiteLabel: "enterprise",
   apiAccess: "enterprise"

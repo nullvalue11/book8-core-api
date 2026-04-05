@@ -15,6 +15,7 @@ import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { sendCancellation, sendCancellationWithFeeEmail } from "../../services/emailService.js";
 import { tryChargeCancellationFee } from "../../services/bookingFeeCharge.js";
+import { notifyWaitlistAfterCancellation } from "../../services/waitlistService.js";
 
 const router = express.Router();
 
@@ -106,6 +107,8 @@ async function applyCancelSideEffects(booking, options = {}) {
       }
     })().catch(() => {});
   }
+
+  notifyWaitlistAfterCancellation(booking);
 }
 
 // GET /api/bookings?businessId=xxx
@@ -140,8 +143,19 @@ router.get("/", requireInternalAuth, strictLimiter, async (req, res) => {
 // POST /api/bookings
 router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) => {
   try {
-    const { businessId, serviceId, customer, slot, notes, source, language, lang, providerId, providerName } =
-      req.body;
+    const {
+      businessId,
+      serviceId,
+      customer,
+      slot,
+      notes,
+      source,
+      language,
+      lang,
+      providerId,
+      providerName,
+      waitlistId
+    } = req.body;
 
     if (!businessId || !serviceId) {
       return res.status(400).json({
@@ -171,7 +185,8 @@ router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) 
       source,
       language: language ?? lang,
       providerId,
-      providerName
+      providerName,
+      waitlistId
     });
 
     if (!result.ok) {

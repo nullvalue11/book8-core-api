@@ -30,7 +30,10 @@ export const PLANS = {
       /** BOO-57A: gallery photos on booking page */
       maxPortfolioPhotos: 5,
       /** BOO-58A: automatic post-appointment review SMS/email */
-      reviewRequests: false
+      reviewRequests: false,
+      /** BOO-59A: waitlist when no slots */
+      waitlist: false,
+      maxWaitlistEntries: 0
     }
   },
   growth: {
@@ -57,7 +60,9 @@ export const PLANS = {
       prioritySupport: true,
       noShowProtection: true,
       maxPortfolioPhotos: 20,
-      reviewRequests: true
+      reviewRequests: true,
+      waitlist: true,
+      maxWaitlistEntries: 50
     }
   },
   enterprise: {
@@ -83,7 +88,9 @@ export const PLANS = {
       prioritySupport: true,
       noShowProtection: true,
       maxPortfolioPhotos: 50,
-      reviewRequests: true
+      reviewRequests: true,
+      waitlist: true,
+      maxWaitlistEntries: -1
     }
   }
 };

@@ -13,6 +13,7 @@ import { formatSlotDateTime } from "./localeFormat.js";
 import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
 import { createGcalEvent, resolveCalendarProviderForBusiness } from "./gcalService.js";
 import { isFeatureAllowed } from "../src/config/plans.js";
+import { tryMarkWaitlistBooked } from "./waitlistService.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -78,7 +79,8 @@ export async function createBooking(input) {
     language: inputLanguageRaw,
     lang: inputLangAlias,
     providerId: inputProviderId,
-    providerName: inputProviderName
+    providerName: inputProviderName,
+    waitlistId
   } = input;
 
   const inputLanguage = inputLanguageRaw ?? inputLangAlias;
@@ -203,6 +205,14 @@ export async function createBooking(input) {
       return { ok: false, error: "Selected slot is no longer available" };
     }
     throw err;
+  }
+
+  if (waitlistId && typeof waitlistId === "string") {
+    try {
+      await tryMarkWaitlistBooked(waitlistId, booking.toObject());
+    } catch (wlErr) {
+      console.warn("[bookingService] waitlistId:", wlErr.message);
+    }
   }
 
   // ── SEND BOOKING CONFIRMATION SMS ────────────────────────

@@ -48,7 +48,9 @@ import noShowBusinessRouter from "./src/routes/noShowBusiness.js";
 import bookingNoShowExtras from "./src/routes/bookingNoShowExtras.js";
 import placesRouter from "./src/routes/places.js";
 import reviewsRouter, { handleGetBusinessReviews } from "./src/routes/reviews.js";
+import waitlistRouter from "./src/routes/waitlist.js";
 import { processReviewRequests } from "./services/reviewRequestCron.js";
+import { processWaitlistCronJobs } from "./services/waitlistService.js";
 import { toPublicGooglePlaces } from "./src/utils/googlePlacesPublic.js";
 import { toPublicPortfolio } from "./src/utils/businessPortfolioPublic.js";
 import { placeDetails, isGooglePlacesConfigured } from "./services/googlePlacesApi.js";
@@ -481,6 +483,7 @@ app.use("/api/businesses", businessLogoRouter);
 app.use("/api/businesses", businessPortfolioRouter);
 app.use("/api/businesses", providersRouter);
 app.use("/api/businesses", noShowBusinessRouter);
+app.use("/api/businesses", waitlistRouter);
 
 // ---------- GET BUSINESS SERVICES ----------
 app.get("/api/businesses/:id/services", async (req, res) => {
@@ -1465,13 +1468,21 @@ app.get("/api/cron/send-reminders", async (req, res) => {
       console.error("[send-reminders] reviewRequests:", rrErr.message);
     }
 
+    let waitlistCron = { expiredWaiting: 0, expiredNotifications: 0, renotified: 0 };
+    try {
+      waitlistCron = await processWaitlistCronJobs();
+    } catch (wlErr) {
+      console.error("[send-reminders] waitlistCron:", wlErr.message);
+    }
+
     return res.json({
       ok: true,
       processed:
         bookingsToRemind.length + shortReminders.length + lastMinuteReminders.length,
       sent,
       failed,
-      reviewRequests
+      reviewRequests,
+      waitlistCron
     });
   } catch (err) {
     console.error("[send-reminders] Error:", err);

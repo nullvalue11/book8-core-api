@@ -35,7 +35,10 @@ export function getPlanLimits(plan) {
     maxProviders: typeof f.maxProviders === "number" ? f.maxProviders : 0,
     noShowProtection: !!f.noShowProtection,
     maxPortfolioPhotos: typeof f.maxPortfolioPhotos === "number" ? f.maxPortfolioPhotos : 5,
-    reviewRequests: !!f.reviewRequests
+    reviewRequests: !!f.reviewRequests,
+    waitlist: !!f.waitlist,
+    maxWaitlistEntries:
+      typeof f.maxWaitlistEntries === "number" ? f.maxWaitlistEntries : 0
   };
 }
 

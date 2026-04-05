@@ -25,6 +25,39 @@ describe("SMS confirmation templates (BOO-34A)", () => {
   }
 });
 
+describe("SMS waitlist templates (BOO-59A)", () => {
+  const joinData = { businessName: "Salon", serviceName: "Cut" };
+  const slotData = {
+    businessName: "Salon",
+    serviceName: "Cut",
+    date: "June 1",
+    time: "2:00 PM",
+    link: "https://www.book8.io/b/x"
+  };
+  const expData = {
+    businessName: "Salon",
+    serviceName: "Cut",
+    bookingLink: "https://www.book8.io/b/x"
+  };
+  for (const lang of ["en", "fr", "es", "ar"]) {
+    it(`${lang} waitlistJoin mentions business`, () => {
+      const fn = getSmsTemplate(lang, "waitlistJoin");
+      const text = fn(joinData);
+      assert.ok(text.includes("Salon"));
+    });
+    it(`${lang} waitlistSlotOpen includes link`, () => {
+      const fn = getSmsTemplate(lang, "waitlistSlotOpen");
+      const text = fn(slotData);
+      assert.ok(text.includes(slotData.link));
+    });
+    it(`${lang} waitlistExpired includes booking page`, () => {
+      const fn = getSmsTemplate(lang, "waitlistExpired");
+      const text = fn(expData);
+      assert.ok(text.includes("book8.io"));
+    });
+  }
+});
+
 describe("SMS review request templates (BOO-58A)", () => {
   const data = {
     serviceName: "Massage",
