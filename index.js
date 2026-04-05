@@ -42,11 +42,13 @@ import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
 import twilioInboundRouter from "./src/routes/twilioInbound.js";
 import twilioPoolRouter from "./src/routes/twilioPool.js";
 import businessLogoRouter from "./src/routes/businessLogo.js";
+import businessPortfolioRouter from "./src/routes/businessPortfolio.js";
 import providersRouter from "./src/routes/providers.js";
 import noShowBusinessRouter from "./src/routes/noShowBusiness.js";
 import bookingNoShowExtras from "./src/routes/bookingNoShowExtras.js";
 import placesRouter from "./src/routes/places.js";
 import { toPublicGooglePlaces } from "./src/utils/googlePlacesPublic.js";
+import { toPublicPortfolio } from "./src/utils/businessPortfolioPublic.js";
 import { placeDetails, isGooglePlacesConfigured } from "./services/googlePlacesApi.js";
 import { applyGooglePlacesToBusiness } from "./services/googlePlacesSync.js";
 import { configureTwilioVoiceForPoolNumber } from "./services/twilioNumberSetup.js";
@@ -474,6 +476,7 @@ async function findBusinessByParam(param) {
 }
 
 app.use("/api/businesses", businessLogoRouter);
+app.use("/api/businesses", businessPortfolioRouter);
 app.use("/api/businesses", providersRouter);
 app.use("/api/businesses", noShowBusinessRouter);
 
@@ -733,6 +736,7 @@ app.get("/api/businesses/:id/public", strictLimiter, async (req, res) => {
       currency: s.currency
     }));
     const publicGooglePlaces = toPublicGooglePlaces(business.googlePlaces);
+    const publicPortfolio = toPublicPortfolio(business.portfolio);
     const publicPayload = {
       ok: true,
       businessName: business.name,
@@ -747,6 +751,9 @@ app.get("/api/businesses/:id/public", strictLimiter, async (req, res) => {
     };
     if (publicGooglePlaces) {
       publicPayload.googlePlaces = publicGooglePlaces;
+    }
+    if (publicPortfolio) {
+      publicPayload.portfolio = publicPortfolio;
     }
     res.json(publicPayload);
   } catch (err) {

@@ -137,6 +137,20 @@ const GooglePlacesSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/** BOO-57A: owner-uploaded work gallery (Cloudinary). */
+const PortfolioItemSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, maxlength: 64, trim: true },
+    url: { type: String, maxlength: 2048, trim: true },
+    publicId: { type: String, maxlength: 512, trim: true },
+    caption: { type: String, maxlength: 200, trim: true },
+    category: { type: String, maxlength: 64, trim: true },
+    sortOrder: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
+  },
+  { _id: false }
+);
+
 const BusinessSchema = new mongoose.Schema(
   {
     id: { type: String, unique: true, index: true, maxlength: 128, trim: true }, // slug/handle e.g. "waismofit"
@@ -194,7 +208,9 @@ const BusinessSchema = new mongoose.Schema(
 
     noShowProtection: NoShowProtectionSchema,
 
-    googlePlaces: GooglePlacesSchema
+    googlePlaces: GooglePlacesSchema,
+
+    portfolio: [PortfolioItemSchema]
   },
   { timestamps: true }
 );

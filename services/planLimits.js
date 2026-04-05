@@ -33,7 +33,8 @@ export function getPlanLimits(plan) {
     callMinuteRate: 0.1,
     publicBookingPage: true,
     maxProviders: typeof f.maxProviders === "number" ? f.maxProviders : 0,
-    noShowProtection: !!f.noShowProtection
+    noShowProtection: !!f.noShowProtection,
+    maxPortfolioPhotos: typeof f.maxPortfolioPhotos === "number" ? f.maxPortfolioPhotos : 5
   };
 }
 

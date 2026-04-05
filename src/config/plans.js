@@ -26,7 +26,9 @@ export const PLANS = {
       whiteLabel: false,
       prioritySupport: false,
       /** BOO-45A */
-      noShowProtection: false
+      noShowProtection: false,
+      /** BOO-57A: gallery photos on booking page */
+      maxPortfolioPhotos: 5
     }
   },
   growth: {
@@ -51,7 +53,8 @@ export const PLANS = {
       customVoice: false,
       whiteLabel: false,
       prioritySupport: true,
-      noShowProtection: true
+      noShowProtection: true,
+      maxPortfolioPhotos: 20
     }
   },
   enterprise: {
@@ -75,7 +78,8 @@ export const PLANS = {
       customVoice: true,
       whiteLabel: true,
       prioritySupport: true,
-      noShowProtection: true
+      noShowProtection: true,
+      maxPortfolioPhotos: 50
     }
   }
 };
