@@ -149,17 +149,19 @@ const businessesHttpRouter = createBusinessesHttpRouter({
 
 // ---------- ROUTES ----------
 app.use(rootHealthRouter);
-app.use("/api", createApiOnboardingRouter({ requireApiKey }));
-app.use("/api", categoriesRouter);
 
-// BOO-64A: Core /api/businesses/:id/* routes must mount before feature routers (logo, portfolio, …)
-// so schedule/services/public/:id are not skipped by the middleware stack.
+// BOO-65A: Mount /api/businesses BEFORE any app.use("/api", ...). Otherwise every
+// /api/businesses/* request hits the generic /api routers first; if those sub-routers
+// do not forward correctly, core business routes never run (404 in production).
 app.use("/api/businesses", businessesHttpRouter);
 app.use("/api/businesses", businessLogoRouter);
 app.use("/api/businesses", businessPortfolioRouter);
 app.use("/api/businesses", providersRouter);
 app.use("/api/businesses", noShowBusinessRouter);
 app.use("/api/businesses", waitlistRouter);
+
+app.use("/api", createApiOnboardingRouter({ requireApiKey }));
+app.use("/api", categoriesRouter);
 
 app.use("/api/calendar", calendarRouter);
 app.use("/api/places", placesRouter);
