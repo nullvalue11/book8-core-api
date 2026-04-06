@@ -120,6 +120,70 @@ describe("Bookings API", () => {
     assert.strictEqual(res.body.error, "Service not found");
   });
 
+  it("returns 402 when plan is none (web bookings blocked)", async () => {
+    const id = `test-bookings-none-${Date.now()}`;
+    await Business.create({
+      id,
+      name: "None Plan Gym",
+      timezone: "America/Toronto",
+      plan: "none"
+    });
+    await Service.create({
+      businessId: id,
+      serviceId: "svc-1",
+      name: "Cut",
+      durationMinutes: 30,
+      active: true
+    });
+    const res = await request(app)
+      .post("/api/bookings")
+      .send({
+        businessId: id,
+        serviceId: "svc-1",
+        customer: { name: "Jane", phone: "+16475551234", email: "j@example.com" },
+        slot: SLOT,
+        source: "web"
+      });
+    assert.strictEqual(res.status, 402);
+    assert.strictEqual(res.body.ok, false);
+    assert.strictEqual(res.body.subscriptionRequired, true);
+    await Booking.deleteMany({ businessId: id });
+    await Service.deleteMany({ businessId: id });
+    await Business.deleteOne({ id });
+  });
+
+  it("returns 402 when plan is none (voice channel middleware)", async () => {
+    const id = `test-bookings-none-voice-${Date.now()}`;
+    await Business.create({
+      id,
+      name: "None Plan Gym 2",
+      timezone: "America/Toronto",
+      plan: "none"
+    });
+    await Service.create({
+      businessId: id,
+      serviceId: "svc-1",
+      name: "Cut",
+      durationMinutes: 30,
+      active: true
+    });
+    const res = await request(app)
+      .post("/api/bookings")
+      .send({
+        businessId: id,
+        serviceId: "svc-1",
+        customer: { name: "Jane", phone: "+16475551234", email: "j@example.com" },
+        slot: SLOT,
+        source: "voice-agent"
+      });
+    assert.strictEqual(res.status, 402);
+    assert.strictEqual(res.body.ok, false);
+    assert.strictEqual(res.body.subscriptionRequired, true);
+    await Booking.deleteMany({ businessId: id });
+    await Service.deleteMany({ businessId: id });
+    await Business.deleteOne({ id });
+  });
+
   it("returns 201 and booking + summary for valid request (happy path)", async () => {
     const res = await request(app)
       .post("/api/bookings")

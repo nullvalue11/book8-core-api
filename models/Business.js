@@ -203,8 +203,8 @@ const BusinessSchema = new mongoose.Schema(
     stripeSubscriptionId: { type: String, sparse: true, maxlength: 128, trim: true },
     plan: {
       type: String,
-      enum: ["starter", "growth", "enterprise"],
-      default: "starter"
+      enum: ["none", "starter", "growth", "enterprise"],
+      default: "none"
     },
 
     // Calendar provider used for availability and booking sync (top-level; may be set by provisioning).

@@ -27,6 +27,16 @@ router.post("/availability", strictLimiter, async (req, res) => {
     });
 
     if (!result.ok) {
+      if (result.subscriptionRequired) {
+        const bid = encodeURIComponent(String(businessId));
+        return res.status(402).json({
+          ok: false,
+          error: result.error,
+          message: "Please select a plan for this location",
+          upgradeUrl: `https://www.book8.io/setup?step=2&businessId=${bid}`,
+          subscriptionRequired: true
+        });
+      }
       const notFound =
         result.error === "Business not found" ||
         result.error === "Service not found" ||

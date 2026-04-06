@@ -24,6 +24,7 @@ describe("Business logo (BOO-43A)", () => {
           id: TEST_ID,
           name: "Logo Test Co",
           timezone: "America/Toronto",
+          plan: "starter",
           businessProfile: {
             phone: "+16135550100"
           }

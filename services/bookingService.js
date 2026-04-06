@@ -12,7 +12,7 @@ import { sendSMS, formatConfirmationSMS } from "./smsService.js";
 import { formatSlotDateTime } from "./localeFormat.js";
 import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
 import { createGcalEvent, resolveCalendarProviderForBusiness } from "./gcalService.js";
-import { isFeatureAllowed } from "../src/config/plans.js";
+import { isFeatureAllowed, isChannelAllowed } from "../src/config/plans.js";
 import { tryMarkWaitlistBooked } from "./waitlistService.js";
 import { validateAndBuildRecurringMeta } from "./recurringBookingUtils.js";
 import {
@@ -115,6 +115,24 @@ export async function createBooking(input) {
   const business = await Business.findOne({ id: businessId }).lean();
   if (!business) {
     return { ok: false, error: "Business not found" };
+  }
+
+  const plan = business.plan && String(business.plan).toLowerCase() !== "none" ? business.plan : "none";
+  const src = String(source || "web").toLowerCase();
+  let channel = "web";
+  if (src === "voice-agent" || src === "voice") channel = "voice";
+  else if (src === "sms") channel = "sms";
+
+  if (!isChannelAllowed(plan, channel)) {
+    return {
+      ok: false,
+      error:
+        plan === "none" || !business.plan
+          ? "This business requires an active subscription before accepting bookings."
+          : `${channel} booking is not available on the current plan.`,
+      subscriptionRequired: plan === "none" || !business.plan,
+      upgrade: true
+    };
   }
 
   const service = await Service.findOne({ businessId, serviceId }).lean();

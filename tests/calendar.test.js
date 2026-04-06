@@ -19,7 +19,8 @@ describe("POST /api/calendar/availability", () => {
         $set: {
           id: TEST_BUSINESS_ID,
           name: "Test Gym",
-          timezone: "America/Toronto"
+          timezone: "America/Toronto",
+          plan: "starter"
         }
       },
       { upsert: true, new: true }

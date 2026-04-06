@@ -34,6 +34,15 @@ export async function getAvailability(params) {
     return { ok: false, error: "Business not found" };
   }
 
+  const p = business.plan ? String(business.plan).toLowerCase() : "";
+  if (!p || p === "none") {
+    return {
+      ok: false,
+      error: "This business requires an active subscription before showing availability.",
+      subscriptionRequired: true
+    };
+  }
+
   const service = await Service.findOne({ businessId, serviceId }).lean();
   if (!service) {
     return { ok: false, error: "Service not found" };

@@ -37,7 +37,8 @@ describe("Services and Schedule endpoints", () => {
           name: "Test Services Gym",
           timezone: "America/Toronto",
           phoneNumber: "+16135550100",
-          assignedTwilioNumber: "+15551234567"
+          assignedTwilioNumber: "+15551234567",
+          plan: "starter"
         }
       },
       { upsert: true, new: true }

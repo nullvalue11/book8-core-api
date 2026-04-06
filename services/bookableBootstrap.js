@@ -89,8 +89,11 @@ export async function ensureBookableDefaultsForBusiness(businessId, opts = {}) {
   const canonicalId = business.id || business.businessId;
   const tz = opts.timezone || business.timezone || "America/Toronto";
   const category = opts.category || business.category || "other";
+  const skipServices = !!opts.skipServices;
 
-  const servicesResult = await ensureDefaultServicesForBusiness(canonicalId, category);
+  const servicesResult = skipServices
+    ? { ensured: false, servicesCreated: 0 }
+    : await ensureDefaultServicesForBusiness(canonicalId, category);
   const scheduleResult = await ensureDefaultScheduleForBusiness(canonicalId, tz);
 
   const defaultsEnsured = servicesResult.ensured || scheduleResult.ensured;

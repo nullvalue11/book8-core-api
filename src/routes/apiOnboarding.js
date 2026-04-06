@@ -4,6 +4,7 @@ import { Business } from "../../models/Business.js";
 import { classifyBusinessCategory } from "../../services/categoryClassifier.js";
 import { getDefaultServices, getDefaultWeeklySchedule } from "../../services/bootstrapDefaults.js";
 import { ensureBookableDefaultsForBusiness } from "../../services/bookableBootstrap.js";
+import { copyFranchiseServicesToNewBusiness } from "../../services/franchiseServiceSync.js";
 import { strictLimiter } from "../middleware/strictLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
 import { generateUniquePublicSlug, normalizePhoneNumber } from "../utils/businessRouteHelpers.js";
@@ -108,7 +109,11 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
 
       await business.save();
 
-      const bootstrap = await ensureBookableDefaultsForBusiness(finalId, { timezone: tz });
+      const copied = await copyFranchiseServicesToNewBusiness(finalId);
+      const bootstrap = await ensureBookableDefaultsForBusiness(finalId, {
+        timezone: tz,
+        skipServices: copied
+      });
 
       res.json({
         ok: true,
@@ -178,7 +183,11 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
 
       await business.save();
 
-      const bootstrap = await ensureBookableDefaultsForBusiness(finalId, { timezone: tz });
+      const copied = await copyFranchiseServicesToNewBusiness(finalId);
+      const bootstrap = await ensureBookableDefaultsForBusiness(finalId, {
+        timezone: tz,
+        skipServices: copied
+      });
 
       res.json({
         ok: true,

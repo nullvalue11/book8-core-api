@@ -22,6 +22,12 @@ import {
   generateUniquePublicSlug
 } from "../utils/businessRouteHelpers.js";
 import { classifyBusinessCategory } from "../../services/categoryClassifier.js";
+import { ensureBookableDefaultsForBusiness } from "../../services/bookableBootstrap.js";
+import {
+  copyFranchiseServicesToNewBusiness,
+  franchiseSyncAfterServiceCreate,
+  franchiseSyncAfterServiceUpdate
+} from "../../services/franchiseServiceSync.js";
 
 /**
  * @param {object} deps
@@ -98,6 +104,7 @@ export default function createBusinessesHttpRouter(deps) {
         createDoc.currency = String(currency).trim().toUpperCase().slice(0, 3);
       }
       const doc = await Service.create(createDoc);
+      await franchiseSyncAfterServiceCreate(businessId, doc.toObject());
       res.status(201).json({ ok: true, businessId, service: doc.toObject() });
     } catch (err) {
       if (err.code === 11000) {
@@ -149,6 +156,7 @@ export default function createBusinessesHttpRouter(deps) {
       if (!service) {
         return res.status(404).json({ ok: false, error: "Service not found" });
       }
+      await franchiseSyncAfterServiceUpdate(businessId, serviceId, update);
       res.json({ ok: true, businessId, service });
     } catch (err) {
       console.error("Error in PUT /api/businesses/:id/services/:serviceId:", err);
@@ -194,6 +202,7 @@ export default function createBusinessesHttpRouter(deps) {
       if (!service) {
         return res.status(404).json({ ok: false, error: "Service not found" });
       }
+      await franchiseSyncAfterServiceUpdate(businessId, serviceId, update);
       res.json({ ok: true, businessId, service });
     } catch (err) {
       console.error("Error in PATCH /api/businesses/:id/services/:serviceId:", err);
@@ -272,6 +281,17 @@ export default function createBusinessesHttpRouter(deps) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
       const { business, businessId } = resolved;
+      const pl = business.plan ? String(business.plan).toLowerCase() : "";
+      if (!pl || pl === "none") {
+        const bid = encodeURIComponent(String(businessId));
+        return res.status(402).json({
+          ok: false,
+          error: "This business requires an active subscription",
+          message: "Please select a plan for this location",
+          upgradeUrl: `https://www.book8.io/setup?step=2&businessId=${bid}`,
+          subscriptionRequired: true
+        });
+      }
       const services = await Service.find({ businessId, active: true }).lean();
       let schedule = await Schedule.findOne({ businessId }).lean();
       if (!schedule) {
@@ -558,7 +578,19 @@ export default function createBusinessesHttpRouter(deps) {
         });
       }
 
-      if (!isFeatureAllowed(resolved.business.plan || "starter", "aiPhoneAgent")) {
+      const rawPlan = resolved.business.plan;
+      if (!rawPlan || String(rawPlan).toLowerCase() === "none") {
+        const bid = encodeURIComponent(String(resolved.business.id ?? resolved.business.businessId ?? ""));
+        return res.status(402).json({
+          ok: false,
+          error: "This business requires an active subscription",
+          message: "Please select a plan for this location",
+          upgradeUrl: `https://www.book8.io/setup?step=2&businessId=${bid}`,
+          subscriptionRequired: true
+        });
+      }
+
+      if (!isFeatureAllowed(rawPlan, "aiPhoneAgent")) {
         return res.status(403).json({
           ok: false,
           error:
@@ -664,11 +696,21 @@ export default function createBusinessesHttpRouter(deps) {
         bookingSettings
       };
 
+      const existedBefore = await Business.findOne({ id }).lean();
+
       const business = await Business.findOneAndUpdate(
         { id },
         { $set: update },
         { new: true, upsert: true, setDefaultsOnInsert: true }
       ).lean();
+
+      if (!existedBefore) {
+        const copied = await copyFranchiseServicesToNewBusiness(id);
+        await ensureBookableDefaultsForBusiness(id, {
+          timezone: timezone || "America/Toronto",
+          skipServices: copied
+        });
+      }
 
       res.json({ ok: true, business });
     } catch (err) {

@@ -48,7 +48,19 @@ export function requireFeature(featureName) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
 
-      const plan = business.plan || "starter";
+      const bid = business.id || business.businessId;
+      const rawPlan = business.plan;
+      if (!rawPlan || String(rawPlan).toLowerCase() === "none") {
+        return res.status(402).json({
+          ok: false,
+          error: "This business requires an active subscription",
+          message: "Please select a plan for this location",
+          upgradeUrl: `https://www.book8.io/setup?step=2&businessId=${encodeURIComponent(bid || "")}`,
+          subscriptionRequired: true
+        });
+      }
+
+      const plan = rawPlan;
       const allowed = isFeatureAllowed(plan, featureName);
 
       if (!allowed) {
@@ -93,7 +105,19 @@ export function requireChannel(channel) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
 
-      const plan = business.plan || "starter";
+      const bid = business.id || business.businessId;
+      const rawPlan = business.plan;
+      if (!rawPlan || String(rawPlan).toLowerCase() === "none") {
+        return res.status(402).json({
+          ok: false,
+          error: "This business requires an active subscription",
+          message: "Please select a plan for this location",
+          upgradeUrl: `https://www.book8.io/setup?step=2&businessId=${encodeURIComponent(bid || "")}`,
+          subscriptionRequired: true
+        });
+      }
+
+      const plan = rawPlan;
 
       if (!isChannelAllowed(plan, channel)) {
         return res.status(403).json({

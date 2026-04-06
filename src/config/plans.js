@@ -3,6 +3,38 @@
  */
 
 export const PLANS = {
+  /** BOO-76A: new locations until Stripe checkout completes — no live booking channels */
+  none: {
+    name: "Pending subscription",
+    price: 0,
+    features: {
+      maxBusinesses: 1,
+      maxServices: -1,
+      bookingChannels: [],
+      calendarProviders: ["google"],
+      multilingual: false,
+      maxLanguages: 1,
+      smsConfirmations: false,
+      emailConfirmations: true,
+      aiPhoneAgent: false,
+      analytics: "basic",
+      maxCallMinutes: 0,
+      teamMembers: 1,
+      maxProviders: 0,
+      apiAccess: false,
+      customVoice: false,
+      whiteLabel: false,
+      prioritySupport: false,
+      noShowProtection: false,
+      maxPortfolioPhotos: 5,
+      reviewRequests: false,
+      waitlist: false,
+      maxWaitlistEntries: 0,
+      recurringBookings: false,
+      maxRecurringOccurrencesPerSeries: 0,
+      multiLocationAggregate: false
+    }
+  },
   starter: {
     name: "Starter",
     price: 29,
@@ -105,7 +137,7 @@ export const PLANS = {
   }
 };
 
-const PLAN_KEYS = new Set(["starter", "growth", "enterprise"]);
+const PLAN_KEYS = new Set(["none", "starter", "growth", "enterprise"]);
 
 /**
  * @param {string} [plan]

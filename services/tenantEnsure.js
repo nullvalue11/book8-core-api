@@ -8,6 +8,7 @@ import { classifyBusinessCategory } from "./categoryClassifier.js";
 import { getDefaultServices, getDefaultWeeklySchedule } from "./bootstrapDefaults.js";
 import { ensureBookableDefaultsForBusiness } from "./bookableBootstrap.js";
 import { generateUniquePublicSlug } from "../src/utils/businessRouteHelpers.js";
+import { copyFranchiseServicesToNewBusiness } from "./franchiseServiceSync.js";
 
 function normalizePhone(phone) {
   if (!phone) return null;
@@ -15,7 +16,7 @@ function normalizePhone(phone) {
   return str ? (str.startsWith("+") ? str : `+${str}`) : null;
 }
 
-const VALID_PLANS = new Set(["starter", "growth", "enterprise"]);
+const VALID_PLANS = new Set(["none", "starter", "growth", "enterprise"]);
 
 function normalizePlan(p) {
   if (typeof p !== "string") return null;
@@ -93,7 +94,11 @@ export async function ensureTenant(input) {
 
     await business.save();
 
-    const bootstrap = await ensureBookableDefaultsForBusiness(business.id, { timezone: tz });
+    const copied = await copyFranchiseServicesToNewBusiness(businessId);
+    const bootstrap = await ensureBookableDefaultsForBusiness(businessId, {
+      timezone: tz,
+      skipServices: copied
+    });
 
     return {
       ok: true,
