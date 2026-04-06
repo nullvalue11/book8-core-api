@@ -31,6 +31,7 @@ import rootHealthRouter from "./src/routes/rootHealth.js";
 import createApiOnboardingRouter from "./src/routes/apiOnboarding.js";
 import categoriesRouter from "./src/routes/categories.js";
 import createBusinessesHttpRouter from "./src/routes/businessesHttp.js";
+import createAggregateRouter from "./src/routes/aggregate.js";
 import cronRouter from "./src/routes/cron.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 
@@ -147,12 +148,16 @@ const businessesHttpRouter = createBusinessesHttpRouter({
   handleGetBusinessReviews
 });
 
+const aggregateRouter = createAggregateRouter({ requireApiKey });
+
 // ---------- ROUTES ----------
 app.use(rootHealthRouter);
 
 // BOO-65A: Mount /api/businesses BEFORE any app.use("/api", ...). Otherwise every
 // /api/businesses/* request hits the generic /api routers first; if those sub-routers
 // do not forward correctly, core business routes never run (404 in production).
+// BOO-67A: /aggregate/* must mount before /:id routes on the same prefix.
+app.use("/api/businesses", aggregateRouter);
 app.use("/api/businesses", businessesHttpRouter);
 app.use("/api/businesses", businessLogoRouter);
 app.use("/api/businesses", businessPortfolioRouter);

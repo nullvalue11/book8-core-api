@@ -36,7 +36,8 @@ export const PLANS = {
       maxWaitlistEntries: 0,
       /** BOO-60A */
       recurringBookings: false,
-      maxRecurringOccurrencesPerSeries: 0
+      maxRecurringOccurrencesPerSeries: 0,
+      multiLocationAggregate: false
     }
   },
   growth: {
@@ -67,7 +68,8 @@ export const PLANS = {
       waitlist: true,
       maxWaitlistEntries: 50,
       recurringBookings: true,
-      maxRecurringOccurrencesPerSeries: 12
+      maxRecurringOccurrencesPerSeries: 12,
+      multiLocationAggregate: false
     }
   },
   enterprise: {
@@ -97,7 +99,8 @@ export const PLANS = {
       waitlist: true,
       maxWaitlistEntries: -1,
       recurringBookings: true,
-      maxRecurringOccurrencesPerSeries: -1
+      maxRecurringOccurrencesPerSeries: -1,
+      multiLocationAggregate: true
     }
   }
 };

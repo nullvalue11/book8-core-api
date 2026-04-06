@@ -10,6 +10,7 @@ describe("planCheck requiredPlan (QA-002)", () => {
     assert.strictEqual(requiredPlanForFeature("apiAccess"), "enterprise");
     assert.strictEqual(requiredPlanForFeature("whiteLabel"), "enterprise");
     assert.strictEqual(requiredPlanForFeature("customVoice"), "enterprise");
+    assert.strictEqual(requiredPlanForFeature("multiLocationAggregate"), "enterprise");
   });
 
   it("maps growth-tier features", () => {

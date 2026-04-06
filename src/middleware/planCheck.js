@@ -14,7 +14,9 @@ export const FEATURE_PLAN_MAP = {
   recurringBookings: "growth",
   customVoice: "enterprise",
   whiteLabel: "enterprise",
-  apiAccess: "enterprise"
+  apiAccess: "enterprise",
+  /** BOO-67A: multi-location dashboard aggregate APIs */
+  multiLocationAggregate: "enterprise"
 };
 
 export function requiredPlanForFeature(featureName) {
