@@ -9,6 +9,11 @@ import { isFeatureAllowed } from "../config/plans.js";
 import { safeCompare } from "../middleware/internalAuth.js";
 import { clampWindowHours } from "../../services/noShowProtection.js";
 import { maskPhone } from "../utils/maskPhone.js";
+import {
+  buildServicesDetailForElevenLabs,
+  buildServicesListForElevenLabs,
+  embeddedBusinessServicesAsVoiceList
+} from "../utils/elevenlabsServiceVoiceFormat.js";
 
 const router = express.Router();
 
@@ -285,7 +290,7 @@ router.post("/conversation-init/:token", async (req, res) => {
       });
     }
 
-    // 3) Load services for this business
+    // 3) Load services for this business (BOO-75A: include pricing for voice agent)
     let services = [];
     try {
       services = await Service.find({
@@ -296,23 +301,12 @@ router.post("/conversation-init/:token", async (req, res) => {
       console.error("[elevenlabs-webhook] Error loading services:", err);
     }
 
-    // Format services as a spoken-friendly list (include serviceId for tool calls)
-    let servicesList = "appointments";
-    if (services.length > 0) {
-      servicesList = services
-        .map((s) => {
-          const duration = s.durationMinutes ? `${s.durationMinutes}-minute ` : "";
-          return `${duration}${s.name} (serviceId: ${s.serviceId})`;
-        })
-        .join(", ");
+    if (services.length === 0) {
+      services = embeddedBusinessServicesAsVoiceList(business);
     }
 
-    // Also provide services as structured data for tool context
-    const servicesDetail = services.map((s) => ({
-      serviceId: s.serviceId,
-      name: s.name,
-      durationMinutes: s.durationMinutes
-    }));
+    const servicesList = buildServicesListForElevenLabs(services);
+    const servicesDetail = buildServicesDetailForElevenLabs(services);
 
     // 4) Load schedule for this business
     let schedule = null;
