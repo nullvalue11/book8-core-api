@@ -6,10 +6,7 @@ import { getDefaultServices, getDefaultWeeklySchedule } from "../../services/boo
 import { ensureBookableDefaultsForBusiness } from "../../services/bookableBootstrap.js";
 import { strictLimiter } from "../middleware/strictLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
-import {
-  generateSlug,
-  normalizePhoneNumber
-} from "../utils/businessRouteHelpers.js";
+import { generateUniquePublicSlug, normalizePhoneNumber } from "../utils/businessRouteHelpers.js";
 
 export default function createApiOnboardingRouter({ requireApiKey }) {
   const router = express.Router();
@@ -72,19 +69,14 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
         });
       }
 
-      let businessId = generateSlug(name);
-      if (!businessId) {
+      let finalId;
+      try {
+        finalId = await generateUniquePublicSlug(name);
+      } catch {
         return res.status(400).json({
           ok: false,
           error: "Unable to generate business ID from name"
         });
-      }
-
-      let counter = 1;
-      let finalId = businessId;
-      while (await Business.findOne({ id: finalId })) {
-        finalId = `${businessId}-${counter}`;
-        counter++;
       }
 
       let finalCategory = category;
@@ -100,6 +92,8 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
 
       const business = new Business({
         id: finalId,
+        businessId: finalId,
+        handle: finalId,
         name,
         description,
         category: finalCategory,
@@ -147,19 +141,14 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
         });
       }
 
-      let businessId = generateSlug(name);
-      if (!businessId) {
+      let finalId;
+      try {
+        finalId = await generateUniquePublicSlug(name);
+      } catch {
         return res.status(400).json({
           ok: false,
           error: "Unable to generate business ID from name"
         });
-      }
-
-      let counter = 1;
-      let finalId = businessId;
-      while (await Business.findOne({ id: finalId })) {
-        finalId = `${businessId}-${counter}`;
-        counter++;
       }
 
       let finalCategory = category;
@@ -175,6 +164,8 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
 
       const business = new Business({
         id: finalId,
+        businessId: finalId,
+        handle: finalId,
         name,
         description,
         category: finalCategory,

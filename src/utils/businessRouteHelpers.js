@@ -29,15 +29,46 @@ export function mapNumberSetupMethodForSchema(raw) {
   return undefined;
 }
 
-export function generateSlug(name) {
-  if (!name) return null;
-  return String(name)
+/** URL slug from business display name (BOO-74A). Do not use email or user id. */
+export function generateSlug(businessName) {
+  if (businessName == null || businessName === "") return null;
+  const s = String(businessName)
     .toLowerCase()
     .trim()
-    .replace(/[^\w\s-]/g, "")
+    .replace(/_/g, " ")
+    .replace(/[^a-z0-9\s-]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
+  return s || null;
+}
+
+/**
+ * Public booking slug unique across `handle` and `id` (legacy ids matched the old slug).
+ * @param {string} businessName
+ * @param {object} [opts]
+ * @param {string} [opts.excludingId] - tenant `id`/`businessId` allowed to keep this slug (updates)
+ */
+export async function generateUniquePublicSlug(businessName, opts = {}) {
+  const excludingId = opts.excludingId != null ? String(opts.excludingId) : null;
+  let base = generateSlug(businessName);
+  if (!base) base = "business";
+  let candidate = base;
+  let counter = 2;
+  for (let i = 0; i < 1000; i++) {
+    const found = await Business.findOne({
+      $or: [{ id: candidate }, { handle: candidate }]
+    }).lean();
+    if (!found) return candidate;
+    const fid = found.id != null ? String(found.id) : "";
+    const fbid = found.businessId != null ? String(found.businessId) : "";
+    if (excludingId && (fid === excludingId || fbid === excludingId)) {
+      return candidate;
+    }
+    candidate = `${base}-${counter}`;
+    counter += 1;
+  }
+  throw new Error("Could not allocate a unique public slug");
 }
 
 export function normalizePhoneNumber(phone) {
@@ -52,7 +83,7 @@ export function normalizePhoneNumber(phone) {
 export async function findBusinessByParam(param) {
   if (!param) return null;
   const business = await Business.findOne({
-    $or: [{ id: param }, { businessId: param }]
+    $or: [{ id: param }, { businessId: param }, { handle: param }]
   }).lean();
   if (!business) return null;
   const businessId = business.id ?? business.businessId;

@@ -7,6 +7,7 @@ import { Business } from "../models/Business.js";
 import { classifyBusinessCategory } from "./categoryClassifier.js";
 import { getDefaultServices, getDefaultWeeklySchedule } from "./bootstrapDefaults.js";
 import { ensureBookableDefaultsForBusiness } from "./bookableBootstrap.js";
+import { generateUniquePublicSlug } from "../src/utils/businessRouteHelpers.js";
 
 function normalizePhone(phone) {
   if (!phone) return null;
@@ -47,8 +48,14 @@ export async function ensureTenant(input) {
 
   const existing = await Business.findOne({ id: businessId }).lean();
   if (existing) {
-    if (resolvedPlan) {
-      await Business.updateOne({ id: businessId }, { $set: { plan: resolvedPlan } }).catch(() => {});
+    const setFields = {};
+    if (resolvedPlan) setFields.plan = resolvedPlan;
+    const handleMissing = !existing.handle || !String(existing.handle).trim();
+    if (name && handleMissing) {
+      setFields.handle = await generateUniquePublicSlug(name, { excludingId: businessId });
+    }
+    if (Object.keys(setFields).length > 0) {
+      await Business.updateOne({ id: businessId }, { $set: setFields }).catch(() => {});
     }
     const tz = timezone || existing.timezone || "America/Toronto";
     const bootstrap = await ensureBookableDefaultsForBusiness(businessId, { timezone: tz });
@@ -68,9 +75,12 @@ export async function ensureTenant(input) {
   const weeklyScheduleToUse = getDefaultWeeklySchedule(tz);
 
   try {
+    const publicHandle = await generateUniquePublicSlug(name, { excludingId: businessId });
     const business = new Business({
       id: businessId,
+      businessId,
       name,
+      handle: publicHandle,
       description: description || undefined,
       category: finalCategory,
       timezone: tz,

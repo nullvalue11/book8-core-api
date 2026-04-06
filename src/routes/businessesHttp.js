@@ -18,7 +18,8 @@ import {
   findBusinessByParam,
   toPublicBusinessPayload,
   mapNumberSetupMethodForSchema,
-  normalizePhoneNumber
+  normalizePhoneNumber,
+  generateUniquePublicSlug
 } from "../utils/businessRouteHelpers.js";
 import { classifyBusinessCategory } from "../../services/categoryClassifier.js";
 
@@ -426,7 +427,12 @@ export default function createBusinessesHttpRouter(deps) {
       const update = {};
 
       if (typeof name === "string" && name.trim()) {
-        update.name = name.trim();
+        const trimmed = name.trim();
+        update.name = trimmed;
+        const canonicalId = String(resolved.business.id ?? resolved.business.businessId ?? "");
+        update.handle = await generateUniquePublicSlug(trimmed, {
+          excludingId: canonicalId || undefined
+        });
       }
 
       if (numberSetupMethod !== undefined && numberSetupMethod !== null) {
@@ -640,9 +646,13 @@ export default function createBusinessesHttpRouter(deps) {
       const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
       const normalizedAssignedTwilioNumber = normalizePhoneNumber(assignedTwilioNumber);
 
+      const publicHandle = await generateUniquePublicSlug(name, { excludingId: id });
+
       const update = {
         id,
+        businessId: id,
         name,
+        handle: publicHandle,
         description,
         category: finalCategory,
         timezone,
