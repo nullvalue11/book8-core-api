@@ -5,6 +5,7 @@
 import express from "express";
 import mongoose from "mongoose";
 import { strictLimiter } from "../middleware/strictLimiter.js";
+import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
 import { Booking } from "../../models/Booking.js";
 import { Business } from "../../models/Business.js";
@@ -90,7 +91,7 @@ router.post("/setup-card", cardSetupLimiter, async (req, res) => {
 });
 
 /** GET /api/bookings/:bookingId/cancellation-info */
-router.get("/:bookingId/cancellation-info", strictLimiter, async (req, res) => {
+router.get("/:bookingId/cancellation-info", publicBookingLimiter, async (req, res) => {
   try {
     const { bookingId } = req.params;
     const booking = await Booking.findOne(bookingLookupFilter(bookingId)).lean();

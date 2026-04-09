@@ -1,3 +1,8 @@
+import {
+  getFreebusyCached,
+  setFreebusyCached
+} from "../src/services/gcalBusyCache.js";
+
 /**
  * Calendar service for book8-ai provider routing.
  * - Google provider: gcal-busy, gcal-create-event, gcal-delete-event, gcal-update-event
@@ -66,6 +71,11 @@ export async function getGcalBusyPeriods({ businessId, from, to, timezone, calen
     return null;
   }
 
+  const cached = getFreebusyCached({ businessId, from, to, calendarProvider });
+  if (cached) {
+    return cached;
+  }
+
   const endpoints = getCalendarEndpoints(calendarProvider);
   const url = `${BOOK8_AI_URL.replace(/\/$/, "")}${endpoints.busy}`;
   const controller = new AbortController();
@@ -93,7 +103,9 @@ export async function getGcalBusyPeriods({ businessId, from, to, timezone, calen
     if (!Array.isArray(busy)) {
       return null;
     }
-    return busy.filter((p) => p && typeof p.start === "string" && typeof p.end === "string");
+    const filtered = busy.filter((p) => p && typeof p.start === "string" && typeof p.end === "string");
+    setFreebusyCached({ businessId, from, to, calendarProvider }, filtered);
+    return filtered;
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === "AbortError") {

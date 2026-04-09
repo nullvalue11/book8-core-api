@@ -1,7 +1,7 @@
 // BOO-58A: public review submit + list; internal status patch
 import express from "express";
 import { Business } from "../../models/Business.js";
-import { strictLimiter } from "../middleware/strictLimiter.js";
+import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
 import {
   submitPublicReview,
@@ -11,7 +11,7 @@ import {
 
 const router = express.Router();
 
-router.post("/", strictLimiter, async (req, res) => {
+router.post("/", publicBookingLimiter, async (req, res) => {
   try {
     const result = await submitPublicReview(req.body || {});
     if (!result.ok) {

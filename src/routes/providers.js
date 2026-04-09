@@ -3,6 +3,7 @@ import express from "express";
 import { randomBytes } from "crypto";
 import { Business } from "../../models/Business.js";
 import { Provider } from "../../models/Provider.js";
+import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 import { strictLimiter } from "../middleware/strictLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
 import { getPlanFeatures } from "../config/plans.js";
@@ -36,7 +37,7 @@ export function toPublicProvider(p) {
 }
 
 /** GET /api/businesses/:businessId/providers — public */
-router.get("/:businessId/providers", strictLimiter, async (req, res) => {
+router.get("/:businessId/providers", publicBookingLimiter, async (req, res) => {
   try {
     const { businessId } = req.params;
     const biz = await Business.findOne({ $or: [{ id: businessId }, { businessId }] }).lean();
@@ -59,7 +60,7 @@ router.get("/:businessId/providers", strictLimiter, async (req, res) => {
 });
 
 /** GET /api/businesses/:businessId/providers/:providerId — public */
-router.get("/:businessId/providers/:providerId", strictLimiter, async (req, res) => {
+router.get("/:businessId/providers/:providerId", publicBookingLimiter, async (req, res) => {
   try {
     const { businessId, providerId } = req.params;
     const biz = await Business.findOne({ $or: [{ id: businessId }, { businessId }] }).lean();

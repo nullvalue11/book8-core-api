@@ -1,12 +1,12 @@
 // src/routes/calendar.js
 import express from "express";
 import { getAvailability } from "../../services/calendarAvailability.js";
-import { strictLimiter } from "../middleware/strictLimiter.js";
+import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 
 const router = express.Router();
 
 // POST /api/calendar/availability
-router.post("/availability", strictLimiter, async (req, res) => {
+router.post("/availability", publicBookingLimiter, async (req, res) => {
   try {
     const { businessId, serviceId, from, to, timezone, durationMinutes, providerId } = req.body;
 

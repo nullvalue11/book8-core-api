@@ -1,6 +1,7 @@
 // BOO-59A — POST public, GET/DELETE internal or cancel token
 import express from "express";
 import { strictLimiter } from "../middleware/strictLimiter.js";
+import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 import { requireInternalAuth, safeCompare } from "../middleware/internalAuth.js";
 import {
   joinWaitlist,
@@ -48,7 +49,7 @@ router.get("/:id/waitlist", requireInternalAuth, strictLimiter, async (req, res)
   }
 });
 
-router.delete("/:id/waitlist/:waitlistId", strictLimiter, async (req, res) => {
+router.delete("/:id/waitlist/:waitlistId", publicBookingLimiter, async (req, res) => {
   try {
     const { id, waitlistId } = req.params;
     const token = req.query?.token;

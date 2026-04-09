@@ -28,6 +28,7 @@ import {
   franchiseSyncAfterServiceCreate,
   franchiseSyncAfterServiceUpdate
 } from "../../services/franchiseServiceSync.js";
+import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 
 /**
  * @param {object} deps
@@ -48,7 +49,7 @@ export default function createBusinessesHttpRouter(deps) {
 
   const router = express.Router();
 
-  router.get("/:id/services", async (req, res) => {
+  router.get("/:id/services", publicBookingLimiter, async (req, res) => {
     try {
       const { id } = req.params;
       const resolved = await findBusinessByParam(id);
@@ -210,7 +211,7 @@ export default function createBusinessesHttpRouter(deps) {
     }
   });
 
-  router.get("/:id/schedule", async (req, res) => {
+  router.get("/:id/schedule", publicBookingLimiter, async (req, res) => {
     try {
       const { id } = req.params;
       const resolved = await findBusinessByParam(id);
@@ -273,7 +274,7 @@ export default function createBusinessesHttpRouter(deps) {
     }
   });
 
-  router.get("/:id/public", strictLimiter, async (req, res) => {
+  router.get("/:id/public", publicBookingLimiter, async (req, res) => {
     try {
       const { id } = req.params;
       const resolved = await findBusinessByParam(id);
@@ -398,9 +399,9 @@ export default function createBusinessesHttpRouter(deps) {
     }
   });
 
-  router.get("/:id/reviews", strictLimiter, handleGetBusinessReviews);
+  router.get("/:id/reviews", publicBookingLimiter, handleGetBusinessReviews);
 
-  router.get("/:id", strictLimiter, async (req, res) => {
+  router.get("/:id", publicBookingLimiter, async (req, res) => {
     try {
       const id = req.params.id;
       const resolved = await findBusinessByParam(id);
