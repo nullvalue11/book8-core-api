@@ -2,6 +2,7 @@
 import express from "express";
 import mongoose from "mongoose";
 import { strictLimiter } from "../middleware/strictLimiter.js";
+import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
 import { requireChannel } from "../middleware/planCheck.js";
 import { createBooking } from "../../services/bookingService.js";
@@ -141,8 +142,15 @@ router.get("/", requireInternalAuth, strictLimiter, async (req, res) => {
 });
 
 // POST /api/bookings
-router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) => {
+router.post("/", publicBookingLimiter, requireBookingChannelBySource, async (req, res) => {
   try {
+    console.log("[booking-attempt]", {
+      businessId: req.body?.businessId,
+      serviceId: req.body?.serviceId,
+      hasClientRequestId: !!req.body?.clientRequestId,
+      stage: "incoming"
+    });
+
     const {
       businessId,
       serviceId,
@@ -155,7 +163,8 @@ router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) 
       providerId,
       providerName,
       waitlistId,
-      recurring
+      recurring,
+      clientRequestId
     } = req.body;
 
     if (!businessId || !serviceId) {
@@ -177,6 +186,8 @@ router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) 
       });
     }
 
+    console.log("[booking-attempt]", { businessId, serviceId, stage: "validated" });
+
     const result = await createBooking({
       businessId,
       serviceId,
@@ -188,7 +199,8 @@ router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) 
       providerId,
       providerName,
       waitlistId,
-      recurring
+      recurring,
+      clientRequestId
     });
 
     if (!result.ok) {
@@ -214,17 +226,27 @@ router.post("/", strictLimiter, requireBookingChannelBySource, async (req, res) 
       const notFound = result.error === "Business not found" || result.error === "Service not found";
       const status = notFound ? 404 : 400;
       const conflict = result.error === "Selected slot is no longer available";
-      const code = conflict ? 409 : status;
+      const badPhone = result.error === "invalid_phone";
+      const code = conflict ? 409 : badPhone ? 400 : status;
       return res.status(code).json({ ok: false, error: result.error });
     }
 
-    return res.status(201).json({
+    const status = result.idempotent ? 200 : 201;
+    return res.status(status).json({
       ok: true,
       booking: result.booking,
-      summary: result.summary
+      summary: result.summary,
+      ...(result.idempotent ? { idempotent: true } : {})
     });
   } catch (err) {
-    console.error("Error in POST /api/bookings:", err);
+    console.error("[booking-failed]", {
+      businessId: req.body?.businessId,
+      stage: "route",
+      errorName: err?.name,
+      errorMessage: err?.message,
+      errorCode: err?.code,
+      stack: err?.stack
+    });
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });

@@ -12,6 +12,7 @@ import { sendSMS, formatConfirmationSMS } from "./smsService.js";
 import { formatSlotDateTime } from "./localeFormat.js";
 import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
 import { createGcalEvent, resolveCalendarProviderForBusiness } from "./gcalService.js";
+import { invalidateFreebusyCacheForBusiness } from "../src/services/gcalBusyCache.js";
 import { isFeatureAllowed, isChannelAllowed } from "../src/config/plans.js";
 import { tryMarkWaitlistBooked } from "./waitlistService.js";
 import { validateAndBuildRecurringMeta } from "./recurringBookingUtils.js";
@@ -26,6 +27,220 @@ import {
 export function generateBookingId() {
   const suffix = randomBytes(9).toString("base64url").replace(/[-_]/g, "X").slice(0, 12);
   return `bk_${suffix}`;
+}
+
+/** BOO-84A: international E.164 (+971…, +44…, etc.) */
+export function isValidE164Phone(phone) {
+  if (phone == null || phone === "") return true;
+  const p = String(phone).trim().replace(/\s/g, "");
+  if (!p) return true;
+  return /^\+[1-9]\d{1,14}$/.test(p);
+}
+
+function normalizeClientRequestId(raw) {
+  if (raw == null || typeof raw !== "string") return "";
+  return raw.trim().slice(0, 128);
+}
+
+function bookingToPublicOut(booking) {
+  const bookingOut = {
+    id: booking.id,
+    businessId: booking.businessId,
+    serviceId: booking.serviceId,
+    providerId: booking.providerId ?? null,
+    providerName: booking.providerName ?? null,
+    customer: booking.customer,
+    slot: booking.slot,
+    status: booking.status,
+    language: booking.language
+  };
+  if (booking.recurring) {
+    bookingOut.recurring = booking.recurring;
+    if (booking.recurring.seriesId) {
+      bookingOut.seriesId = booking.recurring.seriesId;
+    }
+  }
+  return bookingOut;
+}
+
+/**
+ * SMS, email, and calendar sync after a successful save. Does not throw.
+ */
+async function runBookingConfirmationSideEffects({
+  bookingId,
+  booking,
+  business,
+  businessId,
+  service,
+  serviceId,
+  customer,
+  normStart,
+  timezone,
+  isRecurringCron
+}) {
+  const tasks = [
+    (async () => {
+      if (!customer.phone) {
+        console.log("[bookingService] No customer phone — skipping confirmation SMS");
+        return;
+      }
+
+      const bizForSms = await Business.findOne({ id: businessId }).lean();
+      const fromNumber = bizForSms?.assignedTwilioNumber;
+      if (!fromNumber) {
+        console.log("[bookingService] No assignedTwilioNumber for business — skipping SMS");
+        return;
+      }
+
+      const smsPlan = bizForSms.plan || "starter";
+      if (!isFeatureAllowed(smsPlan, "smsConfirmations")) {
+        console.log(
+          `[bookingService] SMS confirmation skipped — plan has no SMS confirmations (${businessId}, plan=${smsPlan})`
+        );
+        return;
+      }
+
+      const bizTz = bizForSms?.timezone || timezone || "America/Toronto";
+      const smsLang = booking.language || "en";
+      const { dateStr, timeStr } = formatSlotDateTime(normStart, bizTz, smsLang);
+
+      let serviceName = serviceId || "Appointment";
+      try {
+        const svc = await Service.findOne({ businessId, serviceId }).lean();
+        if (svc) serviceName = svc.name;
+      } catch {
+        // fallback to serviceId
+      }
+
+      let smsBody;
+      if (booking.recurring?.enabled && isRecurringCron) {
+        smsBody = sendRecurringNextConfirmations.buildSms({
+          serviceName,
+          businessName: bizForSms.name || businessId,
+          date: dateStr,
+          time: timeStr,
+          language: smsLang
+        });
+      } else if (booking.recurring?.enabled && booking.recurring.occurrenceNumber === 1) {
+        smsBody = sendRecurringInitialConfirmations.buildSms({
+          serviceName,
+          businessName: bizForSms.name || businessId,
+          date: dateStr,
+          time: timeStr,
+          occurrence: booking.recurring.occurrenceNumber,
+          total: booking.recurring.totalOccurrences,
+          language: smsLang
+        });
+      } else {
+        smsBody = formatConfirmationSMS({
+          serviceName,
+          businessName: bizForSms.name || businessId,
+          date: dateStr,
+          time: timeStr,
+          customerName: customer.name?.split(" ")[0] || "",
+          language: smsLang
+        });
+      }
+
+      const smsResult = await sendSMS({
+        to: customer.phone,
+        from: fromNumber,
+        body: smsBody
+      });
+
+      if (smsResult.ok) {
+        await Booking.findOneAndUpdate(
+          { id: bookingId },
+          { $set: { confirmationSentAt: new Date(), confirmationSid: smsResult.messageSid } }
+        );
+        console.log("[bookingService] Confirmation SMS sent for booking:", bookingId);
+      } else {
+        console.warn("[bookingService] Confirmation SMS failed for booking:", bookingId, smsResult.error);
+      }
+    })(),
+
+    (async () => {
+      console.log("[bookingService] Email check:", {
+        hasEmail: !!customer?.email,
+        hasResendKey: !!process.env.RESEND_API_KEY
+      });
+
+      if (!customer.email || !isFeatureAllowed(business.plan || "starter", "emailConfirmations")) {
+        return;
+      }
+
+      const bookingForEmail = typeof booking.toObject === "function" ? booking.toObject() : booking;
+      const emailPromise =
+        booking.recurring?.enabled && isRecurringCron
+          ? sendRecurringNextConfirmations.sendEmail(bookingForEmail, business, service, customer)
+          : booking.recurring?.enabled && booking.recurring.occurrenceNumber === 1
+            ? sendRecurringInitialConfirmations.sendEmail(bookingForEmail, business, service, customer)
+            : sendConfirmationEmail(bookingForEmail, business, service, customer);
+
+      const result = await emailPromise;
+      if (result?.id) {
+        await Booking.findOneAndUpdate(
+          { id: bookingId },
+          { $set: { confirmationEmailSentAt: new Date(), confirmationEmailId: result.id } }
+        );
+      }
+    })(),
+
+    (async () => {
+      const resolvedCalendarProvider = resolveCalendarProviderForBusiness(business);
+      if (process.env.NODE_ENV !== "test") {
+        console.log("[gcalService] Business calendar state:", {
+          businessId: business.id,
+          calendarProvider: business.calendarProvider,
+          calendarConnected: business.calendar?.connected,
+          calendarProviderNested: business.calendar?.provider,
+          resolved: resolvedCalendarProvider
+        });
+      }
+      const calResult = await createGcalEvent({
+        businessId: booking.businessId,
+        bookingId: booking.id,
+        title: `${service?.name || "Appointment"} — ${customer.name}`,
+        description: [
+          `Service: ${service?.name || "Appointment"}`,
+          `Customer: ${customer.name}`,
+          customer.phone ? `Phone: ${customer.phone}` : null,
+          customer.email ? `Email: ${customer.email}` : null,
+          "Booked via Book8 AI"
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        start: booking.slot.start,
+        end: booking.slot.end,
+        timezone: booking.slot.timezone || business.timezone || "America/Toronto",
+        calendarProvider: resolvedCalendarProvider,
+        customer: {
+          name: customer.name,
+          phone: customer.phone,
+          email: customer.email
+        }
+      });
+      if (calResult?.eventId) {
+        await Booking.findOneAndUpdate(
+          { id: bookingId },
+          { $set: { calendarEventId: calResult.eventId } }
+        );
+        console.log("[bookingService] Stored calendarEventId:", calResult.eventId, "on booking:", bookingId);
+      }
+    })()
+  ];
+
+  const results = await Promise.allSettled(tasks);
+  results.forEach((r, idx) => {
+    if (r.status === "rejected") {
+      const labels = ["sms", "email", "gcal"];
+      console.error("[booking-side-effect-failed]", {
+        bookingId,
+        sideEffect: labels[idx] || idx,
+        error: r.reason?.message || String(r.reason)
+      });
+    }
+  });
 }
 
 /**
@@ -70,9 +285,9 @@ export async function isSlotAvailable(businessId, slot, providerId = null) {
  * clean "slot no longer available" response — no double-booking possible.
  *
  * @param {object} input
- * @returns {Promise<{ ok: boolean, error?: string, booking?: object, summary?: string }>}
+ * @returns {Promise<{ ok: boolean, error?: string, booking?: object, summary?: string, idempotent?: boolean }>}
  */
-export async function createBooking(input) {
+async function createBookingInner(input) {
   const {
     businessId,
     serviceId,
@@ -88,16 +303,21 @@ export async function createBooking(input) {
     waitlistId,
     recurring: recurringInput,
     recurringMetadata: recurringMetadataInput,
-    _recurringCron: isRecurringCron
+    _recurringCron: isRecurringCron,
+    clientRequestId: inputClientRequestId
   } = input;
 
   const inputLanguage = inputLanguageRaw ?? inputLangAlias;
+  const normalizedReqId = normalizeClientRequestId(inputClientRequestId);
 
   if (!businessId || !serviceId) {
     return { ok: false, error: "businessId and serviceId are required" };
   }
   if (!customer?.name) {
     return { ok: false, error: "Customer name is required" };
+  }
+  if (customer?.phone && !isValidE164Phone(customer.phone)) {
+    return { ok: false, error: "invalid_phone" };
   }
 
   // Normalize slot: voice agent may send only start (string) or { start } without end
@@ -115,6 +335,34 @@ export async function createBooking(input) {
   const business = await Business.findOne({ id: businessId }).lean();
   if (!business) {
     return { ok: false, error: "Business not found" };
+  }
+
+  if (normalizedReqId) {
+    const prior = await Booking.findOne({
+      businessId,
+      clientRequestId: normalizedReqId,
+      status: "confirmed"
+    }).lean();
+    if (prior) {
+      const tz = prior.slot?.timezone || business.timezone || "America/Toronto";
+      const display = formatSlotDisplay(prior.slot.start, tz);
+      return {
+        ok: true,
+        idempotent: true,
+        booking: bookingToPublicOut(prior),
+        summary: `Booked ${prior.customer?.name || ""} for ${display}.`
+      };
+    }
+  }
+
+  const custEmail = (customer?.email || "").trim().toLowerCase();
+  if (custEmail) {
+    const ownerCandidates = [business?.email, business?.businessProfile?.email]
+      .filter(Boolean)
+      .map((e) => String(e).toLowerCase());
+    if (ownerCandidates.includes(custEmail)) {
+      console.log("[booking-attempt] ownerBookingHint", { businessId, customerEmail: custEmail });
+    }
   }
 
   const plan = business.plan && String(business.plan).toLowerCase() !== "none" ? business.plan : "none";
@@ -240,13 +488,27 @@ export async function createBooking(input) {
         ? inputLanguage.trim().toLowerCase().slice(0, 5)
         : "en",
     notes: notes || "",
-    ...(recurringDoc ? { recurring: recurringDoc } : {})
+    ...(recurringDoc ? { recurring: recurringDoc } : {}),
+    ...(normalizedReqId ? { clientRequestId: normalizedReqId } : {})
   });
 
   try {
     await booking.save();
   } catch (err) {
     if (err.code === 11000) {
+      if (normalizedReqId) {
+        const prior = await Booking.findOne({ businessId, clientRequestId: normalizedReqId }).lean();
+        if (prior) {
+          const tz = prior.slot?.timezone || business.timezone || "America/Toronto";
+          const display = formatSlotDisplay(prior.slot.start, tz);
+          return {
+            ok: true,
+            idempotent: true,
+            booking: bookingToPublicOut(prior),
+            summary: `Booked ${prior.customer?.name || ""} for ${display}.`
+          };
+        }
+      }
       console.warn(
         `[bookingService] Duplicate key on save — concurrent booking race caught. ` +
           `businessId=${businessId}, slot.start=${normStart}`
@@ -264,193 +526,42 @@ export async function createBooking(input) {
     }
   }
 
-  // ── SEND BOOKING CONFIRMATION SMS ────────────────────────
-  // Fire-and-forget: don't block the booking response on SMS delivery
-  // The booking is already saved — SMS is a best-effort notification
-  (async () => {
-    try {
-      if (!customer.phone) {
-        console.log("[bookingService] No customer phone — skipping confirmation SMS");
-        return;
-      }
+  invalidateFreebusyCacheForBusiness(businessId);
 
-      const bizForSms = await Business.findOne({ id: businessId }).lean();
-      const fromNumber = bizForSms?.assignedTwilioNumber;
-      if (!fromNumber) {
-        console.log("[bookingService] No assignedTwilioNumber for business — skipping SMS");
-        return;
-      }
-
-      const smsPlan = bizForSms.plan || "starter";
-      if (!isFeatureAllowed(smsPlan, "smsConfirmations")) {
-        console.log(
-          `[bookingService] SMS confirmation skipped — plan has no SMS confirmations (${businessId}, plan=${smsPlan})`
-        );
-        return;
-      }
-
-      const bizTz = bizForSms?.timezone || timezone || "America/Toronto";
-      const smsLang = booking.language || "en";
-      const { dateStr, timeStr } = formatSlotDateTime(normStart, bizTz, smsLang);
-
-      let serviceName = serviceId || "Appointment";
-      try {
-        const svc = await Service.findOne({ businessId, serviceId }).lean();
-        if (svc) serviceName = svc.name;
-      } catch {
-        // fallback to serviceId
-      }
-
-      let smsBody;
-      if (booking.recurring?.enabled && isRecurringCron) {
-        smsBody = sendRecurringNextConfirmations.buildSms({
-          serviceName,
-          businessName: bizForSms.name || businessId,
-          date: dateStr,
-          time: timeStr,
-          language: smsLang
-        });
-      } else if (booking.recurring?.enabled && booking.recurring.occurrenceNumber === 1) {
-        smsBody = sendRecurringInitialConfirmations.buildSms({
-          serviceName,
-          businessName: bizForSms.name || businessId,
-          date: dateStr,
-          time: timeStr,
-          occurrence: booking.recurring.occurrenceNumber,
-          total: booking.recurring.totalOccurrences,
-          language: smsLang
-        });
-      } else {
-        smsBody = formatConfirmationSMS({
-          serviceName,
-          businessName: bizForSms.name || businessId,
-          date: dateStr,
-          time: timeStr,
-          customerName: customer.name?.split(" ")[0] || "",
-          language: smsLang
-        });
-      }
-
-      const smsResult = await sendSMS({
-        to: customer.phone,
-        from: fromNumber,
-        body: smsBody
-      });
-
-      if (smsResult.ok) {
-        await Booking.findOneAndUpdate(
-          { id: bookingId },
-          { $set: { confirmationSentAt: new Date(), confirmationSid: smsResult.messageSid } }
-        );
-        console.log("[bookingService] Confirmation SMS sent for booking:", bookingId);
-      } else {
-        console.warn("[bookingService] Confirmation SMS failed for booking:", bookingId, smsResult.error);
-      }
-    } catch (smsErr) {
-      console.error("[bookingService] Error in confirmation SMS flow:", smsErr);
-    }
-  })().catch(() => {});
-  // ── END SMS BLOCK ────────────────────────────────────────
-
-  console.log("[bookingService] Email check:", {
-    hasEmail: !!customer?.email,
-    hasResendKey: !!process.env.RESEND_API_KEY
-  });
-
-  if (customer.email && isFeatureAllowed(business.plan || "starter", "emailConfirmations")) {
-    const bookingForEmail = typeof booking.toObject === "function" ? booking.toObject() : booking;
-    const emailPromise =
-      booking.recurring?.enabled && isRecurringCron
-        ? sendRecurringNextConfirmations.sendEmail(bookingForEmail, business, service, customer)
-        : booking.recurring?.enabled && booking.recurring.occurrenceNumber === 1
-          ? sendRecurringInitialConfirmations.sendEmail(bookingForEmail, business, service, customer)
-          : sendConfirmationEmail(bookingForEmail, business, service, customer);
-
-    emailPromise
-      .then(async (result) => {
-        if (result?.id) {
-          await Booking.findOneAndUpdate(
-            { id: bookingId },
-            { $set: { confirmationEmailSentAt: new Date(), confirmationEmailId: result.id } }
-          );
-        }
-      })
-      .catch((err) => console.error("[bookingService] Email failed:", err.message));
-  }
-
-  // Calendar sync (fire-and-forget) — provider from top-level or nested `calendar` (book8-ai shape)
-  try {
-    const resolvedCalendarProvider = resolveCalendarProviderForBusiness(business);
-    if (process.env.NODE_ENV !== "test") {
-      console.log("[gcalService] Business calendar state:", {
-        businessId: business.id,
-        calendarProvider: business.calendarProvider,
-        calendarConnected: business.calendar?.connected,
-        calendarProviderNested: business.calendar?.provider,
-        resolved: resolvedCalendarProvider
-      });
-    }
-    createGcalEvent({
-      businessId: booking.businessId,
-      bookingId: booking.id,
-      title: `${service?.name || "Appointment"} — ${customer.name}`,
-      description: [
-        `Service: ${service?.name || "Appointment"}`,
-        `Customer: ${customer.name}`,
-        customer.phone ? `Phone: ${customer.phone}` : null,
-        customer.email ? `Email: ${customer.email}` : null,
-        "Booked via Book8 AI"
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      start: booking.slot.start,
-      end: booking.slot.end,
-      timezone: booking.slot.timezone || business.timezone || "America/Toronto",
-      calendarProvider: resolvedCalendarProvider,
-      customer: {
-        name: customer.name,
-        phone: customer.phone,
-        email: customer.email
-      }
-    })
-      .then(async (calResult) => {
-        if (calResult?.eventId) {
-          await Booking.findOneAndUpdate(
-            { id: bookingId },
-            { $set: { calendarEventId: calResult.eventId } }
-          );
-          console.log("[bookingService] Stored calendarEventId:", calResult.eventId, "on booking:", bookingId);
-        }
-      })
-      .catch((err) => console.error("[bookingService] GCal sync failed:", err.message));
-  } catch (err) {
-    console.error("[bookingService] GCal sync setup error:", err.message);
-  }
+  void runBookingConfirmationSideEffects({
+    bookingId,
+    booking,
+    business,
+    businessId,
+    service,
+    serviceId,
+    customer,
+    normStart,
+    timezone,
+    isRecurringCron
+  }).catch((e) => console.error("[bookingService] side effects runner:", e?.message));
 
   const display = formatSlotDisplay(normStart, timezone);
   const summary = `Booked ${customer.name} for ${display}.`;
 
-  const bookingOut = {
-    id: booking.id,
-    businessId: booking.businessId,
-    serviceId: booking.serviceId,
-    providerId: booking.providerId ?? null,
-    providerName: booking.providerName ?? null,
-    customer: booking.customer,
-    slot: booking.slot,
-    status: booking.status,
-    language: booking.language
-  };
-  if (booking.recurring) {
-    bookingOut.recurring = booking.recurring;
-    if (booking.recurring.seriesId) {
-      bookingOut.seriesId = booking.recurring.seriesId;
-    }
-  }
-
   return {
     ok: true,
-    booking: bookingOut,
+    booking: bookingToPublicOut(booking.toObject ? booking.toObject() : booking),
     summary
   };
+}
+
+export async function createBooking(input) {
+  try {
+    return await createBookingInner(input);
+  } catch (err) {
+    console.error("[booking-failed]", {
+      stage: "unexpected",
+      errorName: err?.name,
+      errorMessage: err?.message,
+      errorCode: err?.code,
+      stack: err?.stack
+    });
+    return { ok: false, error: "booking_creation_failed" };
+  }
 }

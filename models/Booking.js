@@ -111,7 +111,10 @@ const BookingSchema = new mongoose.Schema(
     reviewRequestSent: { type: Boolean, default: false },
     reviewRequestSentAt: { type: Date },
 
-    recurring: { type: RecurringSchema, default: undefined }
+    recurring: { type: RecurringSchema, default: undefined },
+
+    /** BOO-84A: idempotency key from client (UUID per confirm attempt); optional */
+    clientRequestId: { type: String, maxlength: 128, trim: true, sparse: true }
   },
   { timestamps: true }
 );
@@ -139,6 +142,17 @@ BookingSchema.index({
   "slot.start": 1,
   "slot.end": 1
 });
+
+// BOO-84A: dedupe retries with same clientRequestId per business
+BookingSchema.index(
+  { businessId: 1, clientRequestId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      clientRequestId: { $exists: true, $type: "string", $ne: "" }
+    }
+  }
+);
 
 export const Booking =
   mongoose.models.Booking || mongoose.model("Booking", BookingSchema);
