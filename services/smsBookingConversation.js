@@ -10,6 +10,7 @@ import { Booking } from "../models/Booking.js";
 import { getAvailability } from "./calendarAvailability.js";
 import { createBooking } from "./bookingService.js";
 import { cancelUpcomingBookingForPhone } from "./smsBookingCancellation.js";
+import { tryAnswerBookingInfoQuestion } from "./smsBookingInfoReplies.js";
 
 const SMS_CONVO_TTL_MS = 30 * 60 * 1000;
 const MAX_HISTORY = 24;
@@ -474,8 +475,13 @@ async function handleSmsBookingStateMachine(business, customerPhone, messageText
         reply = `Great choice! ${matched.name} (${matched.durationMinutes} min). What date works for you?`;
         convo.state = "selecting_date";
       } else {
-        const names = uniqueServices.map((s) => s.name).join(", ");
-        reply = `Hi! Welcome to ${business.name}. We offer: ${names}. What would you like to book?`;
+        const infoReply = await tryAnswerBookingInfoQuestion(msg, business, uniqueServices);
+        if (infoReply) {
+          reply = infoReply;
+        } else {
+          const names = uniqueServices.map((s) => s.name).join(", ");
+          reply = `Hi! Welcome to ${business.name}. We offer: ${names}. What would you like to book?`;
+        }
         convo.state = "selecting_service";
       }
       break;
@@ -606,6 +612,16 @@ async function handleSmsBookingStateMachine(business, customerPhone, messageText
       convo.state = "selecting_service";
       const names = uniqueServices.map((s) => s.name).join(", ");
       reply = `Hi! Welcome to ${business.name}. We offer: ${names}. What would you like to book?`;
+    }
+  }
+
+  const assistantHistory = (convo.messages || []).filter((m) => m.role === "assistant");
+  const lastAsst = assistantHistory[assistantHistory.length - 1];
+  if (lastAsst && lastAsst.text === reply) {
+    const age = Date.now() - new Date(lastAsst.timestamp).getTime();
+    if (age < 60_000) {
+      reply =
+        "I'm not sure I understood. Ask about prices, hours, or text a service name to book.";
     }
   }
 
