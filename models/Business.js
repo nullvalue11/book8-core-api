@@ -241,6 +241,17 @@ const BusinessSchema = new mongoose.Schema(
     subscription: {
       status: { type: String, maxlength: 32, trim: true },
       updatedAt: { type: Date }
+    },
+
+    /** BOO-99A — idempotent trial drip sends */
+    notifications: {
+      sent: [
+        {
+          type: { type: String, maxlength: 64, trim: true },
+          sentAt: { type: Date, default: Date.now },
+          channel: { type: String, enum: ["email", "sms"], maxlength: 8 }
+        }
+      ]
     }
   },
   { timestamps: true }

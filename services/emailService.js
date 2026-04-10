@@ -549,6 +549,33 @@ export async function sendCancellation(booking, business, service, customer) {
   }
 }
 
+/** BOO-99A — trial drip (Resend + base layout + reply-to support) */
+export async function sendTrialDripEmail({ to, subject, htmlInner, lang = "en" }) {
+  if (!resend || !to) {
+    console.warn("[emailService] sendTrialDripEmail skipped — no RESEND_API_KEY or recipient");
+    return { ok: false };
+  }
+  const rtl = normalizeLangCode(lang) === "ar";
+  const html = baseHtml(htmlInner, { rtl, poweredBy: "Powered by Book8", htmlLang: emailHtmlLang(lang) });
+  try {
+    const { data, error } = await resend.emails.send({
+      from: getFrom(),
+      to: [to],
+      subject,
+      html,
+      replyTo: "support@book8.io"
+    });
+    if (error) {
+      console.warn("[emailService] sendTrialDripEmail failed:", error.message);
+      return { ok: false };
+    }
+    return { ok: true, id: data?.id };
+  } catch (err) {
+    console.error("[emailService] sendTrialDripEmail:", err.message);
+    return { ok: false };
+  }
+}
+
 function escapeHtml(s) {
   if (s == null) return "";
   return String(s)

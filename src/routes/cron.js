@@ -13,6 +13,7 @@ import { processReviewRequests } from "../../services/reviewRequestCron.js";
 import { processWaitlistCronJobs } from "../../services/waitlistService.js";
 import { processRecurringBookingCron } from "../../services/recurringBookingCron.js";
 import { configureTwilioVoiceForPoolNumber } from "../../services/twilioNumberSetup.js";
+import { runTrialNotifications } from "../../services/trialNotifications.js";
 
 const router = express.Router();
 
@@ -431,6 +432,27 @@ router.get("/replenish-pool", async (req, res) => {
     return res.json({ ok: true, available: newAvailable, purchased: purchasedCount });
   } catch (err) {
     console.error("[replenish-pool] Error:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+router.get("/trial-notifications", async (req, res) => {
+  try {
+    const authHeader = req.headers["authorization"];
+    const token =
+      authHeader && typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : null;
+    const expectedSecret = process.env.CRON_SECRET;
+    if (!expectedSecret || !token || !safeCompare(token, expectedSecret)) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
+    const result = await runTrialNotifications(new Date());
+    console.log("[trial-notifications] cron result:", result);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error("[trial-notifications] Error:", err);
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
