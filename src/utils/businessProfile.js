@@ -53,7 +53,7 @@ export function mergeBusinessProfile(existing, partial) {
 
   if (p.address && typeof p.address === "object") {
     out.address = { ...(e.address || {}) };
-    for (const ak of ["street", "city", "province", "postalCode", "country"]) {
+    for (const ak of ["street", "city", "province", "postalCode", "country", "formattedLine"]) {
       if (p.address[ak] !== undefined) {
         if (p.address[ak] === null || p.address[ak] === "") {
           delete out.address[ak];
@@ -95,6 +95,9 @@ export function validateBusinessProfileMerged(profile) {
   }
   if (profile.description != null && String(profile.description).length > 500) {
     return { ok: false, error: "businessProfile.description must be at most 500 characters" };
+  }
+  if (profile.address?.formattedLine != null && String(profile.address.formattedLine).length > 500) {
+    return { ok: false, error: "businessProfile.address.formattedLine must be at most 500 characters" };
   }
   let err = validateOptionalUrl("businessProfile.website", profile.website);
   if (err) return { ok: false, error: err };

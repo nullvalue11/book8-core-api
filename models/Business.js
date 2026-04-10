@@ -47,7 +47,9 @@ const BusinessProfileAddressSchema = new mongoose.Schema(
     city: { type: String, maxlength: 120, trim: true },
     province: { type: String, maxlength: 120, trim: true },
     postalCode: { type: String, maxlength: 32, trim: true },
-    country: { type: String, maxlength: 120, trim: true }
+    country: { type: String, maxlength: 120, trim: true },
+    /** BOO-95A: Google formattedAddress fallback when structured components are sparse */
+    formattedLine: { type: String, maxlength: 500, trim: true }
   },
   { _id: false }
 );

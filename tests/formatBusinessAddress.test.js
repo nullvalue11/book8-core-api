@@ -55,4 +55,31 @@ describe("formatBusinessAddress (BOO-85A)", () => {
   it("supports legacy string business.address", () => {
     assert.strictEqual(formatBusinessAddress({ address: " 123 Main St " }), "123 Main St");
   });
+
+  it("BOO-95A: uses state when province is missing (legacy shape)", () => {
+    const business = {
+      businessProfile: {
+        address: {
+          street: "5 Daly Avenue",
+          city: "Ottawa",
+          state: "Ontario",
+          postalCode: "K1N 9M7",
+          country: "CA"
+        }
+      }
+    };
+    assert.strictEqual(resolveBusinessCity(business), "Ottawa");
+    assert.ok(formatBusinessAddress(business).includes("Ontario"));
+  });
+
+  it("BOO-95A: falls back to formattedLine when structured parts are empty", () => {
+    const line = "5 Daly Avenue, Ottawa, ON K1N 9M7, Canada";
+    const business = {
+      businessProfile: {
+        address: { formattedLine: line }
+      }
+    };
+    assert.strictEqual(formatBusinessAddress(business), line);
+    assert.strictEqual(resolveBusinessCity(business), "Ottawa");
+  });
 });

@@ -17,8 +17,10 @@ export function mergeBusinessProfileFromPlace(doc, place) {
     (String(addr.street || "").trim() ||
       String(addr.city || "").trim() ||
       String(addr.province || "").trim() ||
+      String(addr.state || "").trim() ||
       String(addr.country || "").trim() ||
-      String(addr.postalCode || "").trim());
+      String(addr.postalCode || "").trim() ||
+      String(addr.formattedLine || "").trim());
 
   if (!hasOwnerAddress && place.address) {
     if (!bp.address) bp.address = {};
@@ -28,6 +30,8 @@ export function mergeBusinessProfileFromPlace(doc, place) {
     if (a.province) bp.address.province = a.province;
     if (a.postalCode) bp.address.postalCode = a.postalCode;
     if (a.country) bp.address.country = a.country;
+    const fmt = String(a.formatted || "").trim();
+    if (fmt) bp.address.formattedLine = fmt;
   }
 
   const phoneSet = bp.phone && String(bp.phone).trim();
