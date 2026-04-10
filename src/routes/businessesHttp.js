@@ -29,6 +29,7 @@ import {
   franchiseSyncAfterServiceUpdate
 } from "../../services/franchiseServiceSync.js";
 import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
+import { trialDeniedDashboardWrite, buildTrialStatusPayload } from "../utils/trialLifecycle.js";
 
 /**
  * @param {object} deps
@@ -48,6 +49,21 @@ export default function createBusinessesHttpRouter(deps) {
   } = deps;
 
   const router = express.Router();
+
+  router.get("/:id/trial-status", strictLimiter, requireInternalSecretOrApiKey, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const resolved = await findBusinessByParam(id);
+      if (!resolved) {
+        return res.status(404).json({ ok: false, error: "Business not found" });
+      }
+      const payload = buildTrialStatusPayload(resolved.business);
+      return res.json({ ok: true, ...payload });
+    } catch (err) {
+      console.error("Error in GET /api/businesses/:id/trial-status:", err);
+      return res.status(500).json({ ok: false, error: "Internal server error" });
+    }
+  });
 
   router.get("/:id/services", publicBookingLimiter, async (req, res) => {
     try {
@@ -74,6 +90,8 @@ export default function createBusinessesHttpRouter(deps) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
       const { business, businessId } = resolved;
+      const td = trialDeniedDashboardWrite(business);
+      if (td) return res.status(td.status).json(td.body);
       if (!serviceId || !name || durationMinutes == null) {
         return res.status(400).json({
           ok: false,
@@ -127,7 +145,9 @@ export default function createBusinessesHttpRouter(deps) {
       if (!resolved) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
-      const { businessId } = resolved;
+      const { business, businessId } = resolved;
+      const td0 = trialDeniedDashboardWrite(business);
+      if (td0) return res.status(td0.status).json(td0.body);
       const update = {};
       if (name !== undefined) update.name = name;
       if (durationMinutes !== undefined) update.durationMinutes = Number(durationMinutes);
@@ -173,7 +193,9 @@ export default function createBusinessesHttpRouter(deps) {
       if (!resolved) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
-      const { businessId } = resolved;
+      const { business, businessId } = resolved;
+      const tdP = trialDeniedDashboardWrite(business);
+      if (tdP) return res.status(tdP.status).json(tdP.body);
       const update = {};
       if (name !== undefined) update.name = name;
       if (durationMinutes !== undefined) update.durationMinutes = Number(durationMinutes);
@@ -250,7 +272,9 @@ export default function createBusinessesHttpRouter(deps) {
       if (!resolved) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
-      const { businessId } = resolved;
+      const { business, businessId } = resolved;
+      const tdS = trialDeniedDashboardWrite(business);
+      if (tdS) return res.status(tdS.status).json(tdS.body);
       if (!weeklyHours || typeof weeklyHours !== "object") {
         return res.status(400).json({
           ok: false,
@@ -386,6 +410,8 @@ export default function createBusinessesHttpRouter(deps) {
       if (!doc) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
+      const tdSync = trialDeniedDashboardWrite(doc.toObject());
+      if (tdSync) return res.status(tdSync.status).json(tdSync.body);
       const r = await placeDetails(placeId.trim());
       if (!r.ok) {
         return res.status(400).json({ ok: false, error: r.error });
@@ -434,6 +460,9 @@ export default function createBusinessesHttpRouter(deps) {
       if (!resolved) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
+
+      const tdPost = trialDeniedDashboardWrite(resolved.business);
+      if (tdPost) return res.status(tdPost.status).json(tdPost.body);
 
       const {
         name,
@@ -578,6 +607,9 @@ export default function createBusinessesHttpRouter(deps) {
           error: "Business not found"
         });
       }
+
+      const tdAssign = trialDeniedDashboardWrite(resolved.business);
+      if (tdAssign) return res.status(tdAssign.status).json(tdAssign.body);
 
       const rawPlan = resolved.business.plan;
       if (!rawPlan || String(rawPlan).toLowerCase() === "none") {

@@ -2,6 +2,7 @@
 import express from "express";
 import { Service } from "../../models/Service.js";
 import { findBusinessByParam } from "../utils/businessRouteHelpers.js";
+import { trialDeniedDashboardWrite } from "../utils/trialLifecycle.js";
 
 /**
  * @param {import("express").RequestHandler} requireApiKey
@@ -21,6 +22,8 @@ export default function createBusinessServicesSyncRouter(requireApiKey) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
       const { business, businessId } = resolved;
+      const td = trialDeniedDashboardWrite(business);
+      if (td) return res.status(td.status).json(td.body);
 
       const ownerHeader = (req.headers["x-book8-user-email"] || "").trim().toLowerCase();
       if (ownerHeader) {

@@ -224,7 +224,24 @@ const BusinessSchema = new mongoose.Schema(
 
     reviewStats: { type: ReviewStatsSchema, default: undefined },
 
-    portfolio: [PortfolioItemSchema]
+    portfolio: [PortfolioItemSchema],
+
+    /** BOO-97A — 14-day trial + 3-day grace; timestamps are source of truth */
+    trial: {
+      startedAt: { type: Date },
+      endsAt: { type: Date },
+      graceEndsAt: { type: Date },
+      status: {
+        type: String,
+        enum: ["active", "grace", "locked", "subscribed"],
+        default: "active"
+      }
+    },
+    /** BOO-97A — mirrors Stripe subscription.status when synced from webhooks / book8-ai */
+    subscription: {
+      status: { type: String, maxlength: 32, trim: true },
+      updatedAt: { type: Date }
+    }
   },
   { timestamps: true }
 );

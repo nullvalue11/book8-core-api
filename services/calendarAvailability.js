@@ -11,6 +11,7 @@ import { Provider } from "../models/Provider.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { getGcalBusyPeriods, resolveCalendarProviderForBusiness } from "./gcalService.js";
 import { providerWeeklyHoursToBlocks } from "../src/utils/providerSchedule.js";
+import { trialDeniedPublicChannel } from "../src/utils/trialLifecycle.js";
 
 /**
  * Get available appointment slots for a business/service in a date range.
@@ -32,6 +33,16 @@ export async function getAvailability(params) {
   const business = await Business.findOne({ id: businessId }).lean();
   if (!business) {
     return { ok: false, error: "Business not found" };
+  }
+
+  const trialBlock = trialDeniedPublicChannel(business);
+  if (trialBlock) {
+    return {
+      ok: false,
+      error: trialBlock.body.message,
+      trialExpired: true,
+      upgradeUrl: trialBlock.body.upgradeUrl
+    };
   }
 
   const p = business.plan ? String(business.plan).toLowerCase() : "";

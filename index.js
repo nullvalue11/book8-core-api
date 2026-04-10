@@ -15,6 +15,7 @@ import calendarRouter from "./src/routes/calendar.js";
 import bookingsRouter from "./src/routes/bookings.js";
 import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
 import internalProvisionRouter from "./src/routes/internalProvision.js";
+import internalSubscriptionSyncRouter from "./src/routes/internalSubscriptionSync.js";
 import healthCheckRouter from "./src/routes/healthCheck.js";
 import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
 import twilioInboundRouter from "./src/routes/twilioInbound.js";
@@ -186,6 +187,7 @@ app.use("/internal/bookings", requireInternalAuth, internalBookingsRouter);
 app.use("/internal/business", requireInternalAuth, internalBusinessRouter);
 app.use("/internal/execute-tool", requireInternalAuth, internalExecuteToolRouter);
 app.use("/internal/provision-from-stripe", requireInternalAuth, internalProvisionRouter);
+app.use("/internal/subscription-sync", requireInternalAuth, internalSubscriptionSyncRouter);
 app.use("/api/health", requireInternalAuth, healthCheckRouter);
 app.use("/internal/twilio-pool", requireInternalAuth, twilioPoolRouter);
 

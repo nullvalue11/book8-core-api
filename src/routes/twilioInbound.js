@@ -19,6 +19,7 @@ import {
 } from "../../services/smsBookingConversation.js";
 import { isChannelAllowed } from "../config/plans.js";
 import { maskPhone } from "../utils/maskPhone.js";
+import { trialDeniedPublicChannel } from "../utils/trialLifecycle.js";
 
 const router = express.Router();
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -84,6 +85,14 @@ router.post(
       if (!business) {
         console.warn("[inbound-sms] No business found for Twilio number:", maskPhone(to));
         sendEmpty();
+        return;
+      }
+
+      const trialBlock = trialDeniedPublicChannel(business);
+      if (trialBlock) {
+        sendReply(
+          "This number is temporarily unavailable for SMS. Please call the business or visit their booking page online."
+        );
         return;
       }
 

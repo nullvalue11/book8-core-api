@@ -204,6 +204,16 @@ router.post("/", publicBookingLimiter, requireBookingChannelBySource, async (req
     });
 
     if (!result.ok) {
+      if (result.trialExpired || result.trialGrace) {
+        return res.status(402).json({
+          ok: false,
+          error: result.trialGrace ? "trial_grace_period" : "trial_expired",
+          message: result.error,
+          upgradeUrl: result.upgradeUrl,
+          trialGrace: !!result.trialGrace,
+          trialExpired: !!result.trialExpired
+        });
+      }
       if (result.subscriptionRequired) {
         const bid = encodeURIComponent(String(businessId));
         return res.status(402).json({

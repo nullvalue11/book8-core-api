@@ -9,6 +9,8 @@ import { getAvailability } from "../../services/calendarAvailability.js";
 import { createBooking } from "../../services/bookingService.js";
 import { ensureTenant } from "../../services/tenantEnsure.js";
 import { requireChannel } from "../middleware/planCheck.js";
+import { Business } from "../../models/Business.js";
+import { trialDeniedPublicChannel } from "../utils/trialLifecycle.js";
 
 const router = express.Router();
 
@@ -43,6 +45,32 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
 
     const payload = typeof input === "object" && input !== null ? input : {};
     const tenantId = payload.businessId ?? null;
+
+    if (
+      tenantId &&
+      (tool === "calendar.availability" || tool === "booking.create")
+    ) {
+      const biz = await Business.findOne({ id: tenantId }).lean();
+      if (biz) {
+        const deny = trialDeniedPublicChannel(biz);
+        if (deny) {
+          return res.status(402).json({
+            ok: false,
+            status: "failed",
+            tool,
+            tenantId,
+            requestId: requestId ?? null,
+            executionKey: executionKey ?? null,
+            result: null,
+            error: {
+              message: deny.body.message,
+              code: deny.body.error,
+              upgradeUrl: deny.body.upgradeUrl
+            }
+          });
+        }
+      }
+    }
 
     let outcome;
     switch (tool) {

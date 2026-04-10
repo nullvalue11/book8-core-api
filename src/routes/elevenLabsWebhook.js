@@ -15,6 +15,7 @@ import {
   embeddedBusinessServicesAsVoiceList
 } from "../utils/elevenlabsServiceVoiceFormat.js";
 import { getElevenLabsBusinessLocationVars } from "../utils/formatBusinessAddress.js";
+import { trialDeniedPublicChannel } from "../utils/trialLifecycle.js";
 
 const router = express.Router();
 
@@ -240,6 +241,22 @@ router.post("/conversation-init/:token", async (req, res) => {
       business = await Business.findOne({
         assignedTwilioNumber: e164
       }).lean();
+    }
+
+    if (business) {
+      const trialBlock = trialDeniedPublicChannel(business);
+      if (trialBlock) {
+        console.warn("[elevenlabs-webhook] Trial hard-locked — rejecting conversation-init:", {
+          businessId: business.id,
+          to: maskPhone(called_number)
+        });
+        return res.status(402).json({
+          ok: false,
+          error: trialBlock.body.error,
+          message: trialBlock.body.message,
+          upgradeUrl: trialBlock.body.upgradeUrl
+        });
+      }
     }
 
     // 2) If no business found, return generic defaults

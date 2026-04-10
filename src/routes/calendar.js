@@ -27,6 +27,14 @@ router.post("/availability", publicBookingLimiter, async (req, res) => {
     });
 
     if (!result.ok) {
+      if (result.trialExpired) {
+        return res.status(402).json({
+          ok: false,
+          error: "trial_expired",
+          message: result.error,
+          upgradeUrl: result.upgradeUrl
+        });
+      }
       if (result.subscriptionRequired) {
         const bid = encodeURIComponent(String(businessId));
         return res.status(402).json({

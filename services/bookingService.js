@@ -20,6 +20,7 @@ import {
   sendRecurringInitialConfirmations,
   sendRecurringNextConfirmations
 } from "./recurringBookingMessages.js";
+import { getTrialBookingBlock } from "../src/utils/trialLifecycle.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -346,6 +347,11 @@ async function createBookingInner(input) {
   const business = await Business.findOne({ id: businessId }).lean();
   if (!business) {
     return { ok: false, error: "Business not found" };
+  }
+
+  const trialBlock = getTrialBookingBlock(business, { source });
+  if (trialBlock) {
+    return trialBlock;
   }
 
   if (normalizedReqId) {

@@ -10,6 +10,16 @@ import { ensureBookableDefaultsForBusiness } from "./bookableBootstrap.js";
 import { generateUniquePublicSlug } from "../src/utils/businessRouteHelpers.js";
 import { copyFranchiseServicesToNewBusiness } from "./franchiseServiceSync.js";
 
+/** BOO-97A */
+function buildTrialFields(anchorDate = new Date()) {
+  const startedAt = new Date(anchorDate);
+  const endsAt = new Date(startedAt);
+  endsAt.setDate(endsAt.getDate() + 14);
+  const graceEndsAt = new Date(endsAt);
+  graceEndsAt.setDate(graceEndsAt.getDate() + 3);
+  return { startedAt, endsAt, graceEndsAt, status: "active" };
+}
+
 function normalizePhone(phone) {
   if (!phone) return null;
   const str = String(phone).trim().replace(/[^\d+]/g, "");
@@ -55,6 +65,9 @@ export async function ensureTenant(input) {
     if (name && handleMissing) {
       setFields.handle = await generateUniquePublicSlug(name, { excludingId: businessId });
     }
+    if (!existing.trial?.endsAt || !existing.trial?.graceEndsAt) {
+      setFields.trial = buildTrialFields(existing.createdAt || new Date());
+    }
     if (Object.keys(setFields).length > 0) {
       await Business.updateOne({ id: businessId }, { $set: setFields }).catch(() => {});
     }
@@ -89,6 +102,7 @@ export async function ensureTenant(input) {
       phoneNumber: normalizedPhone || undefined,
       services: servicesToUse,
       weeklySchedule: weeklyScheduleToUse,
+      trial: buildTrialFields(),
       ...(resolvedPlan ? { plan: resolvedPlan } : {})
     });
 

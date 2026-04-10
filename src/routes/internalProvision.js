@@ -97,6 +97,12 @@ router.post("/", async (req, res) => {
         if (stripeCustomerId) update.stripeCustomerId = stripeCustomerId;
         if (stripeSubscriptionId) update.stripeSubscriptionId = stripeSubscriptionId;
         if (plan) update.plan = plan;
+        if (stripeSubscriptionId) {
+          update["trial.status"] = "subscribed";
+          update["subscription.status"] = "active";
+          update["subscription.updatedAt"] = new Date();
+          console.log(`[trial-lifecycle] business=${businessId} provisioned status=subscribed`);
+        }
         const providerFromBody = calendarProvider || calendar?.provider;
         if (providerFromBody === "google" || providerFromBody === "microsoft") {
           update.calendarProvider = providerFromBody;

@@ -14,7 +14,9 @@
     "purge:named": "node scripts/purgeNamed.js",
     "purge:named:dry": "node scripts/purgeNamed.js --dry-run",
     "normalize:emails": "node scripts/normalize-existing-emails.js",
-    "normalize:emails:dry": "node scripts/normalize-existing-emails.js --dry-run"
+    "normalize:emails:dry": "node scripts/normalize-existing-emails.js --dry-run",
+    "backfill:trial": "node scripts/backfill-trial-fields.js",
+    "backfill:trial:dry": "node scripts/backfill-trial-fields.js --dry-run"
   },
   "dependencies": {
     "chrono-node": "^2.9.0",
