@@ -15,6 +15,7 @@ import {
   createCardSetupIntent,
   getStripe
 } from "../../services/stripeNoShow.js";
+import { normalizeCustomerEmail } from "../../services/bookingService.js";
 import {
   buildCancellationInfoPayload,
   formatMoneyForLocale,
@@ -56,13 +57,18 @@ router.post("/setup-card", cardSetupLimiter, async (req, res) => {
       return res.status(503).json({ ok: false, error: "Card setup is not available" });
     }
 
+    const emailNorm = normalizeCustomerEmail(customerEmail);
+    if (!emailNorm) {
+      return res.status(400).json({ ok: false, error: "customerEmail is required" });
+    }
+
     const biz = await Business.findOne({ $or: [{ id: businessId }, { businessId }] }).lean();
     if (!biz) {
       return res.status(404).json({ ok: false, error: "Business not found" });
     }
 
     const cust = await findOrCreateStripeCustomer({
-      email: customerEmail,
+      email: emailNorm,
       name: customerName,
       phone: customerPhone,
       businessId: biz.id ?? biz.businessId

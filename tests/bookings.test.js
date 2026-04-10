@@ -205,6 +205,46 @@ describe("Bookings API", () => {
     assert.ok(res.body.summary?.includes("John Doe"));
   });
 
+  it("stores customer email lowercased and trimmed (BOO-91A)", async () => {
+    const slot = {
+      start: "2028-06-20T11:00:00-04:00",
+      end: "2028-06-20T12:00:00-04:00",
+      timezone: "America/Toronto"
+    };
+    const res = await request(app)
+      .post("/api/bookings")
+      .send({
+        businessId: TEST_BUSINESS_ID,
+        serviceId: "personal-training-60",
+        customer: { name: "Case Test", phone: "+16475557777", email: "  TEST@Example.COM  " },
+        slot,
+        source: "voice-agent"
+      });
+    assert.strictEqual(res.status, 201, res.body?.error || "");
+    assert.strictEqual(res.body.booking.customer.email, "test@example.com");
+    const doc = await Booking.findOne({ id: res.body.booking.id }).lean();
+    assert.strictEqual(doc.customer.email, "test@example.com");
+  });
+
+  it("Booking.create lowercases customer.email via schema setter (BOO-91A)", async () => {
+    const id = `bk_test_schema_${Date.now()}`;
+    await Booking.create({
+      id,
+      businessId: TEST_BUSINESS_ID,
+      serviceId: "personal-training-60",
+      customer: { name: "Direct Create", phone: "+16475556666", email: "UP@EXAMPLE.COM" },
+      slot: {
+        start: "2029-07-01T15:00:00.000Z",
+        end: "2029-07-01T16:00:00.000Z",
+        timezone: "America/Toronto"
+      },
+      status: "confirmed"
+    });
+    const doc = await Booking.findOne({ id }).lean();
+    assert.strictEqual(doc.customer.email, "up@example.com");
+    await Booking.deleteOne({ id });
+  });
+
   it("returns 409 when slot is no longer available (conflict)", async () => {
     const slot2 = {
       start: "2026-03-08T16:00:00-05:00",

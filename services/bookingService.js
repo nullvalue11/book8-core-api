@@ -29,6 +29,12 @@ export function generateBookingId() {
   return `bk_${suffix}`;
 }
 
+/** BOO-91A: trim + lowercase for stored customer emails and dedupe */
+export function normalizeCustomerEmail(raw) {
+  if (raw == null || raw === "") return "";
+  return String(raw).trim().toLowerCase();
+}
+
 /** BOO-84A: international E.164 (+971…, +44…, etc.) */
 export function isValidE164Phone(phone) {
   if (phone == null || phone === "") return true;
@@ -291,7 +297,7 @@ async function createBookingInner(input) {
   const {
     businessId,
     serviceId,
-    customer,
+    customer: customerInput,
     slot: rawSlot,
     notes,
     source,
@@ -313,12 +319,17 @@ async function createBookingInner(input) {
   if (!businessId || !serviceId) {
     return { ok: false, error: "businessId and serviceId are required" };
   }
-  if (!customer?.name) {
+  if (!customerInput?.name) {
     return { ok: false, error: "Customer name is required" };
   }
-  if (customer?.phone && !isValidE164Phone(customer.phone)) {
+  if (customerInput?.phone && !isValidE164Phone(customerInput.phone)) {
     return { ok: false, error: "invalid_phone" };
   }
+
+  const customer = {
+    ...customerInput,
+    email: normalizeCustomerEmail(customerInput.email)
+  };
 
   // Normalize slot: voice agent may send only start (string) or { start } without end
   let slot = rawSlot;
@@ -474,7 +485,7 @@ async function createBookingInner(input) {
     customer: {
       name: customer.name,
       phone: customer.phone || "",
-      email: customer.email || ""
+      email: customer.email
     },
     slot: {
       start: normStart,

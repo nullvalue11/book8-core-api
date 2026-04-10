@@ -942,7 +942,7 @@ async function handleSmsBookingMessageWithLlm(business, customerPhone, messageTe
     }
   }
   if (ex.name) ctx.customerName = String(ex.name).trim();
-  if (ex.email && looksLikeEmail(ex.email)) ctx.customerEmail = String(ex.email).trim();
+  if (ex.email && looksLikeEmail(ex.email)) ctx.customerEmail = String(ex.email).trim().toLowerCase();
 
   if (ex.date) {
     const r = resolveDate(ex.date, tz);
@@ -1089,7 +1089,7 @@ async function handleSmsBookingMessageWithLlm(business, customerPhone, messageTe
     if (ex.name) {
       ctx.customerName = String(ex.name).trim();
       if (ex.email && looksLikeEmail(ex.email)) {
-        ctx.customerEmail = String(ex.email).trim();
+        ctx.customerEmail = String(ex.email).trim().toLowerCase();
         const booked = await completeSmsBooking(bizId, ctx, phone, tz, services);
         reply = booked.reply;
         newState = booked.state;
@@ -1104,7 +1104,7 @@ async function handleSmsBookingMessageWithLlm(business, customerPhone, messageTe
     }
   } else if (!ctx.customerEmail || (ex.email && looksLikeEmail(ex.email))) {
     if (ex.email && looksLikeEmail(ex.email)) {
-      ctx.customerEmail = String(ex.email).trim();
+      ctx.customerEmail = String(ex.email).trim().toLowerCase();
     }
     if (ctx.customerEmail) {
       const booked = await completeSmsBooking(bizId, ctx, phone, tz, services);

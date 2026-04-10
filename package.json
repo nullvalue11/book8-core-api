@@ -12,7 +12,9 @@
     "backfill:plans": "node scripts/backfillPlans.js",
     "backfill:plans:dry": "node scripts/backfillPlans.js --dry-run",
     "purge:named": "node scripts/purgeNamed.js",
-    "purge:named:dry": "node scripts/purgeNamed.js --dry-run"
+    "purge:named:dry": "node scripts/purgeNamed.js --dry-run",
+    "normalize:emails": "node scripts/normalize-existing-emails.js",
+    "normalize:emails:dry": "node scripts/normalize-existing-emails.js --dry-run"
   },
   "dependencies": {
     "chrono-node": "^2.9.0",

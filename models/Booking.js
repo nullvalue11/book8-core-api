@@ -5,7 +5,12 @@ const CustomerSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, maxlength: 200, trim: true },
     phone: { type: String, maxlength: 32, trim: true },
-    email: { type: String, maxlength: 254, trim: true }
+    email: {
+      type: String,
+      maxlength: 254,
+      trim: true,
+      set: (v) => (v == null || v === "" ? v : String(v).trim().toLowerCase())
+    }
   },
   { _id: false }
 );
