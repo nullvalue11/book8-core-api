@@ -14,8 +14,18 @@ import {
   buildServicesListForElevenLabs,
   embeddedBusinessServicesAsVoiceList
 } from "../utils/elevenlabsServiceVoiceFormat.js";
+import { getElevenLabsBusinessLocationVars } from "../utils/formatBusinessAddress.js";
 
 const router = express.Router();
+
+function logElevenLabsInit(businessId, loc) {
+  console.log(
+    "[elevenlabs-init] businessId=%s city=%s addressLen=%d",
+    businessId,
+    loc.business_city,
+    loc.business_address.length
+  );
+}
 
 function parseElevenLabsSignatureHeader(header) {
   if (header == null || header === "") return null;
@@ -236,6 +246,9 @@ router.post("/conversation-init/:token", async (req, res) => {
     if (!business) {
       console.warn("[elevenlabs-webhook] No business found for:", maskPhone(called_number));
 
+      const locUnknown = getElevenLabsBusinessLocationVars(null);
+      logElevenLabsInit("unknown", locUnknown);
+
       const todayIso = new Date().toISOString().slice(0, 10);
       return res.json({
         type: "conversation_initiation_client_data",
@@ -250,6 +263,7 @@ router.post("/conversation-init/:token", async (req, res) => {
           today_date: todayIso,
           caller_phone: caller_id || "",
           noShowPolicy: "",
+          ...locUnknown,
           ...languageDynamicVarsFromBusiness(null)
         },
         conversation_config_override: {
@@ -269,6 +283,8 @@ router.post("/conversation-init/:token", async (req, res) => {
       const businessName = business.name || "this business";
       const tz = business.timezone || "America/Toronto";
       const today = new Date().toLocaleDateString("en-US");
+      const locPlan = getElevenLabsBusinessLocationVars(business);
+      logElevenLabsInit(businessId, locPlan);
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
@@ -285,6 +301,7 @@ router.post("/conversation-init/:token", async (req, res) => {
           business_category: business.category || "",
           greeting: `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`,
           noShowPolicy: noShowPolicyDynamicVar(business),
+          ...locPlan,
           ...languageDynamicVarsFromBusiness(business)
         }
       });
@@ -372,6 +389,9 @@ router.post("/conversation-init/:token", async (req, res) => {
       elapsed: `${elapsed}ms`
     });
 
+    const locOk = getElevenLabsBusinessLocationVars(business);
+    logElevenLabsInit(businessId, locOk);
+
     // 7) Return the conversation initiation data
     return res.json({
       type: "conversation_initiation_client_data",
@@ -388,6 +408,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         caller_phone: caller_id || "",
         call_sid: call_sid || "",
         noShowPolicy: noShowPolicyDynamicVar(business),
+        ...locOk,
         ...languageDynamicVarsFromBusiness(business)
       },
       conversation_config_override: {
@@ -402,6 +423,8 @@ router.post("/conversation-init/:token", async (req, res) => {
     // Return generic defaults on error — don't fail the call
     const todayIsoErr = new Date().toISOString().slice(0, 10);
     const parsed = parseConversationInitBody(req.body);
+    const locErr = getElevenLabsBusinessLocationVars(null);
+    logElevenLabsInit("unknown", locErr);
     return res.json({
       type: "conversation_initiation_client_data",
       dynamic_variables: {
@@ -415,6 +438,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         today_date: todayIsoErr,
         caller_phone: parsed.caller_id || "",
         noShowPolicy: "",
+        ...locErr,
         ...languageDynamicVarsFromBusiness(null)
       },
       conversation_config_override: {
