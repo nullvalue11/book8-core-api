@@ -1,7 +1,7 @@
 // BOO-84A Bug 2 — POST /api/businesses/:id/services/sync (replace-all catalog sync)
 import express from "express";
 import { Service } from "../../models/Service.js";
-import { findBusinessByParam } from "../utils/businessRouteHelpers.js";
+import { findBusinessByParam, ownerHeaderMatchesBusiness } from "../utils/businessRouteHelpers.js";
 import { trialDeniedDashboardWrite } from "../utils/trialLifecycle.js";
 
 /**
@@ -25,11 +25,9 @@ export default function createBusinessServicesSyncRouter(requireApiKey) {
       const td = trialDeniedDashboardWrite(business);
       if (td) return res.status(td.status).json(td.body);
 
-      const ownerHeader = (req.headers["x-book8-user-email"] || "").trim().toLowerCase();
-      if (ownerHeader) {
-        const be = (business.email || "").trim().toLowerCase();
-        const pe = (business.businessProfile?.email || "").trim().toLowerCase();
-        if (ownerHeader !== be && ownerHeader !== pe) {
+      const ownerHeader = req.headers["x-book8-user-email"];
+      if (ownerHeader && String(ownerHeader).trim()) {
+        if (!ownerHeaderMatchesBusiness(business, ownerHeader)) {
           return res.status(403).json({
             ok: false,
             error: "Forbidden: x-book8-user-email does not match this business owner"

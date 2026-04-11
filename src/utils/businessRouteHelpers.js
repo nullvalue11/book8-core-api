@@ -79,6 +79,19 @@ export function normalizePhoneNumber(phone) {
   return normalized.startsWith("+") ? normalized : `+${normalized}`;
 }
 
+/**
+ * Dashboard sends `x-book8-user-email`; must match root `email`, `businessProfile.email`, or `ownerEmail`.
+ */
+export function ownerHeaderMatchesBusiness(business, ownerHeader) {
+  const h = typeof ownerHeader === "string" ? ownerHeader.trim().toLowerCase() : "";
+  if (!h) return false;
+  const candidates = [business.email, business.businessProfile?.email, business.ownerEmail];
+  for (const c of candidates) {
+    if (c != null && String(c).trim().toLowerCase() === h) return true;
+  }
+  return false;
+}
+
 /** Resolve business by URL param: support both `id` and `businessId` (e.g. biz_xxx from Ops/n8n). */
 export async function findBusinessByParam(param) {
   if (!param) return null;

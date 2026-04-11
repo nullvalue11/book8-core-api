@@ -19,7 +19,8 @@ import {
   toPublicBusinessPayload,
   mapNumberSetupMethodForSchema,
   normalizePhoneNumber,
-  generateUniquePublicSlug
+  generateUniquePublicSlug,
+  ownerHeaderMatchesBusiness
 } from "../utils/businessRouteHelpers.js";
 import { classifyBusinessCategory } from "../../services/categoryClassifier.js";
 import { ensureBookableDefaultsForBusiness } from "../../services/bookableBootstrap.js";
@@ -368,7 +369,8 @@ export default function createBusinessesHttpRouter(deps) {
     }
   });
 
-  router.patch("/:id/profile", strictLimiter, requireInternalAuth, async (req, res) => {
+  /** Public booking address lives in businessProfile.address. Internal secret OR API key + owner email. */
+  router.patch("/:id/profile", strictLimiter, requireInternalSecretOrApiKey, async (req, res) => {
     try {
       const { id } = req.params;
       const partial = req.body?.businessProfile;
@@ -382,6 +384,25 @@ export default function createBusinessesHttpRouter(deps) {
       if (!doc) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
+
+      if (!isInternalCoreApiRequest(req)) {
+        const ownerHeader = req.headers["x-book8-user-email"];
+        if (!ownerHeader || !String(ownerHeader).trim()) {
+          return res.status(403).json({
+            ok: false,
+            error: "x-book8-user-email header is required when using API key"
+          });
+        }
+        if (!ownerHeaderMatchesBusiness(doc.toObject(), ownerHeader)) {
+          return res.status(403).json({
+            ok: false,
+            error: "Forbidden: x-book8-user-email does not match this business owner"
+          });
+        }
+        const tdProfile = trialDeniedDashboardWrite(doc.toObject());
+        if (tdProfile) return res.status(tdProfile.status).json(tdProfile.body);
+      }
+
       const merged = mergeBusinessProfile(doc.businessProfile, partial);
       const v = validateBusinessProfileMerged(merged);
       if (!v.ok) {

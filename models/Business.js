@@ -177,6 +177,8 @@ const BusinessSchema = new mongoose.Schema(
 
     phoneNumber: { type: String, index: true, unique: true, sparse: true, maxlength: 32, trim: true },
     email: { type: String, maxlength: 254, trim: true },
+    /** Dashboard login email when distinct from root `email` (used with x-book8-user-email). */
+    ownerEmail: { type: String, maxlength: 254, trim: true, sparse: true, index: true },
 
     /** Nested public profile for /b/[handle]; root email/phone/description remain for legacy/onboarding. */
     businessProfile: BusinessProfileSchema,

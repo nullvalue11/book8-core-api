@@ -27,7 +27,7 @@ function getAggregateOwnerEmail(req) {
 async function findBusinessesForOwnerEmail(email) {
   const re = new RegExp(`^${escapeRegex(email)}$`, "i");
   return Business.find({
-    $or: [{ email: re }, { "businessProfile.email": re }]
+    $or: [{ email: re }, { "businessProfile.email": re }, { ownerEmail: re }]
   }).lean();
 }
 

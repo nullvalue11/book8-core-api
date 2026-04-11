@@ -38,7 +38,8 @@ describe("Services and Schedule endpoints", () => {
           timezone: "America/Toronto",
           phoneNumber: "+16135550100",
           assignedTwilioNumber: "+15551234567",
-          plan: "starter"
+          plan: "starter",
+          email: "owner-services-test@book8.test"
         }
       },
       { upsert: true, new: true }
@@ -114,11 +115,54 @@ describe("Services and Schedule endpoints", () => {
     assert.strictEqual(res.body.stripeCustomerId, undefined);
   });
 
-  it("PATCH /api/businesses/:id/profile returns 401 without internal auth", async () => {
+  it("PATCH /api/businesses/:id/profile returns 401 without API key or internal auth", async () => {
     const res = await request(app)
       .patch(`/api/businesses/${TEST_BUSINESS_ID}/profile`)
       .send({ businessProfile: { website: "https://example.com" } });
     assert.strictEqual(res.status, 401);
+  });
+
+  it("PATCH /api/businesses/:id/profile returns 403 with API key but no x-book8-user-email", async () => {
+    const res = await apiKeyHeader(
+      request(app)
+        .patch(`/api/businesses/${TEST_BUSINESS_ID}/profile`)
+        .send({ businessProfile: { address: { city: "Ottawa" } } })
+    );
+    assert.strictEqual(res.status, 403);
+    assert.ok(String(res.body.error || "").includes("x-book8-user-email"));
+  });
+
+  it("PATCH /api/businesses/:id/profile returns 403 when x-book8-user-email does not match owner", async () => {
+    const res = await apiKeyHeader(
+      request(app)
+        .patch(`/api/businesses/${TEST_BUSINESS_ID}/profile`)
+        .set("x-book8-user-email", "wrong@example.com")
+        .send({ businessProfile: { address: { city: "Ottawa" } } })
+    );
+    assert.strictEqual(res.status, 403);
+  });
+
+  it("PATCH /api/businesses/:id/profile updates address with API key and owner email", async () => {
+    const res = await apiKeyHeader(
+      request(app)
+        .patch(`/api/businesses/${TEST_BUSINESS_ID}/profile`)
+        .set("x-book8-user-email", "owner-services-test@book8.test")
+        .send({
+          businessProfile: {
+            address: {
+              street: "100 Main St",
+              city: "Ottawa",
+              province: "ON",
+              postalCode: "K1A 0A6",
+              country: "CA"
+            }
+          }
+        })
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.strictEqual(res.body.business.businessProfile.address.city, "Ottawa");
+    assert.strictEqual(res.body.business.businessProfile.address.street, "100 Main St");
   });
 
   it("PATCH /api/businesses/:id/profile updates nested businessProfile", async () => {
