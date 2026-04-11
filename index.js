@@ -179,17 +179,18 @@ app.use("/api/bookings", bookingNoShowExtras);
 app.use("/api/bookings", bookingsRouter);
 app.use("/api/twilio", twilioInboundRouter);
 app.use("/api/elevenlabs", elevenLabsWebhookRouter);
-app.use("/api/cron", cronRouter);
+// BOO-43A: rate-limit cron + internal routes (shared strictLimiter instance)
+app.use("/api/cron", strictLimiter, cronRouter);
 
-app.use("/internal/calls", requireInternalAuth, internalCallsRouter);
-app.use("/internal/usage", requireInternalAuth, internalUsageRouter);
-app.use("/internal/bookings", requireInternalAuth, internalBookingsRouter);
-app.use("/internal/business", requireInternalAuth, internalBusinessRouter);
-app.use("/internal/execute-tool", requireInternalAuth, internalExecuteToolRouter);
-app.use("/internal/provision-from-stripe", requireInternalAuth, internalProvisionRouter);
-app.use("/internal/subscription-sync", requireInternalAuth, internalSubscriptionSyncRouter);
+app.use("/internal/calls", strictLimiter, requireInternalAuth, internalCallsRouter);
+app.use("/internal/usage", strictLimiter, requireInternalAuth, internalUsageRouter);
+app.use("/internal/bookings", strictLimiter, requireInternalAuth, internalBookingsRouter);
+app.use("/internal/business", strictLimiter, requireInternalAuth, internalBusinessRouter);
+app.use("/internal/execute-tool", strictLimiter, requireInternalAuth, internalExecuteToolRouter);
+app.use("/internal/provision-from-stripe", strictLimiter, requireInternalAuth, internalProvisionRouter);
+app.use("/internal/subscription-sync", strictLimiter, requireInternalAuth, internalSubscriptionSyncRouter);
 app.use("/api/health", requireInternalAuth, healthCheckRouter);
-app.use("/internal/twilio-pool", requireInternalAuth, twilioPoolRouter);
+app.use("/internal/twilio-pool", strictLimiter, requireInternalAuth, twilioPoolRouter);
 
 if (process.env.NODE_ENV !== "test") {
   const requireInitToken =
