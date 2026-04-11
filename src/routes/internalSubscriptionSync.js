@@ -5,10 +5,14 @@
 import express from "express";
 import { Business } from "../../models/Business.js";
 import { businessLookupFilter } from "../../services/provisioningHelpers.js";
+import { getStripe } from "../../services/stripeNoShow.js";
+import {
+  PAID_LIKE,
+  verifyPaidSubscriptionSync
+} from "../../services/stripeSubscriptionVerify.js";
 
 const router = express.Router();
 
-const PAID_LIKE = new Set(["active", "trialing", "past_due"]);
 const ENDED = new Set(["canceled", "unpaid", "incomplete_expired"]);
 
 router.post("/", async (req, res) => {
@@ -26,6 +30,22 @@ router.post("/", async (req, res) => {
     const doc = await Business.findOne(filter).lean();
     if (!doc) {
       return res.status(404).json({ ok: false, error: "Business not found" });
+    }
+
+    if (PAID_LIKE.has(st)) {
+      const vr = await verifyPaidSubscriptionSync({
+        stripe: getStripe(),
+        claimedStatusLower: st,
+        stripeSubscriptionId,
+        storedStripeCustomerId: doc.stripeCustomerId
+      });
+      if (!vr.ok) {
+        return res.status(vr.status).json({
+          ok: false,
+          error: vr.code,
+          message: vr.message
+        });
+      }
     }
 
     const update = {
