@@ -417,6 +417,51 @@ export default function createBusinessesHttpRouter(deps) {
     }
   });
 
+  /** BOO-102A — opt out of monthly insights recap email */
+  router.patch("/:id/notification-preferences", strictLimiter, requireInternalSecretOrApiKey, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { monthlyRecapEmail } = req.body || {};
+      if (typeof monthlyRecapEmail !== "boolean") {
+        return res.status(400).json({
+          ok: false,
+          error: "monthlyRecapEmail (boolean) is required"
+        });
+      }
+      const doc = await Business.findOne({ $or: [{ id }, { businessId: id }] });
+      if (!doc) {
+        return res.status(404).json({ ok: false, error: "Business not found" });
+      }
+
+      if (!isInternalCoreApiRequest(req)) {
+        const ownerHeader = req.headers["x-book8-user-email"];
+        if (!ownerHeader || !String(ownerHeader).trim()) {
+          return res.status(403).json({
+            ok: false,
+            error: "x-book8-user-email header is required when using API key"
+          });
+        }
+        if (!ownerHeaderMatchesBusiness(doc.toObject(), ownerHeader)) {
+          return res.status(403).json({
+            ok: false,
+            error: "Forbidden: x-book8-user-email does not match this business owner"
+          });
+        }
+        const tdNp = trialDeniedDashboardWrite(doc.toObject());
+        if (tdNp) return res.status(tdNp.status).json(tdNp.body);
+      }
+
+      doc.notifications = doc.notifications || {};
+      doc.notifications.preferences = doc.notifications.preferences || {};
+      doc.notifications.preferences.monthlyRecapEmail = monthlyRecapEmail;
+      await doc.save();
+      return res.json({ ok: true, business: doc.toObject() });
+    } catch (err) {
+      console.error("Error in PATCH /api/businesses/:id/notification-preferences:", err);
+      return res.status(500).json({ ok: false, error: "Internal server error" });
+    }
+  });
+
   router.post("/:id/sync-google-places", strictLimiter, requireInternalAuth, async (req, res) => {
     try {
       if (!isGooglePlacesConfigured()) {

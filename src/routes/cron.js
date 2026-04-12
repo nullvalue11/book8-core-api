@@ -14,6 +14,7 @@ import { processWaitlistCronJobs } from "../../services/waitlistService.js";
 import { processRecurringBookingCron } from "../../services/recurringBookingCron.js";
 import { configureTwilioVoiceForPoolNumber } from "../../services/twilioNumberSetup.js";
 import { runTrialNotifications } from "../../services/trialNotifications.js";
+import { runMonthlyInsightsRecap } from "../../services/monthlyInsightsRecap.js";
 
 const router = express.Router();
 
@@ -453,6 +454,32 @@ router.get("/trial-notifications", async (req, res) => {
     return res.json({ ok: true, ...result });
   } catch (err) {
     console.error("[trial-notifications] Error:", err);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
+  }
+});
+
+/** BOO-102A — Monthly insights recap email (runs logic only on 1st UTC unless forceFire) */
+router.get("/monthly-insights-recap", async (req, res) => {
+  try {
+    const authHeader = req.headers["authorization"];
+    const token =
+      authHeader && typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : null;
+    const expectedSecret = process.env.CRON_SECRET;
+    if (!expectedSecret || !token || !safeCompare(token, expectedSecret)) {
+      return res.status(401).json({ ok: false, error: "Unauthorized" });
+    }
+
+    const forceFire =
+      req.query.forceFire === "1" ||
+      req.query.forceFire === "true" ||
+      req.query.forceFire === "yes";
+    const result = await runMonthlyInsightsRecap({ now: new Date(), forceFire });
+    console.log("[monthly-insights-recap] cron result:", result);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error("[monthly-insights-recap] Error:", err);
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });

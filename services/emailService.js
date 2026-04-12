@@ -25,6 +25,7 @@ import {
   buildRecurringUnavailableEmail
 } from "./templates/emailTemplates.js";
 import { formatMoneyForLocale, resolveCurrency } from "./noShowProtection.js";
+import { buildMonthlyRecapEmail } from "./templates/monthlyInsightsI18n.js";
 
 const apiKey = process.env.RESEND_API_KEY;
 const defaultFrom = "Book8 AI <noreply@book8.io>";
@@ -547,6 +548,34 @@ export async function sendCancellation(booking, business, service, customer) {
   } catch (err) {
     console.error("[emailService] Cancellation error:", err.message);
   }
+}
+
+/** BOO-102A — monthly insights recap (same layout as trial drip) */
+export async function sendMonthlyRecapEmail(
+  business,
+  { firstName, businessName, monthLabel, current, prior }
+) {
+  const to =
+    (business.email && String(business.email).trim()) ||
+    (business.businessProfile?.email && String(business.businessProfile.email).trim()) ||
+    (business.ownerEmail && String(business.ownerEmail).trim()) ||
+    "";
+  if (!to) {
+    console.warn("[monthly-recap] No owner email for business", business.id || business.businessId);
+    return { ok: false };
+  }
+  const lang = business.primaryLanguage || "en";
+  const insightsUrl =
+    process.env.BOOK8_DASHBOARD_INSIGHTS_URL || "https://www.book8.io/dashboard/insights";
+  const { subject, htmlInner } = buildMonthlyRecapEmail(lang, {
+    firstName: firstName || "there",
+    businessName: businessName || business.name || "your business",
+    monthLabel: monthLabel || "",
+    current,
+    prior,
+    insightsUrl
+  });
+  return sendTrialDripEmail({ to, subject, htmlInner, lang });
 }
 
 /** BOO-99A — trial drip (Resend + base layout + reply-to support) */

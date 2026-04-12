@@ -245,8 +245,11 @@ const BusinessSchema = new mongoose.Schema(
       updatedAt: { type: Date }
     },
 
-    /** BOO-99A — idempotent trial drip sends */
+    /** BOO-99A / BOO-102A — idempotent drip + monthly recap preferences */
     notifications: {
+      preferences: {
+        monthlyRecapEmail: { type: Boolean, default: true }
+      },
       sent: [
         {
           type: { type: String, maxlength: 64, trim: true },
