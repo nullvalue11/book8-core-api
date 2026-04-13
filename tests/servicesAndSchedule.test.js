@@ -65,6 +65,25 @@ describe("Services and Schedule endpoints", () => {
     assert.ok(Array.isArray(res.body.services));
   });
 
+  it("GET /api/businesses/:id/services hides inactive for public; API key sees all", async () => {
+    await Service.create({
+      businessId: TEST_BUSINESS_ID,
+      serviceId: "inactive-public-test",
+      name: "Inactive Hidden From Public",
+      durationMinutes: 15,
+      active: false
+    });
+    const pub = await request(app).get(`/api/businesses/${TEST_BUSINESS_ID}/services`);
+    assert.strictEqual(pub.status, 200);
+    assert.ok(!pub.body.services.some((s) => s.serviceId === "inactive-public-test"));
+    const authed = await apiKeyHeader(
+      request(app).get(`/api/businesses/${TEST_BUSINESS_ID}/services`)
+    );
+    assert.strictEqual(authed.status, 200);
+    assert.ok(authed.body.services.some((s) => s.serviceId === "inactive-public-test"));
+    await Service.deleteMany({ businessId: TEST_BUSINESS_ID, serviceId: "inactive-public-test" });
+  });
+
   it("POST /api/businesses/:id/services creates service", async () => {
     const res = await apiKeyHeader(
       request(app).post(`/api/businesses/${TEST_BUSINESS_ID}/services`).send({

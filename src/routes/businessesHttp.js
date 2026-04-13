@@ -9,7 +9,7 @@ import {
   validateBusinessProfileMerged
 } from "../utils/businessProfile.js";
 import { getPlanLimits, isFeatureAllowed } from "../../services/planLimits.js";
-import { isInternalCoreApiRequest } from "../middleware/internalAuth.js";
+import { isInternalCoreApiRequest, safeCompare } from "../middleware/internalAuth.js";
 import { toPublicGooglePlaces } from "../utils/googlePlacesPublic.js";
 import { toPublicPortfolio } from "../utils/businessPortfolioPublic.js";
 import { placeDetails, isGooglePlacesConfigured } from "../../services/googlePlacesApi.js";
@@ -31,6 +31,19 @@ import {
 } from "../../services/franchiseServiceSync.js";
 import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 import { trialDeniedDashboardWrite, buildTrialStatusPayload } from "../utils/trialLifecycle.js";
+
+/** Dashboard / book8-ai list all services; public booking widget only sees active. */
+function hasServiceListManagementAuth(req) {
+  const apiKey = req.headers["x-book8-api-key"];
+  const expectedKey = process.env.BOOK8_CORE_API_KEY;
+  const internal =
+    req.headers["x-book8-internal-secret"] || req.headers["x-internal-secret"];
+  const expectedInternal =
+    process.env.CORE_API_INTERNAL_SECRET || process.env.INTERNAL_API_SECRET;
+  const okApi = !!(expectedKey && apiKey && safeCompare(apiKey, expectedKey));
+  const okInt = !!(expectedInternal && internal && safeCompare(internal, expectedInternal));
+  return okApi || okInt;
+}
 
 /**
  * @param {object} deps
@@ -74,7 +87,10 @@ export default function createBusinessesHttpRouter(deps) {
         return res.status(404).json({ ok: false, error: "Business not found" });
       }
       const { businessId } = resolved;
-      const services = await Service.find({ businessId }).lean();
+      const filter = hasServiceListManagementAuth(req)
+        ? { businessId }
+        : { businessId, active: true };
+      const services = await Service.find(filter).lean();
       res.json({ ok: true, businessId, services });
     } catch (err) {
       console.error("Error in GET /api/businesses/:id/services:", err);

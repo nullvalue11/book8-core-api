@@ -440,7 +440,7 @@ async function handleSmsBookingStateMachine(business, customerPhone, messageText
   const tz = resolveSmsTimezone(business);
   const msg = messageText.trim();
 
-  const services = await Service.find({ businessId: bizId }).lean();
+  const services = await Service.find({ businessId: bizId, active: true }).lean();
   const uniqueServices = deduplicateByName(services);
 
   const { convo, found: convoFound } = await getOrCreateConversation(bizId, phone);
@@ -809,7 +809,7 @@ export async function resetAndGreetSmsConversation(business, customerPhone) {
   const phone = normalizeE164(customerPhone);
   const bizId = business.id;
   await SmsConversation.deleteMany({ businessId: bizId, customerPhone: phone });
-  const services = await Service.find({ businessId: bizId }).lean();
+  const services = await Service.find({ businessId: bizId, active: true }).lean();
   const unique = deduplicateByName(services);
   const names = unique.map((s) => s.name).join(", ");
   return `Hi! Welcome to ${business.name}. We offer: ${names}. What would you like to book?`;
@@ -858,7 +858,7 @@ async function handleSmsBookingMessageWithLlm(business, customerPhone, messageTe
   const msg = messageText.trim();
   convo.messages.push({ role: "customer", text: msg, timestamp: new Date() });
 
-  const services = await Service.find({ businessId: bizId }).lean();
+  const services = await Service.find({ businessId: bizId, active: true }).lean();
   const client = getOpenAI();
   if (!client) {
     const fail = "SMS booking is not configured (missing OPENAI_API_KEY). Please call us to book.";
