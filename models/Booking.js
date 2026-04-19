@@ -25,6 +25,18 @@ const SlotSchema = new mongoose.Schema(
 );
 
 /** BOO-60A: recurring / repeat appointments */
+/** BOO-98A: audit trail for voice reschedule */
+const BookingHistoryEntrySchema = new mongoose.Schema(
+  {
+    type: { type: String, maxlength: 32, trim: true },
+    previousSlotStart: { type: String, maxlength: 64, trim: true },
+    newSlotStart: { type: String, maxlength: 64, trim: true },
+    at: { type: Date, default: Date.now },
+    source: { type: String, maxlength: 64, trim: true }
+  },
+  { _id: false }
+);
+
 const RecurringSchema = new mongoose.Schema(
   {
     enabled: { type: Boolean, default: false },
@@ -119,7 +131,10 @@ const BookingSchema = new mongoose.Schema(
     recurring: { type: RecurringSchema, default: undefined },
 
     /** BOO-84A: idempotency key from client (UUID per confirm attempt); optional */
-    clientRequestId: { type: String, maxlength: 128, trim: true, sparse: true }
+    clientRequestId: { type: String, maxlength: 128, trim: true, sparse: true },
+
+    /** BOO-98A: reschedule / future audit entries */
+    history: { type: [BookingHistoryEntrySchema], default: undefined }
   },
   { timestamps: true }
 );

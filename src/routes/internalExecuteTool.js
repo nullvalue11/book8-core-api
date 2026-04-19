@@ -6,7 +6,13 @@
 
 import express from "express";
 import { getAvailability } from "../../services/calendarAvailability.js";
-import { createBooking, lookupBookingsByPhone } from "../../services/bookingService.js";
+import {
+  createBooking,
+  lookupBookingsByPhone,
+  rescheduleBooking,
+  isE164LookupPhone
+} from "../../services/bookingService.js";
+import { Booking } from "../../models/Booking.js";
 import { ensureTenant } from "../../services/tenantEnsure.js";
 import { requireChannel } from "../middleware/planCheck.js";
 import { Business } from "../../models/Business.js";
@@ -48,13 +54,20 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
     }
 
     const payload = typeof input === "object" && input !== null ? input : {};
-    const tenantId = payload.businessId ?? null;
+    let tenantId = payload.businessId ?? null;
+    if (!tenantId && tool === "booking.reschedule" && payload.bookingId) {
+      const rb = await Booking.findOne({ id: String(payload.bookingId).trim() })
+        .select("businessId")
+        .lean();
+      tenantId = rb?.businessId ?? null;
+    }
 
     if (
       tenantId &&
       (tool === "calendar.availability" ||
         tool === "booking.create" ||
-        tool === "booking.lookup")
+        tool === "booking.lookup" ||
+        tool === "booking.reschedule")
     ) {
       const biz = await Business.findOne({ id: tenantId }).lean();
       if (biz) {
@@ -263,6 +276,60 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
               ok: true,
               count: result.count,
               bookings: result.bookings
+            },
+            error: null
+          };
+        }
+        break;
+      }
+      case "booking.reschedule": {
+        const { bookingId, customerPhone, newSlotStart, timezone, language } = payload;
+        if (
+          !bookingId ||
+          typeof bookingId !== "string" ||
+          !String(bookingId).trim() ||
+          !isE164LookupPhone(customerPhone) ||
+          newSlotStart == null ||
+          newSlotStart === ""
+        ) {
+          return res.status(400).json({
+            ok: false,
+            status: "failed",
+            tool,
+            tenantId: tenantId ?? null,
+            requestId: requestId ?? null,
+            executionKey: executionKey ?? null,
+            result: null,
+            error: { message: "bookingId, customerPhone (E.164), and newSlotStart are required" }
+          });
+        }
+        const rs = await rescheduleBooking({
+          bookingId: String(bookingId).trim(),
+          customerPhone,
+          newSlotStart,
+          timezone,
+          language
+        });
+        if (!rs.ok) {
+          outcome = {
+            ok: false,
+            status: "failed",
+            result: {
+              ok: false,
+              error: rs.error,
+              message: rs.message,
+              ...(rs.suggestedSlots && { suggestedSlots: rs.suggestedSlots })
+            },
+            error: { message: rs.message }
+          };
+        } else {
+          outcome = {
+            ok: true,
+            status: "succeeded",
+            result: {
+              ok: true,
+              ...(rs.message && { message: rs.message }),
+              booking: rs.booking
             },
             error: null
           };

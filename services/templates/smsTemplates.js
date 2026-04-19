@@ -20,6 +20,10 @@ const SMS_TEMPLATES = {
     reviewRequest: (data) =>
       `How was your ${data.serviceName} at ${data.businessName}? We'd love your feedback: ${data.link}`,
 
+    /** BOO-98A reschedule */
+    reschedule: (data) =>
+      `Your booking at ${data.businessName} has been moved to ${data.newDay}, ${data.newDate} at ${data.newTime}. Reply CANCEL BOOKING to cancel.`,
+
     /** BOO-59A */
     waitlistJoin: (data) =>
       `You're on the waitlist at ${data.businessName} for ${data.serviceName}. We'll notify you when a slot opens up!`,
@@ -46,6 +50,9 @@ const SMS_TEMPLATES = {
       `Pour reprendre un rendez-vous, appelez-nous!`,
 
     cancelFeeWarning: (data) => data.message,
+
+    reschedule: (data) =>
+      `Votre rendez-vous chez ${data.businessName} a été déplacé au ${data.newDay} ${data.newDate} à ${data.newTime}. Répondez ANNULER RÉSERVATION pour annuler.`,
 
     reviewRequest: (data) =>
       `Comment s'est passé votre ${data.serviceName} chez ${data.businessName} ? Donnez-nous votre avis : ${data.link}`,
@@ -74,6 +81,9 @@ const SMS_TEMPLATES = {
       `Si necesita reservar de nuevo, ¡llámenos!`,
 
     cancelFeeWarning: (data) => data.message,
+
+    reschedule: (data) =>
+      `Su cita en ${data.businessName} se ha movido al ${data.newDay} ${data.newDate} a las ${data.newTime}. Responda CANCELAR RESERVA para cancelar.`,
 
     reviewRequest: (data) =>
       `¿Cómo fue su ${data.serviceName} en ${data.businessName}? Nos encantaría su opinión: ${data.link}`,
@@ -104,6 +114,9 @@ const SMS_TEMPLATES = {
     /** BOO-45A: fee warning — body must include CONFIRM CANCEL instruction */
     cancelFeeWarning: (data) => data.message,
 
+    reschedule: (data) =>
+      `تم تغيير موعدك في ${data.businessName} إلى ${data.newDay} ${data.newDate} الساعة ${data.newTime}. للإلغاء، قم بالرد بـ CANCEL BOOKING.`,
+
     reviewRequest: (data) =>
       `كيف كانت تجربتك مع ${data.serviceName} في ${data.businessName}؟ نقدر رأيك: ${data.link}`,
 
@@ -125,7 +138,7 @@ const SMS_TEMPLATES = {
 
 /**
  * @param {string} language - booking language (e.g. fr, fr-CA)
- * @param {'confirmation'|'cancellation'|'cancelFeeWarning'|'reviewRequest'|'waitlistJoin'|'waitlistSlotOpen'|'waitlistExpired'|'recurringInitial'|'recurringNext'|'recurringUnavailable'} type
+ * @param {'confirmation'|'cancellation'|'cancelFeeWarning'|'reviewRequest'|'reschedule'|'waitlistJoin'|'waitlistSlotOpen'|'waitlistExpired'|'recurringInitial'|'recurringNext'|'recurringUnavailable'} type
  */
 export function getSmsTemplate(language, type) {
   const lang = normalizeLangCode(language);

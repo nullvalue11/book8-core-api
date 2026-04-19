@@ -6,12 +6,22 @@ import { Business } from "../models/Business.js";
 import { Service } from "../models/Service.js";
 import { Booking } from "../models/Booking.js";
 import { Provider } from "../models/Provider.js";
+import { Schedule } from "../models/Schedule.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { randomBytes } from "crypto";
-import { sendSMS, formatConfirmationSMS } from "./smsService.js";
+import { sendSMS, formatConfirmationSMS, formatRescheduleSMS } from "./smsService.js";
 import { formatSlotDateTime } from "./localeFormat.js";
 import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
-import { createGcalEvent, resolveCalendarProviderForBusiness } from "./gcalService.js";
+import {
+  createGcalEvent,
+  patchCalendarEventSchedule,
+  resolveCalendarProviderForBusiness
+} from "./gcalService.js";
+import {
+  isSlotAllowedByWeeklyHours,
+  suggestRescheduleAlternatives
+} from "./calendarAvailability.js";
+import { providerWeeklyHoursToBlocks } from "../src/utils/providerSchedule.js";
 import { invalidateFreebusyCacheForBusiness } from "../src/services/gcalBusyCache.js";
 import { isFeatureAllowed, isChannelAllowed } from "../src/config/plans.js";
 import { tryMarkWaitlistBooked } from "./waitlistService.js";
@@ -20,7 +30,7 @@ import {
   sendRecurringInitialConfirmations,
   sendRecurringNextConfirmations
 } from "./recurringBookingMessages.js";
-import { getTrialBookingBlock } from "../src/utils/trialLifecycle.js";
+import { getTrialBookingBlock, trialDeniedPublicChannel } from "../src/utils/trialLifecycle.js";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { addDays, format, parseISO } from "date-fns";
 import { hashPhoneForLog } from "../src/utils/maskPhone.js";
@@ -738,5 +748,414 @@ export async function lookupBookingsByPhone(input) {
     ok: true,
     count: bookings.length,
     bookings
+  };
+}
+
+function coerceWeeklyHoursBlocks(weeklyHours) {
+  if (!weeklyHours || typeof weeklyHours !== "object") return weeklyHours;
+  const days = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday"
+  ];
+  const out = { ...weeklyHours };
+  for (const day of days) {
+    const v = out[day];
+    if (v && !Array.isArray(v) && typeof v === "object" && v.open != null && v.close != null) {
+      out[day] = [{ start: String(v.open), end: String(v.close) }];
+    }
+  }
+  return out;
+}
+
+/** Parse voice-agent local wall time (no Z) into UTC Date using IANA tz. */
+function parseWallSlotStartToDate(newSlotStart, timezone) {
+  const s = String(newSlotStart).trim();
+  if (!s) return null;
+  if (/Z$/i.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  let t = s.includes("T") ? s.replace(" ", "T") : `${s.split(" ")[0]}T${s.split(" ")[1] || "00:00:00"}`;
+  if (/T\d{2}:\d{2}$/.test(t)) t += ":00";
+  return fromZonedTime(t, timezone);
+}
+
+async function loadRescheduleWeeklyContext(businessId, providerId) {
+  const business = await Business.findOne({ id: businessId }).lean();
+  if (!business) return null;
+  const schedule = await Schedule.findOne({ businessId }).lean();
+  let scheduleTz = business.timezone || "America/Toronto";
+  let weeklyHours = schedule?.weeklyHours;
+  if (!weeklyHours || typeof weeklyHours !== "object") {
+    weeklyHours = business.weeklySchedule?.weeklyHours;
+    scheduleTz = business.weeklySchedule?.timezone || scheduleTz;
+  }
+  if (!weeklyHours || typeof weeklyHours !== "object") {
+    weeklyHours = business.businessProfile?.weeklyHours;
+  }
+  if (providerId) {
+    const prov = await Provider.findOne({ businessId, id: String(providerId).trim() }).lean();
+    if (prov?.schedule?.weeklyHours) {
+      const conv = providerWeeklyHoursToBlocks(prov.schedule.weeklyHours);
+      if (conv) weeklyHours = conv;
+    }
+  }
+  weeklyHours = coerceWeeklyHoursBlocks(weeklyHours);
+  return { business, weeklyHours, scheduleTz };
+}
+
+async function slotFreeForReschedule(businessId, slot, providerId, excludeBookingId) {
+  const start = new Date(slot.start);
+  const end = new Date(slot.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
+    return false;
+  }
+  const q = {
+    businessId,
+    status: "confirmed",
+    id: { $ne: excludeBookingId },
+    "slot.start": { $lt: slot.end },
+    "slot.end": { $gt: slot.start }
+  };
+  if (providerId) {
+    q.$or = [
+      { providerId },
+      { providerId: null },
+      { providerId: { $exists: false } }
+    ];
+  }
+  const overlapping = await Booking.findOne(q).lean();
+  return !overlapping;
+}
+
+function buildRescheduleBookingResult({
+  bookingId,
+  serviceName,
+  previousSlotStartIso,
+  newStartDate,
+  tz,
+  smsNotificationSent,
+  gcalSynced
+}) {
+  return {
+    bookingId,
+    serviceName,
+    previousSlotStart: formatInTimeZone(
+      new Date(previousSlotStartIso),
+      tz,
+      "yyyy-MM-dd'T'HH:mm:ssXXX"
+    ),
+    newSlotStart: formatInTimeZone(newStartDate, tz, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    newSlotLocalTime: formatInTimeZone(newStartDate, tz, "h:mm a"),
+    newSlotLocalDate: formatInTimeZone(newStartDate, tz, "EEEE, MMMM d"),
+    smsNotificationSent,
+    gcalSynced
+  };
+}
+
+/**
+ * BOO-98A: voice-agent reschedule — phone must match booking.customer.phone.
+ */
+export async function rescheduleBooking(input) {
+  const {
+    bookingId: bookingIdRaw,
+    customerPhone,
+    newSlotStart,
+    timezone: tzInput,
+    language: langInput
+  } = input || {};
+
+  const phoneNorm = String(customerPhone || "")
+    .trim()
+    .replace(/\s/g, "");
+
+  const logLine = (extra) =>
+    console.log("[booking-reschedule]", {
+      bookingId: bookingIdRaw ?? null,
+      businessId: extra.businessId ?? null,
+      phoneHashed: phoneNorm ? hashPhoneForLog(phoneNorm) : "(none)",
+      previousSlot: extra.previousSlot,
+      newSlot: extra.newSlot,
+      gcalSynced: extra.gcalSynced,
+      smsSent: extra.smsSent,
+      result: extra.result ?? "ok",
+      ...(extra.error && { error: extra.error })
+    });
+
+  if (!bookingIdRaw || !String(bookingIdRaw).trim()) {
+    logLine({ result: "validation", error: "missing_booking_id" });
+    return { ok: false, error: "validation", message: "bookingId is required" };
+  }
+  if (!isE164LookupPhone(customerPhone)) {
+    logLine({ result: "validation", error: "invalid_phone" });
+    return { ok: false, error: "validation", message: "customerPhone is required" };
+  }
+
+  const bookingId = String(bookingIdRaw).trim();
+
+  const booking = await Booking.findOne({ id: bookingId }).lean();
+  if (!booking) {
+    logLine({ result: "not_found", error: "not_found" });
+    return { ok: false, error: "not_found", message: "Booking not found" };
+  }
+
+  const storedPhone = normalizePhoneForLookupMatch(booking.customer?.phone);
+  if (storedPhone !== phoneNorm) {
+    logLine({ businessId: booking.businessId, result: "not_found", error: "phone_mismatch" });
+    return { ok: false, error: "not_found", message: "Booking not found" };
+  }
+
+  const business = await Business.findOne({ id: booking.businessId }).lean();
+  if (!business) {
+    logLine({ businessId: booking.businessId, result: "not_found" });
+    return { ok: false, error: "not_found", message: "Booking not found" };
+  }
+
+  const deny = trialDeniedPublicChannel(business);
+  if (deny) {
+    logLine({ businessId: booking.businessId, result: "trial", error: deny.body?.error });
+    return { ok: false, error: "trial", message: deny.body.message };
+  }
+
+  const plan = business.plan && String(business.plan).toLowerCase() !== "none" ? business.plan : "none";
+  if (!isChannelAllowed(plan, "voice")) {
+    logLine({ businessId: booking.businessId, result: "plan", error: "voice_blocked" });
+    return {
+      ok: false,
+      error: "voice_blocked",
+      message: "Voice booking is not available on the current plan."
+    };
+  }
+
+  if (booking.status !== "confirmed") {
+    logLine({ businessId: booking.businessId, result: "bad_status", error: booking.status });
+    return {
+      ok: false,
+      error: "invalid_status",
+      message: `cannot reschedule a ${booking.status} booking`
+    };
+  }
+
+  const now = new Date();
+  const curStart = new Date(booking.slot?.start);
+  if (Number.isNaN(curStart.getTime()) || curStart < now) {
+    logLine({ businessId: booking.businessId, result: "past_booking" });
+    return { ok: false, error: "past_booking", message: "booking has already passed" };
+  }
+
+  const service = await Service.findOne({
+    businessId: booking.businessId,
+    serviceId: booking.serviceId
+  }).lean();
+  if (!service) {
+    logLine({ businessId: booking.businessId, result: "no_service" });
+    return { ok: false, error: "service_not_found", message: "Service not found" };
+  }
+
+  const durationMinutes = service.durationMinutes;
+  const tz = tzInput || booking.slot?.timezone || business.timezone || "America/Toronto";
+  const lang = (langInput || booking.language || "en").toLowerCase().slice(0, 5);
+
+  const newStartDate = parseWallSlotStartToDate(newSlotStart, tz);
+  if (!newSlotStart || !newStartDate) {
+    logLine({ businessId: booking.businessId, result: "bad_new_slot" });
+    return { ok: false, error: "bad_slot", message: "Invalid new slot" };
+  }
+
+  const newEndDate = new Date(newStartDate.getTime() + durationMinutes * 60000);
+  const newSlotStartStr = newStartDate.toISOString();
+  const newSlotEndStr = newEndDate.toISOString();
+
+  if (newStartDate < now) {
+    logLine({ businessId: booking.businessId, result: "new_in_past" });
+    return { ok: false, error: "new_in_past", message: "cannot reschedule to the past" };
+  }
+
+  const prevMs = new Date(booking.slot.start).getTime();
+  if (!Number.isNaN(prevMs) && Math.abs(prevMs - newStartDate.getTime()) < 60000) {
+    const noop = buildRescheduleBookingResult({
+      bookingId,
+      serviceName: service.name || booking.serviceId,
+      previousSlotStartIso: booking.slot.start,
+      newStartDate,
+      tz,
+      smsNotificationSent: false,
+      gcalSynced: false
+    });
+    logLine({
+      businessId: booking.businessId,
+      previousSlot: booking.slot.start,
+      newSlot: newSlotStartStr,
+      gcalSynced: false,
+      smsSent: false,
+      result: "noop"
+    });
+    return {
+      ok: true,
+      noop: true,
+      message: "already scheduled at that time",
+      booking: noop
+    };
+  }
+
+  const ctx = await loadRescheduleWeeklyContext(booking.businessId, booking.providerId);
+  if (!ctx?.weeklyHours || typeof ctx.weeklyHours !== "object") {
+    logLine({ businessId: booking.businessId, result: "no_hours" });
+    return { ok: false, error: "no_schedule", message: "Business schedule is not configured" };
+  }
+
+  const scheduleTz = ctx.scheduleTz || tz;
+  const weeklyOk = isSlotAllowedByWeeklyHours({
+    slotStartIso: newSlotStartStr,
+    slotEndIso: newSlotEndStr,
+    weeklyHours: ctx.weeklyHours,
+    timezone: scheduleTz,
+    durationMinutes
+  });
+
+  const suggest = async () =>
+    suggestRescheduleAlternatives({
+      businessId: booking.businessId,
+      timezone: scheduleTz,
+      weeklyHours: ctx.weeklyHours,
+      durationMinutes,
+      aroundStartIso: newSlotStartStr,
+      excludeBookingId: bookingId,
+      providerId: booking.providerId
+    });
+
+  if (!weeklyOk) {
+    const suggestedSlots = await suggest();
+    logLine({ businessId: booking.businessId, result: "out_of_hours", newSlot: newSlotStartStr });
+    return {
+      ok: false,
+      error: "slot_unavailable",
+      message: "That time isn't available",
+      suggestedSlots
+    };
+  }
+
+  const slotForQuery = { start: newSlotStartStr, end: newSlotEndStr };
+  const free = await slotFreeForReschedule(
+    booking.businessId,
+    slotForQuery,
+    booking.providerId || null,
+    bookingId
+  );
+  if (!free) {
+    const suggestedSlots = await suggest();
+    logLine({ businessId: booking.businessId, result: "conflict", newSlot: newSlotStartStr });
+    return {
+      ok: false,
+      error: "slot_unavailable",
+      message: "That time isn't available",
+      suggestedSlots
+    };
+  }
+
+  const updated = await Booking.findOneAndUpdate(
+    {
+      id: bookingId,
+      status: "confirmed",
+      "slot.start": booking.slot.start
+    },
+    {
+      $set: {
+        "slot.start": newSlotStartStr,
+        "slot.end": newSlotEndStr,
+        "slot.timezone": tz,
+        language: lang,
+        updatedAt: new Date()
+      },
+      $push: {
+        history: {
+          type: "reschedule",
+          previousSlotStart: booking.slot.start,
+          newSlotStart: newSlotStartStr,
+          at: new Date(),
+          source: "voice-agent"
+        }
+      }
+    },
+    { new: true }
+  ).lean();
+
+  if (!updated) {
+    const suggestedSlots = await suggest();
+    logLine({ businessId: booking.businessId, result: "atomic_fail", newSlot: newSlotStartStr });
+    return {
+      ok: false,
+      error: "slot_unavailable",
+      message: "That time isn't available",
+      suggestedSlots
+    };
+  }
+
+  invalidateFreebusyCacheForBusiness(booking.businessId);
+
+  let gcalSynced = false;
+  const calProv = resolveCalendarProviderForBusiness(business);
+  if (booking.calendarEventId && calProv) {
+    const pat = await patchCalendarEventSchedule({
+      businessId: booking.businessId,
+      eventId: booking.calendarEventId,
+      calendarProvider: calProv,
+      start: newSlotStartStr,
+      end: newSlotEndStr,
+      timezone: tz
+    });
+    gcalSynced = !!(pat && !pat.skipped);
+  }
+
+  let smsNotificationSent = false;
+  const bizForSms = await Business.findOne({ id: booking.businessId }).lean();
+  const fromNumber = bizForSms?.assignedTwilioNumber;
+  const toPhone = booking.customer?.phone;
+  if (
+    toPhone &&
+    fromNumber &&
+    isFeatureAllowed(bizForSms.plan || "starter", "smsConfirmations")
+  ) {
+    const newDay = formatInTimeZone(newStartDate, scheduleTz, "EEEE");
+    const newDate = formatInTimeZone(newStartDate, scheduleTz, "MMMM d");
+    const newTime = formatInTimeZone(newStartDate, scheduleTz, "h:mm a");
+    const body = formatRescheduleSMS({
+      businessName: bizForSms.name || booking.businessId,
+      newDay,
+      newDate,
+      newTime,
+      language: lang
+    });
+    const smsResult = await sendSMS({ to: toPhone, from: fromNumber, body });
+    smsNotificationSent = !!smsResult.ok;
+  }
+
+  const resultBooking = buildRescheduleBookingResult({
+    bookingId,
+    serviceName: service.name || booking.serviceId,
+    previousSlotStartIso: booking.slot.start,
+    newStartDate,
+    tz: scheduleTz,
+    smsNotificationSent,
+    gcalSynced
+  });
+
+  logLine({
+    businessId: booking.businessId,
+    previousSlot: booking.slot.start,
+    newSlot: newSlotStartStr,
+    gcalSynced,
+    smsSent: smsNotificationSent,
+    result: "ok"
+  });
+
+  return {
+    ok: true,
+    booking: resultBooking
   };
 }

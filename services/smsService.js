@@ -89,6 +89,17 @@ export function formatConfirmationSMS({ serviceName, businessName, date, time, c
   });
 }
 
+/** BOO-98A: reschedule notice (multilingual). */
+export function formatRescheduleSMS({ businessName, newDay, newDate, newTime, language }) {
+  const template = getSmsTemplate(language, "reschedule");
+  return template({
+    businessName: businessName || "Book8",
+    newDay: newDay || "",
+    newDate: newDate || "",
+    newTime: newTime || ""
+  });
+}
+
 /**
  * Format a reminder SMS message.
  * @param {object} params

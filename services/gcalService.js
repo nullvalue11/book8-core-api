@@ -290,3 +290,66 @@ export async function updateGcalEvent({
     return null;
   }
 }
+
+/**
+ * BOO-98A: move calendar event to new start/end (book8-ai update endpoint).
+ * On failure, logs only — does not delete the event (DB is source of truth).
+ */
+export async function patchCalendarEventSchedule({
+  businessId,
+  eventId,
+  calendarProvider,
+  start,
+  end,
+  timezone
+}) {
+  if (process.env.NODE_ENV === "test") {
+    return { ok: true, skipped: true };
+  }
+
+  const secret = process.env.INTERNAL_API_SECRET;
+  if (!secret || !eventId) {
+    console.warn("[gcalService] patchCalendarEventSchedule: missing secret or eventId");
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  const endpoints = getCalendarEndpoints(calendarProvider);
+  const url = `${BOOK8_AI_URL.replace(/\/$/, "")}${endpoints.update}`;
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-book8-internal-secret": secret
+      },
+      body: JSON.stringify({
+        businessId,
+        eventId,
+        start,
+        end,
+        timezone,
+        sendUpdates: "none"
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.warn("[gcalService] patchCalendarEventSchedule non-OK:", response.status);
+      return null;
+    }
+
+    const data = await response.json().catch(() => ({}));
+    console.log("[gcalService] patchCalendarEventSchedule:", data?.eventId || "(ok)");
+    return data;
+  } catch (err) {
+    clearTimeout(timeout);
+    console.warn("[gcalService] patchCalendarEventSchedule failed:", err.message);
+    return null;
+  }
+}

@@ -137,17 +137,92 @@ function slotsOverlap(slot, booked) {
   return slot.start < booked.end && slot.end > booked.start;
 }
 
+/**
+ * BOO-98A: true if start/end match a generated slot from weekly hours (same duration).
+ */
+export function isSlotAllowedByWeeklyHours({
+  slotStartIso,
+  slotEndIso,
+  weeklyHours,
+  timezone,
+  durationMinutes
+}) {
+  if (!weeklyHours || typeof weeklyHours !== "object") return false;
+  const start = new Date(slotStartIso);
+  const end = new Date(slotEndIso);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+  const from = new Date(start.getTime() - 3600000);
+  const to = new Date(start.getTime() + 24 * 3600000);
+  const candidates = getSlotsFromWeeklySchedule({
+    from: from.toISOString(),
+    to: to.toISOString(),
+    timezone,
+    durationMinutes,
+    weeklyHours
+  });
+  const t0 = start.getTime();
+  const t1 = end.getTime();
+  return candidates.some((c) => {
+    const cs = new Date(c.start).getTime();
+    const ce = new Date(c.end).getTime();
+    return Math.abs(cs - t0) < 120000 && Math.abs(ce - t1) < 120000;
+  });
+}
+
+/**
+ * BOO-98A: nearby alternative starts (ISO) when reschedule validation fails.
+ */
+export async function suggestRescheduleAlternatives({
+  businessId,
+  timezone,
+  weeklyHours,
+  durationMinutes,
+  aroundStartIso,
+  excludeBookingId,
+  providerId
+}) {
+  const start = new Date(aroundStartIso);
+  if (Number.isNaN(start.getTime())) return [];
+  const from = new Date(start.getTime() - 36 * 3600000).toISOString();
+  const to = new Date(start.getTime() + 72 * 3600000).toISOString();
+  let candidates = getSlotsFromWeeklySchedule({
+    from,
+    to,
+    timezone,
+    durationMinutes,
+    weeklyHours
+  });
+  const conflicting = await getBookedSlotStarts(
+    businessId,
+    from,
+    to,
+    providerId || null,
+    excludeBookingId
+  );
+  candidates = candidates.filter((s) => !conflicting.some((booked) => slotsOverlap(s, booked)));
+  const targetMs = start.getTime();
+  candidates = candidates.filter((c) => Math.abs(new Date(c.start).getTime() - targetMs) > 60000);
+  candidates.sort(
+    (a, b) =>
+      Math.abs(new Date(a.start).getTime() - targetMs) - Math.abs(new Date(b.start).getTime() - targetMs)
+  );
+  return candidates.slice(0, 2).map((c) => c.start);
+}
+
 function slotOverlapsBusy(slot, busy) {
   return slot.start < busy.end && slot.end > busy.start;
 }
 
-async function getBookedSlotStarts(businessId, from, to, providerId) {
+export async function getBookedSlotStarts(businessId, from, to, providerId, excludeBookingId) {
   const q = {
     businessId,
     status: "confirmed",
     "slot.start": { $lt: to },
     "slot.end": { $gt: from }
   };
+  if (excludeBookingId) {
+    q.id = { $ne: excludeBookingId };
+  }
   if (providerId) {
     q.$or = [
       { providerId },
@@ -181,7 +256,7 @@ function getLocalDatePartsInTz(date, timezone) {
 /**
  * Generate slots from business weekly schedule (e.g. Mon–Fri 09:00–17:00).
  */
-function getSlotsFromWeeklySchedule({ from, to, timezone, durationMinutes, weeklyHours }) {
+export function getSlotsFromWeeklySchedule({ from, to, timezone, durationMinutes, weeklyHours }) {
   const start = new Date(from);
   const end = new Date(to);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
