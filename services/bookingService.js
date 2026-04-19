@@ -21,6 +21,9 @@ import {
   sendRecurringNextConfirmations
 } from "./recurringBookingMessages.js";
 import { getTrialBookingBlock } from "../src/utils/trialLifecycle.js";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { addDays, format, parseISO } from "date-fns";
+import { hashPhoneForLog } from "../src/utils/maskPhone.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -581,4 +584,159 @@ export async function createBooking(input) {
     });
     return { ok: false, error: "booking_creation_failed" };
   }
+}
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** BOO-97A: strict non-empty E.164 for voice lookup input. */
+export function isE164LookupPhone(phone) {
+  if (phone == null) return false;
+  const t = String(phone).trim().replace(/\s/g, "");
+  if (!t) return false;
+  return /^\+[1-9]\d{1,14}$/.test(t);
+}
+
+/** BOO-97A: normalize stored/input phone to canonical E.164 when possible. */
+export function normalizePhoneForLookupMatch(phone) {
+  if (phone == null || phone === "") return "";
+  const s = String(phone).trim().replace(/\s/g, "");
+  if (!s) return "";
+  if (/^\+[1-9]\d{1,14}$/.test(s)) return s;
+  const digits = s.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length >= 11 && digits.length <= 15) return `+${digits}`;
+  return "";
+}
+
+function phoneQueryVariants(e164) {
+  const set = new Set([e164]);
+  if (e164.startsWith("+")) set.add(e164.slice(1));
+  return [...set];
+}
+
+function slotDurationMinutes(slot) {
+  const a = new Date(slot?.start);
+  const b = new Date(slot?.end);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  return Math.max(0, Math.round((b.getTime() - a.getTime()) / 60000));
+}
+
+/**
+ * BOO-97A: internal voice-agent lookup — phone is the auth key; results filtered after query.
+ * @returns {Promise<{ ok: true, count: number, bookings: object[] } | { ok: false, error: string }>}
+ */
+export async function lookupBookingsByPhone(input) {
+  const {
+    businessId,
+    customerPhone,
+    dateFrom: dateFromIn,
+    dateTo: dateToIn,
+    includeCancelled = false,
+    limit: limitIn
+  } = input || {};
+
+  if (!businessId || typeof businessId !== "string" || !businessId.trim()) {
+    return { ok: false, error: "businessId is required" };
+  }
+
+  if (!isE164LookupPhone(customerPhone)) {
+    return { ok: false, error: "Invalid phone" };
+  }
+
+  const normalizedInput = String(customerPhone).trim().replace(/\s/g, "");
+
+  let limit = Number(limitIn);
+  if (!Number.isFinite(limit) || limit < 1) limit = 5;
+  limit = Math.min(Math.max(Math.floor(limit), 1), 10);
+
+  const bizId = businessId.trim();
+  const business = await Business.findOne({ id: bizId }).lean();
+  const tz = business?.timezone || "America/Toronto";
+
+  let fromYmd = dateFromIn;
+  let toYmd = dateToIn;
+  if (fromYmd != null) {
+    if (typeof fromYmd !== "string" || !YMD_RE.test(fromYmd.trim())) {
+      return { ok: false, error: "Invalid dateFrom" };
+    }
+    fromYmd = fromYmd.trim();
+  } else {
+    fromYmd = formatInTimeZone(new Date(), tz, "yyyy-MM-dd");
+  }
+  if (toYmd != null) {
+    if (typeof toYmd !== "string" || !YMD_RE.test(toYmd.trim())) {
+      return { ok: false, error: "Invalid dateTo" };
+    }
+    toYmd = toYmd.trim();
+  } else {
+    toYmd = format(addDays(parseISO(`${fromYmd}T12:00:00.000Z`), 60), "yyyy-MM-dd");
+  }
+
+  const rangeStartIso = fromZonedTime(`${fromYmd}T00:00:00`, tz).toISOString();
+  const rangeEndIso = fromZonedTime(`${toYmd}T23:59:59.999`, tz).toISOString();
+
+  const statusFilter = includeCancelled
+    ? { $in: ["confirmed", "cancelled", "pending"] }
+    : { $in: ["confirmed", "pending"] };
+
+  const variants = phoneQueryVariants(normalizedInput);
+
+  let docs = await Booking.find({
+    businessId: bizId,
+    "customer.phone": { $in: variants },
+    status: statusFilter,
+    "slot.start": { $gte: rangeStartIso, $lte: rangeEndIso }
+  })
+    .sort({ "slot.start": 1 })
+    .limit(limit)
+    .lean();
+
+  docs = docs.filter((b) => normalizePhoneForLookupMatch(b.customer?.phone) === normalizedInput);
+
+  console.log("[booking-lookup]", {
+    businessId: bizId,
+    phoneHashed: hashPhoneForLog(normalizedInput),
+    count: docs.length,
+    dateRange: [fromYmd, toYmd]
+  });
+
+  const serviceCache = new Map();
+  async function getService(bId, svcId) {
+    const key = `${bId}::${svcId}`;
+    if (serviceCache.has(key)) return serviceCache.get(key);
+    const s = await Service.findOne({ businessId: bId, serviceId: svcId }).lean();
+    serviceCache.set(key, s);
+    return s;
+  }
+
+  const origin = (process.env.BOOK8_PUBLIC_ORIGIN || "https://book8.io").replace(/\/$/, "");
+
+  const bookings = [];
+  for (const b of docs) {
+    const svc = await getService(b.businessId, b.serviceId);
+    const d = new Date(b.slot?.start);
+    if (Number.isNaN(d.getTime())) continue;
+
+    const duration =
+      svc?.durationMinutes != null ? svc.durationMinutes : slotDurationMinutes(b.slot);
+
+    bookings.push({
+      bookingId: b.id,
+      serviceName: svc?.name || b.serviceId,
+      serviceDurationMinutes: duration,
+      slotStart: formatInTimeZone(d, tz, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+      slotLocalTime: formatInTimeZone(d, tz, "h:mm a"),
+      slotLocalDate: formatInTimeZone(d, tz, "EEEE, MMMM d"),
+      customerName: b.customer?.name ?? null,
+      customerEmail: b.customer?.email ?? null,
+      status: b.status,
+      rescheduleUrl: `${origin}/manage/${b.id}`
+    });
+  }
+
+  return {
+    ok: true,
+    count: bookings.length,
+    bookings
+  };
 }

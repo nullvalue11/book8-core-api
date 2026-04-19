@@ -6,7 +6,7 @@
 
 import express from "express";
 import { getAvailability } from "../../services/calendarAvailability.js";
-import { createBooking } from "../../services/bookingService.js";
+import { createBooking, lookupBookingsByPhone } from "../../services/bookingService.js";
 import { ensureTenant } from "../../services/tenantEnsure.js";
 import { requireChannel } from "../middleware/planCheck.js";
 import { Business } from "../../models/Business.js";
@@ -16,7 +16,11 @@ const router = express.Router();
 
 function requireVoiceForBookingTool(req, res, next) {
   const toolName = req.body?.tool || req.body?.input?.tool;
-  if (toolName === "booking.create" || toolName === "create_booking") {
+  if (
+    toolName === "booking.create" ||
+    toolName === "create_booking" ||
+    toolName === "booking.lookup"
+  ) {
     return requireChannel("voice")(req, res, next);
   }
   next();
@@ -48,7 +52,9 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
 
     if (
       tenantId &&
-      (tool === "calendar.availability" || tool === "booking.create")
+      (tool === "calendar.availability" ||
+        tool === "booking.create" ||
+        tool === "booking.lookup")
     ) {
       const biz = await Business.findOne({ id: tenantId }).lean();
       if (biz) {
@@ -237,6 +243,29 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
               error: null
             };
           }
+        }
+        break;
+      }
+      case "booking.lookup": {
+        const result = await lookupBookingsByPhone(payload);
+        if (!result.ok) {
+          outcome = {
+            ok: false,
+            status: "failed",
+            result: { ok: false, error: result.error },
+            error: { message: result.error }
+          };
+        } else {
+          outcome = {
+            ok: true,
+            status: "succeeded",
+            result: {
+              ok: true,
+              count: result.count,
+              bookings: result.bookings
+            },
+            error: null
+          };
         }
         break;
       }
