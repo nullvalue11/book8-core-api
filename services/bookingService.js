@@ -35,6 +35,7 @@ import { getTrialBookingBlock, trialDeniedPublicChannel } from "../src/utils/tri
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { addDays, format, parseISO } from "date-fns";
 import { hashPhoneForLog } from "../src/utils/maskPhone.js";
+import { parseSlotInstantForStorage } from "./timeUtils.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -454,16 +455,31 @@ async function createBookingInner(input) {
     }
   }
 
-  // Voice agent often sends only slot start; derive end from service duration
-  if (!slot.end) {
-    const startMs = new Date(slot.start).getTime();
-    if (Number.isNaN(startMs)) {
-      return { ok: false, error: "Slot start must be a valid date/time" };
-    }
-    slot.end = new Date(startMs + service.durationMinutes * 60000).toISOString();
+  const bizTz = (business.timezone && String(business.timezone).trim()) || "";
+  if (!bizTz) {
+    return { ok: false, error: "Business timezone is not configured" };
   }
 
-  const slotDurationMs = new Date(slot.end) - new Date(slot.start);
+  /** BOO-107A: naïve ISO → interpret wall clock in business TZ; absolute strings keep Date semantics. */
+  let startDate;
+  let endDate;
+  try {
+    startDate = parseSlotInstantForStorage(slot.start, bizTz);
+    if (!slot.end) {
+      endDate = new Date(startDate.getTime() + service.durationMinutes * 60000);
+    } else {
+      endDate = parseSlotInstantForStorage(slot.end, bizTz);
+    }
+  } catch (e) {
+    console.warn("[bookingService] slot parse:", e?.message);
+    return { ok: false, error: "Slot start must be a valid date/time" };
+  }
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || startDate >= endDate) {
+    return { ok: false, error: "Slot start must be a valid date/time" };
+  }
+
+  const slotDurationMs = endDate - startDate;
   const slotDurationMinutes = Math.round(slotDurationMs / 60000);
   const minDuration = service.durationMinutes - 5;
   const maxDuration = service.durationMinutes + 30;
@@ -472,9 +488,8 @@ async function createBookingInner(input) {
   }
 
   // Normalize to UTC ISO strings so overlap check and unique index use consistent format.
-  // Mixed formats (e.g. "13:00:00-04:00" vs "17:00:00.000Z") break string comparison in MongoDB.
-  const normStart = new Date(slot.start).toISOString();
-  const normEnd = new Date(slot.end).toISOString();
+  const normStart = startDate.toISOString();
+  const normEnd = endDate.toISOString();
   const slotForQuery = { start: normStart, end: normEnd };
 
   let recurringDoc = undefined;
@@ -785,17 +800,15 @@ function coerceWeeklyHoursBlocks(weeklyHours) {
   return out;
 }
 
-/** Parse voice-agent local wall time (no Z) into UTC Date using IANA tz. */
+/** BOO-107A: voice-agent local wall time → UTC Date (same rules as createBooking). */
 function parseWallSlotStartToDate(newSlotStart, timezone) {
-  const s = String(newSlotStart).trim();
+  const s = String(newSlotStart ?? "").trim();
   if (!s) return null;
-  if (/Z$/i.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) {
-    const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? null : d;
+  try {
+    return parseSlotInstantForStorage(s, timezone);
+  } catch {
+    return null;
   }
-  let t = s.includes("T") ? s.replace(" ", "T") : `${s.split(" ")[0]}T${s.split(" ")[1] || "00:00:00"}`;
-  if (/T\d{2}:\d{2}$/.test(t)) t += ":00";
-  return fromZonedTime(t, timezone);
 }
 
 async function loadRescheduleWeeklyContext(businessId, providerId) {
@@ -971,10 +984,17 @@ export async function rescheduleBooking(input) {
   }
 
   const durationMinutes = service.durationMinutes;
+  /** Display / SMS — may follow explicit tool timezone when set */
   const tz = tzInput || booking.slot?.timezone || business.timezone || "America/Toronto";
+  /** BOO-107A: naïve reschedule strings are wall times in the business zone, not arbitrary input tz */
+  const parseTz =
+    (business.timezone && String(business.timezone).trim()) ||
+    booking.slot?.timezone ||
+    tzInput ||
+    "America/Toronto";
   const lang = (langInput || booking.language || "en").toLowerCase().slice(0, 5);
 
-  const newStartDate = parseWallSlotStartToDate(newSlotStart, tz);
+  const newStartDate = parseWallSlotStartToDate(newSlotStart, parseTz);
   if (!newSlotStart || !newStartDate) {
     logLine({ businessId: booking.businessId, result: "bad_new_slot" });
     return { ok: false, error: "bad_slot", message: "Invalid new slot" };

@@ -7,6 +7,8 @@ import { truncateErr } from "./gcalSyncHelpers.js";
 /**
  * Calendar service for book8-ai provider routing.
  * BOO-102A: create/update/delete/patch never throw; JSON/HTML bodies parsed safely.
+ * BOO-107A: booking.slot.start / end must already be true UTC ISO strings from bookingService;
+ *   `timezone` is the IANA zone for provider APIs — no extra parsing here.
  */
 
 const BOOK8_AI_URL = process.env.BOOK8_AI_URL || "https://www.book8.io";

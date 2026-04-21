@@ -19,7 +19,9 @@ const SlotSchema = new mongoose.Schema(
   {
     start: { type: String, required: true, maxlength: 64, trim: true },
     end: { type: String, required: true, maxlength: 64, trim: true },
-    timezone: { type: String, required: true, maxlength: 64, trim: true }
+    timezone: { type: String, required: true, maxlength: 64, trim: true },
+    /** BOO-107A: set by migration after fixing naïve-as-UTC slot storage (idempotent re-runs skip) */
+    tzFixed: { type: Boolean }
   },
   { _id: false }
 );
