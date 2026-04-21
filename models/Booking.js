@@ -79,6 +79,19 @@ const BookingSchema = new mongoose.Schema(
     /** Google/Outlook calendar event id from book8-ai after successful create */
     calendarEventId: { type: String, default: null, maxlength: 512, trim: true },
 
+    /** BOO-102A: last Google Calendar sync outcome (non-blocking; failures do not block booking flows) */
+    gcalSync: {
+      status: {
+        type: String,
+        enum: ["synced", "failed", "skipped", "pending"],
+        default: "pending"
+      },
+      eventId: { type: String, maxlength: 512, trim: true },
+      lastAttempt: { type: Date },
+      lastError: { type: String, maxlength: 500, trim: true },
+      failureCount: { type: Number, default: 0 }
+    },
+
     cancelledAt: { type: Date },
     cancellationMethod: { type: String, enum: ["sms", "dashboard", "phone", "api"], maxlength: 32, trim: true },
 

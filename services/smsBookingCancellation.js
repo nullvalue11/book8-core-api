@@ -10,6 +10,7 @@ import {
   resolveCalendarProviderForBusiness,
   updateGcalEvent
 } from "./gcalService.js";
+import { nextGcalSyncFromResult } from "./gcalSyncHelpers.js";
 import { formatSlotDateTime } from "./localeFormat.js";
 import { getSmsTemplate } from "./templates/smsTemplates.js";
 import {
@@ -47,23 +48,50 @@ async function notifySmsCancelComplete(booking, business, serviceDisplay, cancel
   }
 
   const calProvider = resolveCalendarProviderForBusiness(business);
-  if (booking.calendarEventId && calProvider) {
-    updateGcalEvent({
-      businessId: booking.businessId,
-      eventId: booking.calendarEventId,
-      bookingId: booking.id || booking.bookingId,
-      calendarProvider: calProvider,
-      updates: {
-        title: `CANCELLED — ${serviceDisplay}`,
-        showAs: "free"
+  const bookingKey = booking.id || booking.bookingId;
+  const prevSync = booking.gcalSync;
+
+  try {
+    if (booking.calendarEventId && calProvider) {
+      const result = await updateGcalEvent({
+        businessId: booking.businessId,
+        eventId: booking.calendarEventId,
+        bookingId: bookingKey,
+        calendarProvider: calProvider,
+        updates: {
+          title: `CANCELLED — ${serviceDisplay}`,
+          showAs: "free"
+        }
+      });
+      const next = nextGcalSyncFromResult(prevSync, result, "update");
+      if (!result.ok && !result.skipped) {
+        console.warn("[sms-cancel][gcal-failed]", {
+          bookingId: bookingKey,
+          businessId: booking.businessId,
+          errorType: result.errorType,
+          failureCount: next.failureCount
+        });
       }
-    }).catch((err) => console.error("[sms-cancel] Calendar update failed:", err.message));
-  } else {
-    deleteGcalEvent({
-      businessId: booking.businessId,
-      bookingId: booking.id || booking.bookingId,
-      calendarProvider: calProvider
-    }).catch((err) => console.error("[sms-cancel] Calendar delete failed:", err.message));
+      await Booking.updateOne({ id: bookingKey }, { $set: { gcalSync: next } });
+    } else {
+      const result = await deleteGcalEvent({
+        businessId: booking.businessId,
+        bookingId: bookingKey,
+        calendarProvider: calProvider
+      });
+      const next = nextGcalSyncFromResult(prevSync, result, "delete");
+      if (!result.ok && !result.skipped) {
+        console.warn("[sms-cancel][gcal-failed]", {
+          bookingId: bookingKey,
+          businessId: booking.businessId,
+          errorType: result.errorType,
+          failureCount: next.failureCount
+        });
+      }
+      await Booking.updateOne({ id: bookingKey }, { $set: { gcalSync: next } });
+    }
+  } catch (err) {
+    console.error("[sms-cancel] Calendar side effect failed:", err.message);
   }
 }
 

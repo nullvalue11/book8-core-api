@@ -2,18 +2,19 @@ import {
   getFreebusyCached,
   setFreebusyCached
 } from "../src/services/gcalBusyCache.js";
+import { truncateErr } from "./gcalSyncHelpers.js";
 
 /**
  * Calendar service for book8-ai provider routing.
- * - Google provider: gcal-busy, gcal-create-event, gcal-delete-event, gcal-update-event
- * - Microsoft provider: outlook-busy, outlook-create-event, outlook-delete-event, outlook-update-event
- *
- * Used to filter availability slots and to sync create/delete bookings.
- * On failure or timeout, returns null (graceful degradation).
+ * BOO-102A: create/update/delete/patch never throw; JSON/HTML bodies parsed safely.
  */
 
 const BOOK8_AI_URL = process.env.BOOK8_AI_URL || "https://www.book8.io";
 const GCAL_BUSY_TIMEOUT_MS = 3000;
+
+function shouldSkipGcalHttp() {
+  return process.env.NODE_ENV === "test" && process.env.GCAL_INTEGRATION_TEST !== "1";
+}
 
 function normalizeProvider(calendarProvider) {
   return calendarProvider === "microsoft" ? "microsoft" : "google";
@@ -53,6 +54,75 @@ function getCalendarEndpoints(calendarProvider) {
 }
 
 /**
+ * @param {unknown} err
+ * @param {number} [responseStatus]
+ * @param {string} [bodyText]
+ * @returns {"token_expired"|"not_found"|"rate_limited"|"network"|"unknown"}
+ */
+export function classifyGcalError(err, responseStatus, bodyText = "") {
+  const t = (bodyText || "").trim();
+  const tLower = t.slice(0, 512).toLowerCase();
+  if (tLower.startsWith("<!doctype") || tLower.startsWith("<html")) {
+    return "token_expired";
+  }
+
+  const st = typeof responseStatus === "number" ? responseStatus : 0;
+  if (st === 404) return "not_found";
+  if (st === 429) return "rate_limited";
+  if (st === 401 || st === 403) return "token_expired";
+
+  const code = err?.code;
+  if (["ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ECONNRESET", "ENETUNREACH"].includes(code)) {
+    return "network";
+  }
+  if (err?.name === "AbortError") return "network";
+  const m = `${err?.message || ""} ${t}`.toLowerCase();
+  if (m.includes("fetch failed") || m.includes("network") || m.includes("socket")) {
+    return "network";
+  }
+
+  return "unknown";
+}
+
+async function readResponseBodySafe(response) {
+  let text = "";
+  try {
+    text = await response.text();
+  } catch (e) {
+    return {
+      text: "",
+      parseError: true,
+      data: null,
+      readErr: e
+    };
+  }
+  const trimmed = text.trim();
+  const tLower = trimmed.slice(0, 16).toLowerCase();
+  if (tLower.startsWith("<!doctype") || tLower.startsWith("<html")) {
+    return { text, parseError: true, data: null, isHtml: true };
+  }
+  if (trimmed === "") {
+    return { text, parseError: false, data: null };
+  }
+  try {
+    return { text, parseError: false, data: JSON.parse(trimmed) };
+  } catch {
+    return { text, parseError: true, data: null };
+  }
+}
+
+function summarizeFailureMessage(parsed, status) {
+  const d = parsed?.data;
+  const msg =
+    (typeof d?.message === "string" && d.message) ||
+    (typeof d?.error === "string" && d.error) ||
+    (typeof d?.reason === "string" && d.reason) ||
+    (parsed?.text && parsed.text.trim()) ||
+    `HTTP ${status}`;
+  return truncateErr(msg, 400);
+}
+
+/**
  * Call book8-ai POST (provider busy) and return busy periods, or null on failure.
  * @param {object} params
  * @param {string} params.businessId
@@ -63,8 +133,7 @@ function getCalendarEndpoints(calendarProvider) {
  * @returns {Promise<Array<{ start: string, end: string }> | null>}
  */
 export async function getGcalBusyPeriods({ businessId, from, to, timezone, calendarProvider }) {
-  // Prevent provider network calls during test runs (avoids open handle issues).
-  if (process.env.NODE_ENV === "test") return null;
+  if (shouldSkipGcalHttp()) return null;
 
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret) {
@@ -98,7 +167,17 @@ export async function getGcalBusyPeriods({ businessId, from, to, timezone, calen
       return null;
     }
 
-    const data = await res.json();
+    const parsed = await readResponseBodySafe(res);
+    if (parsed.parseError && !parsed.isHtml) {
+      console.warn("[gcalService] calendar busy: non-JSON body");
+      return null;
+    }
+    if (parsed.isHtml) {
+      console.warn("[gcalService] calendar busy: HTML body (auth/token?)");
+      return null;
+    }
+
+    const data = parsed.data;
     const busy = data?.busy ?? data?.periods;
     if (!Array.isArray(busy)) {
       return null;
@@ -119,7 +198,7 @@ export async function getGcalBusyPeriods({ businessId, from, to, timezone, calen
 
 /**
  * Create a calendar event via book8-ai's provider-specific create endpoint.
- * Fire-and-forget; logs and returns null on failure.
+ * BOO-102A: always returns a result object; never throws.
  */
 export async function createGcalEvent({
   businessId,
@@ -132,15 +211,16 @@ export async function createGcalEvent({
   customer,
   calendarProvider
 }) {
-  // Prevent provider network calls during test runs (avoids open handle issues).
-  if (process.env.NODE_ENV === "test") return null;
+  if (shouldSkipGcalHttp()) {
+    return { ok: true, skipped: true };
+  }
 
-  const BOOK8_AI_URL = process.env.BOOK8_AI_URL || "https://www.book8.io";
+  const baseUrl = process.env.BOOK8_AI_URL || "https://www.book8.io";
   const secret = process.env.INTERNAL_API_SECRET;
 
   if (!secret) {
     console.warn("[gcalService] INTERNAL_API_SECRET not set — skipping calendar sync");
-    return null;
+    return { ok: true, skipped: true };
   }
 
   const controller = new AbortController();
@@ -148,7 +228,7 @@ export async function createGcalEvent({
 
   const endpoints = getCalendarEndpoints(calendarProvider);
   try {
-    const response = await fetch(`${BOOK8_AI_URL.replace(/\/$/, "")}${endpoints.create}`, {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}${endpoints.create}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -160,47 +240,67 @@ export async function createGcalEvent({
 
     clearTimeout(timeout);
 
+    const parsed = await readResponseBodySafe(response);
+
     if (!response.ok) {
-      console.warn("[gcalService] Calendar create returned:", response.status);
-      return null;
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = summarizeFailureMessage(parsed, response.status);
+      console.warn("[gcalService] Calendar create returned:", response.status, errorType);
+      return { ok: false, errorType, message };
     }
 
-    const data = await response.json();
-    // "skipped" in old logs was `data.eventId || "skipped"` — book8-ai often returns 200 with no eventId + reason.
+    if (parsed.parseError && parsed.isHtml) {
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = truncateErr(parsed.text, 400);
+      console.warn("[gcalService] Calendar create: HTML response", errorType);
+      return { ok: false, errorType, message };
+    }
+
+    if (parsed.parseError) {
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = summarizeFailureMessage(parsed, response.status);
+      console.warn("[gcalService] Calendar create: invalid JSON body");
+      return { ok: false, errorType, message };
+    }
+
+    const data = parsed.data || {};
     if (data?.eventId) {
       console.log("[gcalService] Calendar event created:", data.eventId, data.reason || "");
-    } else {
-      console.log(
-        "[gcalService] Calendar create: book8-ai returned no eventId (not a core-api skip before fetch). reason:",
-        data?.reason || data?.message || "(none)",
-        "raw:",
-        typeof data === "object" ? JSON.stringify(data) : data
-      );
+      return { ok: true, eventId: data.eventId };
     }
-    return data;
+    console.log(
+      "[gcalService] Calendar create: book8-ai returned no eventId. reason:",
+      data?.reason || data?.message || "(none)"
+    );
+    return { ok: true, skipped: true };
   } catch (err) {
     clearTimeout(timeout);
-    console.warn("[gcalService] GCal create event failed:", err.message);
-    return null;
+    const errorType = classifyGcalError(err);
+    const message = truncateErr(err?.message || String(err), 400);
+    console.warn("[gcalService] GCal create event failed:", message);
+    return { ok: false, errorType, message };
   }
 }
 
 /**
  * Delete a calendar event via book8-ai's provider-specific delete endpoint.
- * Used when a booking is cancelled.
+ * BOO-102A: structured result; never throws.
  */
 export async function deleteGcalEvent({ businessId, bookingId, calendarProvider }) {
-  // Prevent provider network calls during test runs (avoids open handle issues).
-  if (process.env.NODE_ENV === "test") return null;
+  if (shouldSkipGcalHttp()) {
+    return { ok: true, skipped: true };
+  }
 
-  const BOOK8_AI_URL = process.env.BOOK8_AI_URL || "https://www.book8.io";
+  const baseUrl = process.env.BOOK8_AI_URL || "https://www.book8.io";
   const secret = process.env.INTERNAL_API_SECRET;
 
-  if (!secret) return null;
+  if (!secret) {
+    return { ok: true, skipped: true };
+  }
 
   try {
     const endpoints = getCalendarEndpoints(calendarProvider);
-    const response = await fetch(`${BOOK8_AI_URL.replace(/\/$/, "")}${endpoints.delete}`, {
+    const response = await fetch(`${baseUrl.replace(/\/$/, "")}${endpoints.delete}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -209,48 +309,73 @@ export async function deleteGcalEvent({ businessId, bookingId, calendarProvider 
       body: JSON.stringify({ businessId, bookingId })
     });
 
-    const data = await response.json();
-    console.log("[gcalService] Calendar event deleted:", data);
-    return data;
+    const parsed = await readResponseBodySafe(response);
+
+    if (!response.ok) {
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = summarizeFailureMessage(parsed, response.status);
+      console.warn("[gcalService] Calendar delete non-OK:", response.status, errorType);
+      return { ok: false, errorType, message };
+    }
+
+    if (parsed.parseError && parsed.isHtml) {
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = truncateErr(parsed.text, 400);
+      return { ok: false, errorType, message };
+    }
+
+    if (parsed.parseError) {
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = summarizeFailureMessage(parsed, response.status);
+      console.warn("[gcalService] Calendar delete: invalid JSON body");
+      return { ok: false, errorType, message };
+    }
+
+    console.log("[gcalService] Calendar event deleted:", parsed.data);
+    return { ok: true };
   } catch (err) {
-    console.warn("[gcalService] GCal delete event failed:", err.message);
-    return null;
+    const errorType = classifyGcalError(err);
+    const message = truncateErr(err?.message || String(err), 400);
+    console.warn("[gcalService] GCal delete event failed:", message);
+    return { ok: false, errorType, message };
   }
 }
 
 /**
  * Update a calendar event (e.g. mark cancelled, show as free) via book8-ai.
- * On non-OK response or network error, falls back to delete if bookingId is provided.
+ * BOO-102A: no thrown errors; optional delete fallback removed (non-blocking).
  *
  * @param {object} params
  * @param {string} params.businessId
  * @param {string} params.eventId - provider calendar event id (stored as booking.calendarEventId)
- * @param {string} [params.bookingId] - for fallback delete
+ * @param {string} [params.bookingId] - retained for API compatibility
  * @param {"google"|"microsoft"} params.calendarProvider
  * @param {{ title?: string, showAs?: string }} [params.updates]
  */
 export async function updateGcalEvent({
   businessId,
   eventId,
-  bookingId,
+  bookingId: _bookingId,
   calendarProvider,
   updates = {}
 }) {
-  if (process.env.NODE_ENV === "test") return null;
+  if (shouldSkipGcalHttp()) {
+    return { ok: true, skipped: true };
+  }
 
-  const BOOK8_AI_URL = process.env.BOOK8_AI_URL || "https://www.book8.io";
+  const baseUrl = process.env.BOOK8_AI_URL || "https://www.book8.io";
   const secret = process.env.INTERNAL_API_SECRET;
 
   if (!secret || !eventId) {
     console.warn("[gcalService] Missing secret or eventId — skipping calendar update");
-    return null;
+    return { ok: true, skipped: true };
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
   const endpoints = getCalendarEndpoints(calendarProvider);
-  const url = `${BOOK8_AI_URL.replace(/\/$/, "")}${endpoints.update}`;
+  const url = `${baseUrl.replace(/\/$/, "")}${endpoints.update}`;
 
   try {
     const response = await fetch(url, {
@@ -265,35 +390,42 @@ export async function updateGcalEvent({
 
     clearTimeout(timeout);
 
+    const parsed = await readResponseBodySafe(response);
+
     if (!response.ok) {
-      console.warn("[gcalService] Calendar update returned:", response.status);
-      console.log("[gcalService] Falling back to delete");
-      if (bookingId) {
-        await deleteGcalEvent({ businessId, bookingId, calendarProvider });
-      }
-      return null;
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = summarizeFailureMessage(parsed, response.status);
+      console.warn("[gcalService] Calendar update returned:", response.status, errorType);
+      return { ok: false, errorType, message };
     }
 
-    const data = await response.json();
-    console.log("[gcalService] Calendar event updated:", data);
-    return data;
+    if (parsed.parseError && parsed.isHtml) {
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = truncateErr(parsed.text, 400);
+      return { ok: false, errorType, message };
+    }
+
+    if (parsed.parseError) {
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = summarizeFailureMessage(parsed, response.status);
+      console.warn("[gcalService] Calendar update: invalid JSON body");
+      return { ok: false, errorType, message };
+    }
+
+    console.log("[gcalService] Calendar event updated:", parsed.data);
+    return { ok: true };
   } catch (err) {
     clearTimeout(timeout);
-    console.warn("[gcalService] Calendar update failed:", err.message);
-    if (bookingId) {
-      try {
-        await deleteGcalEvent({ businessId, bookingId, calendarProvider });
-      } catch (delErr) {
-        console.warn("[gcalService] Fallback delete also failed:", delErr.message);
-      }
-    }
-    return null;
+    const errorType = classifyGcalError(err);
+    const message = truncateErr(err?.message || String(err), 400);
+    console.warn("[gcalService] Calendar update failed:", message);
+    return { ok: false, errorType, message };
   }
 }
 
 /**
- * BOO-98A: move calendar event to new start/end (book8-ai update endpoint).
- * On failure, logs only — does not delete the event (DB is source of truth).
+ * BOO-98A / BOO-102A: move calendar event to new start/end (book8-ai update endpoint).
+ * Aliased as moveCalendarEvent for specs.
  */
 export async function patchCalendarEventSchedule({
   businessId,
@@ -303,14 +435,14 @@ export async function patchCalendarEventSchedule({
   end,
   timezone
 }) {
-  if (process.env.NODE_ENV === "test") {
+  if (shouldSkipGcalHttp()) {
     return { ok: true, skipped: true };
   }
 
   const secret = process.env.INTERNAL_API_SECRET;
   if (!secret || !eventId) {
     console.warn("[gcalService] patchCalendarEventSchedule: missing secret or eventId");
-    return null;
+    return { ok: true, skipped: true };
   }
 
   const controller = new AbortController();
@@ -339,17 +471,40 @@ export async function patchCalendarEventSchedule({
 
     clearTimeout(timeout);
 
+    const parsed = await readResponseBodySafe(response);
+
     if (!response.ok) {
-      console.warn("[gcalService] patchCalendarEventSchedule non-OK:", response.status);
-      return null;
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = summarizeFailureMessage(parsed, response.status);
+      console.warn("[gcalService] patchCalendarEventSchedule non-OK:", response.status, errorType);
+      return { ok: false, errorType, message };
     }
 
-    const data = await response.json().catch(() => ({}));
+    if (parsed.parseError && parsed.isHtml) {
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = truncateErr(parsed.text, 400);
+      console.warn("[gcalService] patchCalendarEventSchedule: HTML body", errorType);
+      return { ok: false, errorType, message };
+    }
+
+    if (parsed.parseError) {
+      const errorType = classifyGcalError(null, response.status, parsed.text);
+      const message = summarizeFailureMessage(parsed, response.status);
+      console.warn("[gcalService] patchCalendarEventSchedule: invalid JSON body");
+      return { ok: false, errorType, message };
+    }
+
+    const data = parsed.data || {};
     console.log("[gcalService] patchCalendarEventSchedule:", data?.eventId || "(ok)");
-    return data;
+    return { ok: true, eventId: data?.eventId || eventId };
   } catch (err) {
     clearTimeout(timeout);
-    console.warn("[gcalService] patchCalendarEventSchedule failed:", err.message);
-    return null;
+    const errorType = classifyGcalError(err);
+    const message = truncateErr(err?.message || String(err), 400);
+    console.warn("[gcalService] patchCalendarEventSchedule failed:", message);
+    return { ok: false, errorType, message };
   }
 }
+
+/** BOO-102A: spec name for calendar move (same as patchCalendarEventSchedule). */
+export const moveCalendarEvent = patchCalendarEventSchedule;

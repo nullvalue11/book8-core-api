@@ -17,6 +17,7 @@ import {
   patchCalendarEventSchedule,
   resolveCalendarProviderForBusiness
 } from "./gcalService.js";
+import { nextGcalSyncFromResult } from "./gcalSyncHelpers.js";
 import {
   isSlotAllowedByWeeklyHours,
   suggestRescheduleAlternatives
@@ -217,6 +218,10 @@ async function runBookingConfirmationSideEffects({
           resolved: resolvedCalendarProvider
         });
       }
+      const prevForGcal = {
+        failureCount: booking.gcalSync?.failureCount,
+        eventId: booking.calendarEventId || booking.gcalSync?.eventId || null
+      };
       const calResult = await createGcalEvent({
         businessId: booking.businessId,
         bookingId: booking.id,
@@ -240,12 +245,20 @@ async function runBookingConfirmationSideEffects({
           email: customer.email
         }
       });
-      if (calResult?.eventId) {
-        await Booking.findOneAndUpdate(
-          { id: bookingId },
-          { $set: { calendarEventId: calResult.eventId } }
-        );
+      const nextGcal = nextGcalSyncFromResult(prevForGcal, calResult, "create");
+      const setDoc = { gcalSync: nextGcal };
+      if (calResult.ok && calResult.eventId) {
+        setDoc.calendarEventId = calResult.eventId;
         console.log("[bookingService] Stored calendarEventId:", calResult.eventId, "on booking:", bookingId);
+      }
+      await Booking.findOneAndUpdate({ id: bookingId }, { $set: setDoc });
+      if (!calResult.ok && !calResult.skipped) {
+        console.warn("[booking-create][gcal-failed]", {
+          bookingId,
+          businessId,
+          errorType: calResult.errorType,
+          failureCount: nextGcal.failureCount
+        });
       }
     })()
   ];
@@ -1100,6 +1113,10 @@ export async function rescheduleBooking(input) {
 
   let gcalSynced = false;
   const calProv = resolveCalendarProviderForBusiness(business);
+  const prevForGcal = {
+    failureCount: booking.gcalSync?.failureCount,
+    eventId: booking.calendarEventId || booking.gcalSync?.eventId || null
+  };
   if (booking.calendarEventId && calProv) {
     const pat = await patchCalendarEventSchedule({
       businessId: booking.businessId,
@@ -1109,7 +1126,17 @@ export async function rescheduleBooking(input) {
       end: newSlotEndStr,
       timezone: tz
     });
-    gcalSynced = !!(pat && !pat.skipped);
+    gcalSynced = !!(pat.ok && !pat.skipped);
+    const nextGcal = nextGcalSyncFromResult(prevForGcal, pat, "patch");
+    if (!pat.ok && !pat.skipped) {
+      console.warn("[booking-reschedule][gcal-failed]", {
+        bookingId,
+        businessId: booking.businessId,
+        errorType: pat.errorType,
+        failureCount: nextGcal.failureCount
+      });
+    }
+    await Booking.findOneAndUpdate({ id: bookingId }, { $set: { gcalSync: nextGcal } });
   }
 
   let smsNotificationSent = false;

@@ -12,6 +12,7 @@ import {
   resolveCalendarProviderForBusiness,
   updateGcalEvent
 } from "../../services/gcalService.js";
+import { nextGcalSyncFromResult } from "../../services/gcalSyncHelpers.js";
 import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { sendCancellation, sendCancellationWithFeeEmail } from "../../services/emailService.js";
@@ -54,23 +55,50 @@ async function applyCancelSideEffects(booking, options = {}) {
     // keep fallback
   }
 
-  if (booking.calendarEventId && calProvider) {
-    updateGcalEvent({
-      businessId: booking.businessId,
-      eventId: booking.calendarEventId,
-      bookingId: booking.id || booking._id?.toString(),
-      calendarProvider: calProvider,
-      updates: {
-        title: `CANCELLED — ${serviceDisplay}`,
-        showAs: "free"
+  const bookingIdStr = booking.id || booking._id?.toString();
+  const prevSync = booking.gcalSync;
+
+  try {
+    if (booking.calendarEventId && calProvider) {
+      const result = await updateGcalEvent({
+        businessId: booking.businessId,
+        eventId: booking.calendarEventId,
+        bookingId: bookingIdStr,
+        calendarProvider: calProvider,
+        updates: {
+          title: `CANCELLED — ${serviceDisplay}`,
+          showAs: "free"
+        }
+      });
+      const next = nextGcalSyncFromResult(prevSync, result, "update");
+      if (!result.ok && !result.skipped) {
+        console.warn("[booking-cancel][gcal-failed]", {
+          bookingId: bookingIdStr,
+          businessId: booking.businessId,
+          errorType: result.errorType,
+          failureCount: next.failureCount
+        });
       }
-    }).catch((err) => console.error("[bookings.cancel] Calendar update failed:", err.message));
-  } else {
-    deleteGcalEvent({
-      businessId: booking.businessId,
-      bookingId: booking.id || booking._id?.toString(),
-      calendarProvider: calProvider
-    }).catch((err) => console.error("[bookings.cancel] GCal delete failed:", err.message));
+      await Booking.updateOne(bookingLookupFilter(bookingIdStr), { $set: { gcalSync: next } });
+    } else {
+      const result = await deleteGcalEvent({
+        businessId: booking.businessId,
+        bookingId: bookingIdStr,
+        calendarProvider: calProvider
+      });
+      const next = nextGcalSyncFromResult(prevSync, result, "delete");
+      if (!result.ok && !result.skipped) {
+        console.warn("[booking-cancel][gcal-failed]", {
+          bookingId: bookingIdStr,
+          businessId: booking.businessId,
+          errorType: result.errorType,
+          failureCount: next.failureCount
+        });
+      }
+      await Booking.updateOne(bookingLookupFilter(bookingIdStr), { $set: { gcalSync: next } });
+    }
+  } catch (err) {
+    console.error("[bookings.cancel] Calendar side effect failed:", err.message);
   }
 
   if (booking.customer?.email) {
