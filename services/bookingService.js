@@ -1138,11 +1138,11 @@ export async function rescheduleBooking(input) {
     failureCount: booking.gcalSync?.failureCount,
     eventId: booking.calendarEventId || booking.gcalSync?.eventId || null
   };
-  if (booking.calendarEventId && calProv) {
+  if (booking.calendarEventId) {
     const pat = await patchCalendarEventSchedule({
       businessId: booking.businessId,
       eventId: booking.calendarEventId,
-      calendarProvider: calProv,
+      calendarProvider: calProv, // may be undefined → gcalService normalizes to google
       start: newSlotStartStr,
       end: newSlotEndStr,
       timezone: tz
