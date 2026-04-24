@@ -6,21 +6,40 @@
  *   node scripts/backfill-calendar-state-from-book8.cjs --apply   # write
  *
  * Env:
- *   MONGODB_URI        — book8-core connection string (required)
- *   MONGODB_BOOK8_URI  — book8 dashboard DB; if omitted, "book8-core" in URI is replaced with "book8"
+ *   MONGODB_URI                 — default connection (required if MONGODB_CORE_URI unset)
+ *   MONGODB_CORE_URI            — optional; target `book8-core` DB. Use when MONGODB_URI is `.../book8` locally
+ *   MONGODB_BOOK8_URI           — full URI for the dashboard `book8` source database (highest priority)
+ *   MONGODB_BOOK8_DATABASE      — e.g. `book8` — only the DB name is swapped (same host as the *core* URI)
+ *   If the core URI path is `/book8-core` and no BOOK8 vars, the script uses `/book8` as the source.
  */
 require("dotenv").config();
 const mongoose = require("mongoose");
 
 const APPLY = process.argv.includes("--apply");
 
-function deriveBook8Uri(coreUri) {
-  if (!coreUri || typeof coreUri !== "string") return null;
-  const m = coreUri.match(/^(.+\/)([^/?]+)(\?.*)?$/);
+function parseMongoDatabaseUri(uri) {
+  if (!uri || typeof uri !== "string") return null;
+  const m = uri.match(/^(.+\/)([^/?]+)(\?.*)?$/);
   if (!m) return null;
-  const [, base, dbName, query = ""] = m;
-  if (dbName !== "book8-core") return null;
-  return `${base}book8${query}`;
+  return { base: m[1], dbName: m[2], query: m[3] || "" };
+}
+
+/** Resolve book8 (dashboard) URI from env or from MONGODB_URI. */
+function resolveBook8Uri(coreUri) {
+  if (process.env.MONGODB_BOOK8_URI) {
+    return process.env.MONGODB_BOOK8_URI;
+  }
+  const parts = parseMongoDatabaseUri(coreUri);
+  if (!parts) return null;
+  const { base, dbName, query } = parts;
+  const overrideDb = process.env.MONGODB_BOOK8_DATABASE;
+  if (overrideDb && String(overrideDb).trim()) {
+    return `${base}${String(overrideDb).trim()}${query}`;
+  }
+  if (dbName === "book8-core") {
+    return `${base}book8${query}`;
+  }
+  return null;
 }
 
 function snapshotCalState(doc) {
@@ -41,16 +60,25 @@ function snapshotCalState(doc) {
 }
 
 (async () => {
-  const coreUri = process.env.MONGODB_URI;
+  const coreUri = process.env.MONGODB_CORE_URI || process.env.MONGODB_URI;
   if (!coreUri) {
-    console.error("[backfill-calendar] MONGODB_URI is required");
+    console.error("[backfill-calendar] MONGODB_URI (or MONGODB_CORE_URI) is required");
     process.exit(1);
   }
-  const book8Uri = process.env.MONGODB_BOOK8_URI || deriveBook8Uri(coreUri);
+  const book8Uri = process.env.MONGODB_BOOK8_URI || resolveBook8Uri(coreUri);
   if (!book8Uri) {
-    console.error(
-      "[backfill-calendar] Set MONGODB_BOOK8_URI or use a MONGODB_URI containing book8-core so book8 can be derived"
-    );
+    const parts = parseMongoDatabaseUri(coreUri);
+    console.error("[backfill-calendar] Could not determine the book8 (dashboard) **source** database URI.");
+    console.error("  This script reads businesses from `book8` and writes calendar fields to `book8-core`.");
+    console.error("  Set one of:");
+    console.error("    MONGODB_BOOK8_URI=<full connection string to the `book8` database>");
+    console.error("    MONGODB_BOOK8_DATABASE=book8   (same cluster as the core URI, swap only the DB name)");
+    console.error("  Or use a core URI whose path ends with /book8-core (script then uses /book8).");
+    console.error("  If your MONGODB_URI is already .../book8, set MONGODB_CORE_URI to the book8-core URI, or set");
+    console.error("    MONGODB_BOOK8_URI to the same `book8` string you use for the dashboard (source).");
+    if (parts) {
+      console.error("  Core connection database name in use is:", JSON.stringify(parts.dbName));
+    }
     process.exit(1);
   }
 
