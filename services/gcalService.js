@@ -315,33 +315,18 @@ export async function deleteGcalEvent({ businessId, booking, calendarProvider })
   try {
     const endpoints = getCalendarEndpoints(calendarProvider);
     const deleteUrl = `${baseUrl.replace(/\/$/, "")}${endpoints.delete}`;
-    const deleteBody = { businessId, eventId };
-    console.log("[gcalService][delete-debug] Sending delete request:", {
-      url: deleteUrl,
-      businessId,
-      eventId,
-      bookingId: booking?.id,
-      calendarProvider: normalizeProvider(calendarProvider),
-      body: deleteBody
-    });
-
     const response = await fetch(deleteUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-book8-internal-secret": secret
       },
-      body: JSON.stringify(deleteBody)
+      body: JSON.stringify({ businessId, eventId })
     });
 
     const parsed = await readResponseBodySafe(response);
 
     if (!response.ok) {
-      console.error("[gcalService][delete-debug] Non-OK response:", {
-        status: response.status,
-        statusText: response.statusText,
-        body: parsed.text
-      });
       const errorType = classifyGcalError(null, response.status, parsed.text);
       const message = summarizeFailureMessage(parsed, response.status);
       console.warn("[gcalService] Calendar delete non-OK:", response.status, errorType);
