@@ -90,7 +90,11 @@ const CalendarSchema = new mongoose.Schema(
   {
     connected: { type: Boolean, default: false },
     provider: { type: String, enum: ["google", "microsoft", null], default: null },
-    updatedAt: { type: Date }
+    updatedAt: { type: Date },
+    /** BOO-117: dashboard OAuth writes; synced from book8 → book8-core */
+    connectedAt: { type: Date, default: null },
+    calendarId: { type: String, maxlength: 512, default: null },
+    lastSyncedAt: { type: Date, default: null }
   },
   { _id: false }
 );

@@ -2,6 +2,7 @@
 import express from "express";
 import { Business } from "../../models/Business.js";
 import { requireFeature } from "../middleware/planCheck.js";
+import { buildCalendarSyncUpdate } from "../utils/calendarSyncPayload.js";
 
 const router = express.Router();
 
@@ -19,6 +20,39 @@ function planGatesForUpdateCalendar(req, res, next) {
   }
   next();
 }
+
+/**
+ * POST /internal/business/sync-calendar-state
+ * BOO-117: book8-ai pushes dashboard OAuth calendar state → book8-core Business doc.
+ * Auth: parent /internal/business mount + requireInternalAuth.
+ */
+router.post("/sync-calendar-state", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const businessId = body.businessId != null ? String(body.businessId).trim() : "";
+    if (!businessId) {
+      return res.status(400).json({ ok: false, error: "businessId required" });
+    }
+
+    const $set = buildCalendarSyncUpdate(body);
+    if (Object.keys($set).length === 0) {
+      return res.status(400).json({ ok: false, error: "calendar or calendarProvider required" });
+    }
+
+    const filter = { $or: [{ id: businessId }, { businessId }] };
+    const existing = await Business.findOne(filter).select("_id").lean();
+    if (!existing) {
+      console.warn("[sync-calendar-state] business not found (no-op):", businessId);
+      return res.json({ ok: true, skipped: true });
+    }
+
+    await Business.findOneAndUpdate(filter, { $set });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[sync-calendar-state]", err.message);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 // POST /internal/business/update-calendar
 router.post("/update-calendar", planGatesForUpdateCalendar, async (req, res) => {

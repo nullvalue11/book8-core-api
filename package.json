@@ -18,7 +18,9 @@
     "normalize:emails": "node scripts/normalize-existing-emails.js",
     "normalize:emails:dry": "node scripts/normalize-existing-emails.js --dry-run",
     "backfill:trial": "node scripts/backfill-trial-fields.js",
-    "backfill:trial:dry": "node scripts/backfill-trial-fields.js --dry-run"
+    "backfill:trial:dry": "node scripts/backfill-trial-fields.js --dry-run",
+    "backfill:calendar-from-book8": "node scripts/backfill-calendar-state-from-book8.cjs",
+    "backfill:calendar-from-book8:apply": "node scripts/backfill-calendar-state-from-book8.cjs --apply"
   },
   "dependencies": {
     "chrono-node": "^2.9.0",
