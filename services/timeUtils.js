@@ -65,3 +65,28 @@ export function parseSlotInstantForStorage(raw, timezone) {
   }
   return parseSlotInTimezone(s, timezone);
 }
+
+/**
+ * BOO-115A: today's local calendar date in the given IANA timezone as "YYYY-MM-DD".
+ * Render runs in UTC; never use host `toISOString().slice(0, 10)` for agent "today".
+ *
+ * @param {string} timezone - IANA timezone e.g. "America/Toronto"
+ * @param {Date} [now] - optional clock for testing (absolute instant)
+ * @returns {string}
+ */
+export function todayInTimezone(timezone, now) {
+  if (!timezone || !String(timezone).trim()) {
+    throw new Error("todayInTimezone: timezone is required");
+  }
+  const z = String(timezone).trim();
+  const dt =
+    now != null
+      ? DateTime.fromMillis(
+          now instanceof Date ? now.getTime() : new Date(now).getTime()
+        ).setZone(z)
+      : DateTime.now().setZone(z);
+  if (!dt.isValid) {
+    throw new Error(`todayInTimezone: invalid zone "${z}": ${dt.invalidReason || "unknown"}`);
+  }
+  return dt.toFormat("yyyy-MM-dd");
+}

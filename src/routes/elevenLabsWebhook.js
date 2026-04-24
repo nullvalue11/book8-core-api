@@ -16,8 +16,29 @@ import {
 } from "../utils/elevenlabsServiceVoiceFormat.js";
 import { getElevenLabsBusinessLocationVars } from "../utils/formatBusinessAddress.js";
 import { trialDeniedPublicChannel } from "../utils/trialLifecycle.js";
+import { todayInTimezone } from "../../services/timeUtils.js";
 
 const router = express.Router();
+
+/** BOO-115A: calendar date for agent prompts; never host-UTC slice. */
+function dynamicVarTodayDate(businessId, timezoneCandidate) {
+  try {
+    const trimmed = timezoneCandidate && String(timezoneCandidate).trim();
+    if (!trimmed) {
+      console.warn("[elevenlabs-init] business has no timezone, defaulting today_date to UTC", {
+        businessId: businessId ?? "unknown"
+      });
+      return todayInTimezone("UTC");
+    }
+    return todayInTimezone(trimmed);
+  } catch (e) {
+    console.warn("[elevenlabs-init] today_date invalid timezone, using UTC", {
+      businessId: businessId ?? "unknown",
+      message: e?.message
+    });
+    return todayInTimezone("UTC");
+  }
+}
 
 function logElevenLabsInit(businessId, loc) {
   console.log(
@@ -266,7 +287,8 @@ router.post("/conversation-init/:token", async (req, res) => {
       const locUnknown = getElevenLabsBusinessLocationVars(null);
       logElevenLabsInit("unknown", locUnknown);
 
-      const todayIso = new Date().toISOString().slice(0, 10);
+      const todayIso = dynamicVarTodayDate("unknown", "America/Toronto");
+      console.log("[elevenlabs-init]", { businessId: "unknown", today_date: todayIso });
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
@@ -299,7 +321,8 @@ router.post("/conversation-init/:token", async (req, res) => {
       console.log("[elevenlabs-webhook] AI agent not available on plan:", plan);
       const businessName = business.name || "this business";
       const tz = business.timezone || "America/Toronto";
-      const today = new Date().toLocaleDateString("en-US");
+      const today = dynamicVarTodayDate(businessId, business.timezone);
+      console.log("[elevenlabs-init]", { businessId, today_date: today });
       const locPlan = getElevenLabsBusinessLocationVars(business);
       logElevenLabsInit(businessId, locPlan);
       return res.json({
@@ -393,14 +416,15 @@ router.post("/conversation-init/:token", async (req, res) => {
     const greeting = business.greetingOverride ||
       `Hi, thanks for calling ${businessName}. How can I help you today?`;
 
-    // 6) Build today's date for the agent's date awareness
-    const now = new Date();
-    const todayIso = now.toISOString().slice(0, 10);
+    // 6) BOO-115A: today's calendar date in business timezone (not host UTC)
+    const todayIso = dynamicVarTodayDate(businessId, business.timezone);
+    console.log("[elevenlabs-init]", { businessId, today_date: todayIso });
 
     const elapsed = Date.now() - startTime;
     console.log("[elevenlabs-webhook] Resolved business:", {
       businessId,
       businessName,
+      today_date: todayIso,
       servicesCount: services.length,
       hasSchedule: !!schedule,
       elapsed: `${elapsed}ms`
@@ -438,7 +462,8 @@ router.post("/conversation-init/:token", async (req, res) => {
     console.error("[elevenlabs-webhook] Error:", err);
 
     // Return generic defaults on error — don't fail the call
-    const todayIsoErr = new Date().toISOString().slice(0, 10);
+    const todayIsoErr = dynamicVarTodayDate("unknown", null);
+    console.log("[elevenlabs-init]", { businessId: "unknown", today_date: todayIsoErr, errorFallback: true });
     const parsed = parseConversationInitBody(req.body);
     const locErr = getElevenLabsBusinessLocationVars(null);
     logElevenLabsInit("unknown", locErr);
