@@ -287,8 +287,14 @@ export async function createGcalEvent({
 /**
  * Delete a calendar event via book8-ai's provider-specific delete endpoint.
  * BOO-102A: structured result; never throws.
+ * BOO-113-FIX: book8-ai expects { businessId, eventId } (booking.calendarEventId).
+ *
+ * @param {object} params
+ * @param {string} params.businessId
+ * @param {{ id?: string, calendarEventId?: string }} params.booking
+ * @param {"google"|"microsoft"} params.calendarProvider
  */
-export async function deleteGcalEvent({ businessId, bookingId, calendarProvider }) {
+export async function deleteGcalEvent({ businessId, booking, calendarProvider }) {
   if (shouldSkipGcalHttp()) {
     return { ok: true, skipped: true };
   }
@@ -300,14 +306,21 @@ export async function deleteGcalEvent({ businessId, bookingId, calendarProvider 
     return { ok: true, skipped: true };
   }
 
+  const eventId = booking?.calendarEventId;
+  if (eventId == null || eventId === "") {
+    console.log("[gcalService] No calendarEventId on booking — skipping delete.");
+    return { ok: true, skipped: true };
+  }
+
   try {
     const endpoints = getCalendarEndpoints(calendarProvider);
     const deleteUrl = `${baseUrl.replace(/\/$/, "")}${endpoints.delete}`;
-    const deleteBody = { businessId, bookingId };
+    const deleteBody = { businessId, eventId };
     console.log("[gcalService][delete-debug] Sending delete request:", {
       url: deleteUrl,
       businessId,
-      bookingId,
+      eventId,
+      bookingId: booking?.id,
       calendarProvider: normalizeProvider(calendarProvider),
       body: deleteBody
     });

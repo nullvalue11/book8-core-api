@@ -76,7 +76,7 @@ async function notifySmsCancelComplete(booking, business, serviceDisplay, cancel
     } else {
       const result = await deleteGcalEvent({
         businessId: booking.businessId,
-        bookingId: bookingKey,
+        booking,
         calendarProvider: calProvider
       });
       const next = nextGcalSyncFromResult(prevSync, result, "delete");

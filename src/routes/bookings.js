@@ -83,7 +83,7 @@ async function applyCancelSideEffects(booking, options = {}) {
     } else {
       const result = await deleteGcalEvent({
         businessId: booking.businessId,
-        bookingId: bookingIdStr,
+        booking,
         calendarProvider: calProvider
       });
       const next = nextGcalSyncFromResult(prevSync, result, "delete");
