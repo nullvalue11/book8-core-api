@@ -211,12 +211,13 @@ async function runBookingConfirmationSideEffects({
     (async () => {
       const resolvedCalendarProvider = resolveCalendarProviderForBusiness(business);
       if (process.env.NODE_ENV !== "test") {
-        console.log("[gcalService] Business calendar state:", {
+        console.log("[gcalService] Routing calendar call:", {
           businessId: business.id,
-          calendarProvider: business.calendarProvider,
-          calendarConnected: business.calendar?.connected,
-          calendarProviderNested: business.calendar?.provider,
-          resolved: resolvedCalendarProvider
+          // NOTE: business.calendar.* on this doc is informational only. Actual auth is
+          // resolved by book8-ai via owner's users.google.refreshToken. These fields
+          // may be stale vs book8-ai's dashboard DB (see BOO-117).
+          providerResolved: resolvedCalendarProvider ?? "google-default",
+          providerSource: resolvedCalendarProvider ? "business-doc" : "fallback-default"
         });
       }
       const prevForGcal = {
