@@ -36,6 +36,7 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { addDays, format, parseISO } from "date-fns";
 import { hashPhoneForLog } from "../src/utils/maskPhone.js";
 import { parseSlotInstantForStorage } from "./timeUtils.js";
+import { isMaskedEmail } from "../src/utils/emailMaskMatcher.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -359,6 +360,25 @@ async function createBookingInner(input) {
     ...customerInput,
     email: normalizeCustomerEmail(customerInput.email)
   };
+
+  // BOO-MEM-1C: if customerEmail is a masked value (e.g. "wa***@live.ca"), resolve the
+  // real email from the most recent prior booking for this caller on this business.
+  // Never crosses businesses. Never logs raw email.
+  if (isMaskedEmail(customer.email)) {
+    const lookupPhone = customer.phone ? String(customer.phone).trim() : "";
+    if (lookupPhone) {
+      const priorWithEmail = await Booking.findOne({
+        businessId,
+        "customer.phone": lookupPhone,
+        "customer.email": { $exists: true, $ne: "" }
+      })
+        .sort({ "slot.start": -1 })
+        .lean();
+      customer.email = priorWithEmail?.customer?.email || "";
+    } else {
+      customer.email = "";
+    }
+  }
 
   // Normalize slot: voice agent may send only start (string) or { start } without end
   let slot = rawSlot;
