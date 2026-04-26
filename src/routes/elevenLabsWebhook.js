@@ -17,6 +17,11 @@ import {
 import { getElevenLabsBusinessLocationVars } from "../utils/formatBusinessAddress.js";
 import { trialDeniedPublicChannel } from "../utils/trialLifecycle.js";
 import { todayInTimezone } from "../../services/timeUtils.js";
+import {
+  callerContextToDynamicVariables,
+  emptyCallerDynamicVariables,
+  lookupCallerContext
+} from "../../services/callerRecognition.js";
 
 const router = express.Router();
 
@@ -288,7 +293,7 @@ router.post("/conversation-init/:token", async (req, res) => {
       logElevenLabsInit("unknown", locUnknown);
 
       const todayIso = dynamicVarTodayDate("unknown", "America/Toronto");
-      console.log("[elevenlabs-init]", { businessId: "unknown", today_date: todayIso });
+      console.log("[elevenlabs-init]", { businessId: "unknown", today_date: todayIso, caller_known: false });
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
@@ -301,6 +306,7 @@ router.post("/conversation-init/:token", async (req, res) => {
           timezone: "America/Toronto",
           today_date: todayIso,
           caller_phone: caller_id || "",
+          ...emptyCallerDynamicVariables(),
           noShowPolicy: "",
           ...locUnknown,
           ...languageDynamicVarsFromBusiness(null)
@@ -314,6 +320,18 @@ router.post("/conversation-init/:token", async (req, res) => {
     }
 
     const businessId = business.id;
+    const tzForCaller = business.timezone || "America/Toronto";
+    let callerDyn = emptyCallerDynamicVariables();
+    let callerKnownForLog = false;
+    try {
+      if (caller_id) {
+        const ctx = await lookupCallerContext(businessId, caller_id, { timezone: tzForCaller });
+        callerDyn = callerContextToDynamicVariables(ctx);
+        callerKnownForLog = ctx.caller_known;
+      }
+    } catch (recErr) {
+      console.warn("[elevenlabs-webhook] caller recognition failed:", recErr?.message);
+    }
 
     // 2b) Gate AI phone agent based on plan
     const plan = business.plan || "starter";
@@ -322,7 +340,7 @@ router.post("/conversation-init/:token", async (req, res) => {
       const businessName = business.name || "this business";
       const tz = business.timezone || "America/Toronto";
       const today = dynamicVarTodayDate(businessId, business.timezone);
-      console.log("[elevenlabs-init]", { businessId, today_date: today });
+      console.log("[elevenlabs-init]", { businessId, today_date: today, caller_known: callerKnownForLog });
       const locPlan = getElevenLabsBusinessLocationVars(business);
       logElevenLabsInit(businessId, locPlan);
       return res.json({
@@ -338,6 +356,7 @@ router.post("/conversation-init/:token", async (req, res) => {
           today_date: today,
           caller_phone: caller_id || "",
           call_sid: call_sid || "",
+          ...callerDyn,
           business_category: business.category || "",
           greeting: `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`,
           noShowPolicy: noShowPolicyDynamicVar(business),
@@ -418,7 +437,7 @@ router.post("/conversation-init/:token", async (req, res) => {
 
     // 6) BOO-115A: today's calendar date in business timezone (not host UTC)
     const todayIso = dynamicVarTodayDate(businessId, business.timezone);
-    console.log("[elevenlabs-init]", { businessId, today_date: todayIso });
+    console.log("[elevenlabs-init]", { businessId, today_date: todayIso, caller_known: callerKnownForLog });
 
     const elapsed = Date.now() - startTime;
     console.log("[elevenlabs-webhook] Resolved business:", {
@@ -448,6 +467,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         today_date: todayIso,
         caller_phone: caller_id || "",
         call_sid: call_sid || "",
+        ...callerDyn,
         noShowPolicy: noShowPolicyDynamicVar(business),
         ...locOk,
         ...languageDynamicVarsFromBusiness(business)
@@ -463,7 +483,7 @@ router.post("/conversation-init/:token", async (req, res) => {
 
     // Return generic defaults on error — don't fail the call
     const todayIsoErr = dynamicVarTodayDate("unknown", null);
-    console.log("[elevenlabs-init]", { businessId: "unknown", today_date: todayIsoErr, errorFallback: true });
+    console.log("[elevenlabs-init]", { businessId: "unknown", today_date: todayIsoErr, caller_known: false, errorFallback: true });
     const parsed = parseConversationInitBody(req.body);
     const locErr = getElevenLabsBusinessLocationVars(null);
     logElevenLabsInit("unknown", locErr);
@@ -479,6 +499,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         timezone: "America/Toronto",
         today_date: todayIsoErr,
         caller_phone: parsed.caller_id || "",
+        ...emptyCallerDynamicVariables(),
         noShowPolicy: "",
         ...locErr,
         ...languageDynamicVarsFromBusiness(null)
