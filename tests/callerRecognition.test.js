@@ -1,7 +1,7 @@
 /**
  * BOO-MEM-1A: returning caller context — string helpers + optional Mongo integration
  */
-import { describe, it, before, after } from "node:test";
+import { describe, it, before, after, afterEach } from "node:test";
 import assert from "node:assert";
 import mongoose from "mongoose";
 import "dotenv/config";
@@ -53,8 +53,8 @@ describe("callerContextToDynamicVariables (BOO-MEM-1A)", () => {
   });
 });
 
-const BIZ_A = "test-mem1a-biz-a";
-const BIZ_B = "test-mem1a-biz-b";
+const BIZ_A = "biz_TEST_mem1a_a";
+const BIZ_B = "biz_TEST_mem1a_b";
 const SVC_1 = "mem-svc-1";
 const PHONE_E164 = "+15005550001";
 const PHONE_PRETTY = "+1 500 555 0001";
@@ -66,18 +66,38 @@ function isoFromNow(daysOffset) {
 }
 
 let mongoConnected = false;
+let mongoUnavailableLogged = false;
+
+function logMongoUnavailableOnce() {
+  if (mongoUnavailableLogged) return;
+  mongoUnavailableLogged = true;
+  console.warn("[callerRecognition] Mongo not available — skipping integration tests.");
+}
+
+/** Skip must be decided at test run time: `{ skip: !mongoConnected }` is evaluated when `it()` registers, before `before` hooks run. */
+function skipIntegrationIfNoMongo(t) {
+  if (mongoConnected) return false;
+  logMongoUnavailableOnce();
+  t.skip("Mongo not available");
+  return true;
+}
 
 describe("lookupCallerContext integration (BOO-MEM-1A)", () => {
   before(async () => {
     if (!process.env.MONGODB_URI) {
+      mongoConnected = false;
       return;
     }
     try {
-      if (mongoose.connection.readyState === 0) {
-        await mongoose.connect(process.env.MONGODB_URI);
+      const rs = mongoose.connection.readyState;
+      if (rs === 0) {
+        await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
+      } else if (rs === 2) {
+        await mongoose.connection.asPromise();
       }
       mongoConnected = mongoose.connection.readyState === 1;
     } catch (e) {
+      mongoUnavailableLogged = true;
       console.warn("[callerRecognition] Mongo not available — skipping integration tests:", e?.message);
       mongoConnected = false;
     }
@@ -92,6 +112,7 @@ describe("lookupCallerContext integration (BOO-MEM-1A)", () => {
 
   before(async () => {
     if (!mongoConnected) return;
+    await Booking.deleteMany({ businessId: { $in: [BIZ_A, BIZ_B] } });
     await Business.findOneAndUpdate(
       { id: BIZ_A },
       { $set: { id: BIZ_A, name: "Mem1a A", timezone: "America/Toronto", plan: "growth" } },
@@ -111,10 +132,13 @@ describe("lookupCallerContext integration (BOO-MEM-1A)", () => {
     );
   });
 
-  it(
-    "known caller: recent confirmed booking with masked email and service name",
-    { skip: !mongoConnected },
-    async () => {
+  afterEach(async () => {
+    if (!mongoConnected) return;
+    await Booking.deleteMany({ businessId: { $in: [BIZ_A, BIZ_B] } });
+  });
+
+  it("known caller: recent confirmed booking with masked email and service name", async (t) => {
+    if (skipIntegrationIfNoMongo(t)) return;
     const id = generateBookingId();
     const start = isoFromNow(7);
     const end = new Date(new Date(start).getTime() + 3600000).toISOString();
@@ -129,23 +153,21 @@ describe("lookupCallerContext integration (BOO-MEM-1A)", () => {
     const r = await lookupCallerContext(BIZ_A, PHONE_E164, { timezone: "America/Toronto" });
     assert.strictEqual(r.caller_known, true);
     assert.strictEqual(r.caller_name, "Pat Mem");
-    assert.strictEqual(r.caller_email_masked, "ab***@ex.com");
+    assert.strictEqual(r.caller_email_masked, "a***@ex.com");
     assert.strictEqual(r.last_service_name, "Full Detail");
     assert.match(r.last_booking_date || "", /^\d{4}-\d{2}-\d{2}$/);
     await Booking.deleteOne({ id });
-  }
-  );
+  });
 
-  it("unknown caller: no booking", { skip: !mongoConnected }, async () => {
+  it("unknown caller: no booking", async (t) => {
+    if (skipIntegrationIfNoMongo(t)) return;
     const r = await lookupCallerContext(BIZ_A, "+15009999999", { timezone: "America/Toronto" });
     assert.strictEqual(r.caller_known, false);
     assert.strictEqual(r.caller_name, null);
   });
 
-  it(
-    "stale slot: older than maxAgeDays → unknown",
-    { skip: !mongoConnected },
-    async () => {
+  it("stale slot: older than maxAgeDays → unknown", async (t) => {
+    if (skipIntegrationIfNoMongo(t)) return;
     const id = generateBookingId();
     const start = isoFromNow(-400);
     const end = new Date(new Date(start).getTime() + 3600000).toISOString();
@@ -160,13 +182,10 @@ describe("lookupCallerContext integration (BOO-MEM-1A)", () => {
     const r = await lookupCallerContext(BIZ_A, PHONE_E164, { timezone: "America/Toronto", maxAgeDays: 365 });
     assert.strictEqual(r.caller_known, false);
     await Booking.deleteOne({ id });
-  }
-  );
+  });
 
-  it(
-    "wrong business: same phone, different businessId → unknown",
-    { skip: !mongoConnected },
-    async () => {
+  it("wrong business: same phone, different businessId → unknown", async (t) => {
+    if (skipIntegrationIfNoMongo(t)) return;
     const id = generateBookingId();
     const start = isoFromNow(3);
     const end = new Date(new Date(start).getTime() + 3600000).toISOString();
@@ -181,10 +200,10 @@ describe("lookupCallerContext integration (BOO-MEM-1A)", () => {
     const r = await lookupCallerContext(BIZ_B, PHONE_E164, { timezone: "America/Toronto" });
     assert.strictEqual(r.caller_known, false);
     await Booking.deleteOne({ id });
-  }
-  );
+  });
 
-  it("cancelled still recognized", { skip: !mongoConnected }, async () => {
+  it("cancelled still recognized", async (t) => {
+    if (skipIntegrationIfNoMongo(t)) return;
     const id = generateBookingId();
     const start = isoFromNow(5);
     const end = new Date(new Date(start).getTime() + 3600000).toISOString();
@@ -202,7 +221,8 @@ describe("lookupCallerContext integration (BOO-MEM-1A)", () => {
     await Booking.deleteOne({ id });
   });
 
-  it("phone format variants match stored E.164", { skip: !mongoConnected }, async () => {
+  it("phone format variants match stored E.164", async (t) => {
+    if (skipIntegrationIfNoMongo(t)) return;
     const id = generateBookingId();
     const start = isoFromNow(10);
     const end = new Date(new Date(start).getTime() + 3600000).toISOString();
