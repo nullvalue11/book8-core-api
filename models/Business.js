@@ -244,10 +244,22 @@ const BusinessSchema = new mongoose.Schema(
       }
     },
     /** BOO-97A — mirrors Stripe subscription.status when synced from webhooks / book8-ai */
+    /** BOO-CANCEL-1A — cancellation lifecycle, refund accounting, and audit timestamps. */
     subscription: {
       status: { type: String, maxlength: 32, trim: true },
-      updatedAt: { type: Date }
+      updatedAt: { type: Date },
+      cancelAtPeriodEnd: { type: Boolean, default: false },
+      cancellationRequestedAt: { type: Date },
+      cancellationReason: { type: String, maxlength: 500, trim: true },
+      canceledAt: { type: Date },
+      refundedAt: { type: Date },
+      refundAmountCents: { type: Number }
     },
+
+    /** BOO-CANCEL-1A — soft-delete window before cron-driven hard delete. Sparse so existing rows are unaffected. */
+    softDeletedAt: { type: Date, index: { sparse: true } },
+    /** BOO-CANCEL-1A — set after cascade-delete + Twilio release to make hard-delete idempotent. Sparse. */
+    hardDeletedAt: { type: Date, index: { sparse: true } },
 
     /** BOO-99A / BOO-102A — idempotent drip + monthly recap preferences */
     notifications: {

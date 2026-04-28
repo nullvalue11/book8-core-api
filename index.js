@@ -35,6 +35,7 @@ import createBusinessesHttpRouter from "./src/routes/businessesHttp.js";
 import createAggregateRouter from "./src/routes/aggregate.js";
 import createBusinessServicesSyncRouter from "./src/routes/businessServicesSync.js";
 import cronRouter from "./src/routes/cron.js";
+import hardDeleteSoftDeletedRouter from "./src/routes/cron/hardDeleteSoftDeleted.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
 
 const app = express();
@@ -181,6 +182,8 @@ app.use("/api/twilio", twilioInboundRouter);
 app.use("/api/elevenlabs", elevenLabsWebhookRouter);
 // BOO-43A: rate-limit cron + internal routes (shared strictLimiter instance)
 app.use("/api/cron", strictLimiter, cronRouter);
+// BOO-CANCEL-1A: hard-delete sweep for soft-deleted businesses
+app.use("/api/cron", strictLimiter, hardDeleteSoftDeletedRouter);
 
 app.use("/internal/calls", strictLimiter, requireInternalAuth, internalCallsRouter);
 app.use("/internal/usage", strictLimiter, requireInternalAuth, internalUsageRouter);
