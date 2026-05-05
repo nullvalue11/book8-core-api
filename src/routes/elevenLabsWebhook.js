@@ -22,6 +22,7 @@ import {
   emptyCallerDynamicVariables,
   lookupCallerContext
 } from "../../services/callerRecognition.js";
+import { getVerticalPromptAddendum } from "../utils/verticalPromptAddendum.js";
 
 const router = express.Router();
 
@@ -301,6 +302,7 @@ router.post("/conversation-init/:token", async (req, res) => {
           business_name: "Book8",
           business_id: "unknown",
           business_category: "general",
+          vertical_prompt_addendum: "",
           services_list: "appointments",
           business_hours: "Monday to Friday, 9 AM to 5 PM",
           timezone: "America/Toronto",
@@ -358,6 +360,7 @@ router.post("/conversation-init/:token", async (req, res) => {
           call_sid: call_sid || "",
           ...callerDyn,
           business_category: business.category || "",
+          vertical_prompt_addendum: getVerticalPromptAddendum(business.category),
           greeting: `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`,
           noShowPolicy: noShowPolicyDynamicVar(business),
           ...locPlan,
@@ -460,6 +463,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         business_name: businessName,
         business_id: businessId,
         business_category: business.category || "general",
+        vertical_prompt_addendum: getVerticalPromptAddendum(business.category),
         services_list: servicesList,
         services_json: JSON.stringify(servicesDetail),
         business_hours: businessHours,
@@ -494,6 +498,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         business_name: "Book8",
         business_id: "unknown",
         business_category: "general",
+        vertical_prompt_addendum: "",
         services_list: "appointments",
         business_hours: "Monday to Friday, 9 AM to 5 PM",
         timezone: "America/Toronto",

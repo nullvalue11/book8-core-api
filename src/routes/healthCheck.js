@@ -5,6 +5,7 @@ import { Service } from "../../models/Service.js";
 import { Schedule } from "../../models/Schedule.js";
 import { businessLookupFilter, canonicalBusinessId } from "../../services/provisioningHelpers.js";
 import { getPlanFeatures } from "../config/plans.js";
+import { getVerticalPromptAddendum } from "../utils/verticalPromptAddendum.js";
 
 const router = express.Router();
 
@@ -113,6 +114,7 @@ router.get("/business/:businessId", async (req, res) => {
 
     const plan = business.plan || "starter";
     const planFeatures = { ...getPlanFeatures(plan) };
+    const addendum = getVerticalPromptAddendum(business.category);
 
     return res.json({
       ok: allCriticalOk,
@@ -134,7 +136,8 @@ router.get("/business/:businessId", async (req, res) => {
         id_field: business.id || null,
         businessId_field: business.businessId || null,
         name: business.name || null,
-        createdAt: business.createdAt || null
+        createdAt: business.createdAt || null,
+        verticalPromptHeadline: addendum.split("\n")[0] || "none"
       }
     });
   } catch (err) {
