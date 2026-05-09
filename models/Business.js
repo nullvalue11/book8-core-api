@@ -203,6 +203,8 @@ const BusinessSchema = new mongoose.Schema(
     greetingOverride: { type: String, maxlength: 2000, trim: true },
 
     primaryLanguage: { type: String, default: "en", maxlength: 16, trim: true },
+    /** BOO-AGENT-VOICE-LOCK-1A — BCP-47 tag from dashboard setup (e.g. ar-AE); pins ElevenLabs voice per call */
+    preferredVoiceLang: { type: String, maxlength: 32, trim: true, sparse: true },
     multilingualEnabled: { type: Boolean, default: true },
     supportedLanguages: [{ type: String, maxlength: 16, trim: true }],
 

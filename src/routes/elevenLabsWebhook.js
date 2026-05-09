@@ -23,6 +23,11 @@ import {
   lookupCallerContext
 } from "../../services/callerRecognition.js";
 import { getVerticalPromptAddendum } from "../utils/verticalPromptAddendum.js";
+import {
+  getDefaultConversationVoiceId,
+  resolveVoiceIdForBusiness,
+  withPinnedVoice
+} from "../config/voiceMapping.js";
 
 const router = express.Router();
 
@@ -295,6 +300,7 @@ router.post("/conversation-init/:token", async (req, res) => {
 
       const todayIso = dynamicVarTodayDate("unknown", "America/Toronto");
       console.log("[elevenlabs-init]", { businessId: "unknown", today_date: todayIso, caller_known: false });
+      const defaultVoiceId = getDefaultConversationVoiceId();
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
@@ -303,6 +309,7 @@ router.post("/conversation-init/:token", async (req, res) => {
           business_id: "unknown",
           business_category: "general",
           vertical_prompt_addendum: "",
+          voice_id: defaultVoiceId,
           services_list: "appointments",
           business_hours: "Monday to Friday, 9 AM to 5 PM",
           timezone: "America/Toronto",
@@ -313,11 +320,14 @@ router.post("/conversation-init/:token", async (req, res) => {
           ...locUnknown,
           ...languageDynamicVarsFromBusiness(null)
         },
-        conversation_config_override: {
-          agent: {
-            first_message: "Hi, this is the Book8 booking assistant. How can I help you today?"
-          }
-        }
+        conversation_config_override: withPinnedVoice(
+          {
+            agent: {
+              first_message: "Hi, this is the Book8 booking assistant. How can I help you today?"
+            }
+          },
+          defaultVoiceId
+        )
       });
     }
 
@@ -345,6 +355,8 @@ router.post("/conversation-init/:token", async (req, res) => {
       console.log("[elevenlabs-init]", { businessId, today_date: today, caller_known: callerKnownForLog });
       const locPlan = getElevenLabsBusinessLocationVars(business);
       logElevenLabsInit(businessId, locPlan);
+      const voiceId = resolveVoiceIdForBusiness(business);
+      const upgradeFirstMessage = `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`;
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
@@ -361,11 +373,20 @@ router.post("/conversation-init/:token", async (req, res) => {
           ...callerDyn,
           business_category: business.category || "",
           vertical_prompt_addendum: getVerticalPromptAddendum(business.category),
-          greeting: `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`,
+          voice_id: voiceId,
+          greeting: upgradeFirstMessage,
           noShowPolicy: noShowPolicyDynamicVar(business),
           ...locPlan,
           ...languageDynamicVarsFromBusiness(business)
-        }
+        },
+        conversation_config_override: withPinnedVoice(
+          {
+            agent: {
+              first_message: upgradeFirstMessage
+            }
+          },
+          voiceId
+        )
       });
     }
 
@@ -455,6 +476,8 @@ router.post("/conversation-init/:token", async (req, res) => {
     const locOk = getElevenLabsBusinessLocationVars(business);
     logElevenLabsInit(businessId, locOk);
 
+    const voiceId = resolveVoiceIdForBusiness(business);
+
     // 7) Return the conversation initiation data
     return res.json({
       type: "conversation_initiation_client_data",
@@ -464,6 +487,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         business_id: businessId,
         business_category: business.category || "general",
         vertical_prompt_addendum: getVerticalPromptAddendum(business.category),
+        voice_id: voiceId,
         services_list: servicesList,
         services_json: JSON.stringify(servicesDetail),
         business_hours: businessHours,
@@ -476,11 +500,14 @@ router.post("/conversation-init/:token", async (req, res) => {
         ...locOk,
         ...languageDynamicVarsFromBusiness(business)
       },
-      conversation_config_override: {
-        agent: {
-          first_message: greeting
-        }
-      }
+      conversation_config_override: withPinnedVoice(
+        {
+          agent: {
+            first_message: greeting
+          }
+        },
+        voiceId
+      )
     });
   } catch (err) {
     console.error("[elevenlabs-webhook] Error:", err);
@@ -491,6 +518,7 @@ router.post("/conversation-init/:token", async (req, res) => {
     const parsed = parseConversationInitBody(req.body);
     const locErr = getElevenLabsBusinessLocationVars(null);
     logElevenLabsInit("unknown", locErr);
+    const defaultVoiceId = getDefaultConversationVoiceId();
     return res.json({
       type: "conversation_initiation_client_data",
       dynamic_variables: {
@@ -499,6 +527,7 @@ router.post("/conversation-init/:token", async (req, res) => {
         business_id: "unknown",
         business_category: "general",
         vertical_prompt_addendum: "",
+        voice_id: defaultVoiceId,
         services_list: "appointments",
         business_hours: "Monday to Friday, 9 AM to 5 PM",
         timezone: "America/Toronto",
@@ -509,11 +538,14 @@ router.post("/conversation-init/:token", async (req, res) => {
         ...locErr,
         ...languageDynamicVarsFromBusiness(null)
       },
-      conversation_config_override: {
-        agent: {
-          first_message: "Hi, this is the Book8 booking assistant. How can I help you today?"
-        }
-      }
+      conversation_config_override: withPinnedVoice(
+        {
+          agent: {
+            first_message: "Hi, this is the Book8 booking assistant. How can I help you today?"
+          }
+        },
+        defaultVoiceId
+      )
     });
   }
 });
