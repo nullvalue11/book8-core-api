@@ -133,12 +133,3 @@ export async function sendWhatsAppFreeForm({ from, to, text }) {
 export async function listSenders() {
   return request("GET", "/whatsapp/2/senders");
 }
-
-/**
- * Best-effort delivery log lookup (messageId from send response).
- * @param {string} messageId
- */
-export async function getMessageStatus(messageId) {
-  const id = encodeURIComponent(String(messageId ?? ""));
-  return request("GET", `/whatsapp/1/logs?messageId=${id}`);
-}

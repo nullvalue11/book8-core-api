@@ -24,6 +24,19 @@ Optional:
 - `INFOBIP_TEST_LANG` — defaults to `en`
 - `INFOBIP_TEST_PLACEHOLDERS` — comma-separated list for template body placeholders
 
+## Delivery status (do not poll `/whatsapp/1/logs` or `/whatsapp/1/reports`)
+
+Those paths are **not** reliable public polling endpoints on Infobip WhatsApp (many hosts return `NOT_FOUND`). After a successful send, Infobip returns an immediate status on the **send response** (e.g. `PENDING_ENROUTE`). Final delivery/read state is obtained through:
+
+1. **Infobip portal** — Communications / WhatsApp message logs (exact navigation varies by UI version).
+2. **Delivery report webhooks** (production pattern):
+   - Configure a **global** delivery report URL under WhatsApp integration settings in the Infobip portal, **and/or**
+   - Pass **`notifyURL`** on each outbound send so Infobip POSTs delivery updates to your HTTPS endpoint.
+
+Infobip docs: [Receive WhatsApp delivery reports](https://www.infobip.com/docs/api/channels/whatsapp/receive-whatsapp-delivery-reports).
+
+**Phase 1 (this repo)** does **not** implement an HTTP receiver for those webhooks — that belongs to a later ticket (e.g. inbound / ops webhook handling). Until then, use the portal or plan the webhook endpoint for Phase 2+.
+
 ## Onboarding a MENA customer
 
 1. Customer provides their WhatsApp Business number.
