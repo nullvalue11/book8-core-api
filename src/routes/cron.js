@@ -5,7 +5,9 @@ import { Booking } from "../../models/Booking.js";
 import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { TwilioNumber } from "../../models/TwilioNumber.js";
-import { sendSMS, formatReminderSMS } from "../../services/smsService.js";
+import { formatReminderSMS } from "../../services/smsService.js";
+import { getMessagingProvider } from "../../services/messaging/messagingFactory.js";
+import { canSendTransactionalMessage } from "../../services/messaging/bspRouting.js";
 import { sendReminder as sendReminderEmail } from "../../services/emailService.js";
 import { safeCompare } from "../middleware/internalAuth.js";
 import { isFeatureAllowed } from "../../services/planLimits.js";
@@ -54,9 +56,8 @@ router.get("/send-reminders", async (req, res) => {
         }
 
         const business = await Business.findOne({ id: booking.businessId }).lean();
-        const fromNumber = business?.assignedTwilioNumber;
-        if (!fromNumber) {
-          console.log(`[send-reminders] No Twilio number for business ${booking.businessId} — skipping`);
+        if (!canSendTransactionalMessage(business, customerPhone)) {
+          console.log(`[send-reminders] No SMS/WhatsApp sender for business ${booking.businessId} — skipping`);
           continue;
         }
 
@@ -99,11 +100,22 @@ router.get("/send-reminders", async (req, res) => {
         });
 
         if (smsAllowed) {
-          const smsResult = await sendSMS({
-            to: customerPhone,
-            from: fromNumber,
-            body: smsBody
-          });
+          const provider = getMessagingProvider(business);
+          const lang = booking.language || "en";
+          const reminderDetail = `${dateStr} at ${timeStr}`;
+          const smsResult = await provider.sendBookingReminder(
+            business,
+            { phone: customerPhone, language: lang, name: booking.customer?.name },
+            {
+              smsBodyOverride: smsBody,
+              serviceName,
+              businessName: business.name || booking.businessId,
+              slotLocalDate: dateStr,
+              slotLocalTime: timeStr,
+              reminderDetail,
+              language: lang
+            }
+          );
 
           if (smsResult.ok) {
             await Booking.findOneAndUpdate(
@@ -163,8 +175,7 @@ router.get("/send-reminders", async (req, res) => {
         if (!customerPhone) continue;
 
         const business = await Business.findOne({ id: booking.businessId }).lean();
-        const fromNumber = business?.assignedTwilioNumber;
-        if (!fromNumber) continue;
+        if (!canSendTransactionalMessage(business, customerPhone)) continue;
 
         const plan = business?.plan || "starter";
         const smsAllowed = isFeatureAllowed(plan, "smsConfirmations");
@@ -189,11 +200,23 @@ router.get("/send-reminders", async (req, res) => {
         });
 
         if (smsAllowed) {
-          const smsResult = await sendSMS({
-            to: customerPhone,
-            from: fromNumber,
-            body: smsBody
-          });
+          const provider = getMessagingProvider(business);
+          const lang = booking.language || "en";
+          const reminderDetail = "in about 1 hour";
+          const smsResult = await provider.sendBookingReminder(
+            business,
+            { phone: customerPhone, language: lang, name: booking.customer?.name },
+            {
+              smsBodyOverride: smsBody,
+              serviceName,
+              businessName: business.name || booking.businessId,
+              slotLocalDate: "",
+              slotLocalTime: "",
+              isOneHour: true,
+              reminderDetail,
+              language: lang
+            }
+          );
 
           if (smsResult.ok) {
             await Booking.findOneAndUpdate(
@@ -253,8 +276,7 @@ router.get("/send-reminders", async (req, res) => {
         if (!customerPhone) continue;
 
         const business = await Business.findOne({ id: booking.businessId }).lean();
-        const fromNumber = business?.assignedTwilioNumber;
-        if (!fromNumber) continue;
+        if (!canSendTransactionalMessage(business, customerPhone)) continue;
 
         const plan = business?.plan || "starter";
         const smsAllowed = isFeatureAllowed(plan, "smsConfirmations");
@@ -280,11 +302,23 @@ router.get("/send-reminders", async (req, res) => {
         });
 
         if (smsAllowed) {
-          const smsResult = await sendSMS({
-            to: customerPhone,
-            from: fromNumber,
-            body: smsBody
-          });
+          const provider = getMessagingProvider(business);
+          const lang = booking.language || "en";
+          const reminderDetail = "in 30 minutes";
+          const smsResult = await provider.sendBookingReminder(
+            business,
+            { phone: customerPhone, language: lang, name: booking.customer?.name },
+            {
+              smsBodyOverride: smsBody,
+              serviceName,
+              businessName: business.name || booking.businessId,
+              slotLocalDate: "",
+              slotLocalTime: "",
+              isThirtyMinutes: true,
+              reminderDetail,
+              language: lang
+            }
+          );
 
           if (smsResult.ok) {
             await Booking.findOneAndUpdate(

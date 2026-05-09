@@ -18,6 +18,10 @@ import { Service } from "../../models/Service.js";
 import { sendCancellation, sendCancellationWithFeeEmail } from "../../services/emailService.js";
 import { tryChargeCancellationFee } from "../../services/bookingFeeCharge.js";
 import { notifyWaitlistAfterCancellation } from "../../services/waitlistService.js";
+import { getMessagingProvider } from "../../services/messaging/messagingFactory.js";
+import { canSendTransactionalMessage } from "../../services/messaging/bspRouting.js";
+import { isFeatureAllowed } from "../../services/planLimits.js";
+import { formatSlotDateTime } from "../../services/localeFormat.js";
 
 const router = express.Router();
 
@@ -138,6 +142,29 @@ async function applyCancelSideEffects(booking, options = {}) {
   }
 
   notifyWaitlistAfterCancellation(booking);
+
+  if (
+    booking.customer?.phone &&
+    business &&
+    canSendTransactionalMessage(business, booking.customer.phone) &&
+    isFeatureAllowed(business.plan || "starter", "smsConfirmations")
+  ) {
+      const tz = business.timezone || booking.slot?.timezone || "America/Toronto";
+      const lang = booking.language || "en";
+      const { dateStr, timeStr } = formatSlotDateTime(booking.slot?.start, tz, lang);
+      const provider = getMessagingProvider(business);
+      provider
+        .sendCancelNotification(business, booking.customer, {
+          language: lang,
+          serviceName: serviceDisplay,
+          businessName: business.name || booking.businessId,
+          slotLocalDate: dateStr,
+          slotLocalTime: timeStr
+        })
+        .catch((err) =>
+          console.error("[bookings.cancel] Cancellation SMS/WhatsApp failed:", err.message)
+        );
+  }
 }
 
 // GET /api/bookings?businessId=xxx

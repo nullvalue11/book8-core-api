@@ -9,7 +9,8 @@ import { Provider } from "../models/Provider.js";
 import { Schedule } from "../models/Schedule.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { randomBytes } from "crypto";
-import { sendSMS, formatConfirmationSMS, formatRescheduleSMS } from "./smsService.js";
+import { formatRescheduleSMS } from "./smsService.js";
+import { getMessagingProvider, resolveMessagingBackend } from "./messaging/messagingFactory.js";
 import { formatSlotDateTime } from "./localeFormat.js";
 import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
 import {
@@ -110,9 +111,20 @@ async function runBookingConfirmationSideEffects({
 
       const bizForSms = await Business.findOne({ id: businessId }).lean();
       const fromNumber = bizForSms?.assignedTwilioNumber;
-      if (!fromNumber) {
+      const backend = resolveMessagingBackend(bizForSms || {});
+      if (backend === "twilio" && !fromNumber) {
         console.log("[bookingService] No assignedTwilioNumber for business — skipping SMS");
         return;
+      }
+      if (backend === "infobip") {
+        const waSender =
+          bizForSms?.whatsappSenderNumber?.trim() || process.env.INFOBIP_TEST_SENDER?.trim();
+        if (!waSender) {
+          console.log(
+            "[bookingService] Infobip/WhatsApp confirmation skipped — no whatsappSenderNumber or INFOBIP_TEST_SENDER"
+          );
+          return;
+        }
       }
 
       const smsPlan = bizForSms.plan || "starter";
@@ -135,17 +147,26 @@ async function runBookingConfirmationSideEffects({
         // fallback to serviceId
       }
 
-      let smsBody;
+      const provider = getMessagingProvider(bizForSms);
+      let smsResult;
       if (booking.recurring?.enabled && isRecurringCron) {
-        smsBody = sendRecurringNextConfirmations.buildSms({
+        const smsBody = sendRecurringNextConfirmations.buildSms({
           serviceName,
           businessName: bizForSms.name || businessId,
           date: dateStr,
           time: timeStr,
           language: smsLang
         });
+        smsResult = await provider.sendBookingConfirmation(bizForSms, customer, {
+          smsBodyOverride: smsBody,
+          serviceName,
+          businessName: bizForSms.name || businessId,
+          slotLocalDate: dateStr,
+          slotLocalTime: timeStr,
+          language: smsLang
+        });
       } else if (booking.recurring?.enabled && booking.recurring.occurrenceNumber === 1) {
-        smsBody = sendRecurringInitialConfirmations.buildSms({
+        const smsBody = sendRecurringInitialConfirmations.buildSms({
           serviceName,
           businessName: bizForSms.name || businessId,
           date: dateStr,
@@ -154,22 +175,23 @@ async function runBookingConfirmationSideEffects({
           total: booking.recurring.totalOccurrences,
           language: smsLang
         });
-      } else {
-        smsBody = formatConfirmationSMS({
+        smsResult = await provider.sendBookingConfirmation(bizForSms, customer, {
+          smsBodyOverride: smsBody,
           serviceName,
           businessName: bizForSms.name || businessId,
-          date: dateStr,
-          time: timeStr,
-          customerName: customer.name?.split(" ")[0] || "",
+          slotLocalDate: dateStr,
+          slotLocalTime: timeStr,
+          language: smsLang
+        });
+      } else {
+        smsResult = await provider.sendBookingConfirmation(bizForSms, customer, {
+          serviceName,
+          businessName: bizForSms.name || businessId,
+          slotLocalDate: dateStr,
+          slotLocalTime: timeStr,
           language: smsLang
         });
       }
-
-      const smsResult = await sendSMS({
-        to: customer.phone,
-        from: fromNumber,
-        body: smsBody
-      });
 
       if (smsResult.ok) {
         await Booking.findOneAndUpdate(
@@ -1184,11 +1206,17 @@ export async function rescheduleBooking(input) {
   const bizForSms = await Business.findOne({ id: booking.businessId }).lean();
   const fromNumber = bizForSms?.assignedTwilioNumber;
   const toPhone = booking.customer?.phone;
-  if (
+  const backend = resolveMessagingBackend(bizForSms || {});
+  const canTwilio = !!(toPhone && fromNumber);
+  const canInfobip = !!(
     toPhone &&
-    fromNumber &&
-    isFeatureAllowed(bizForSms.plan || "starter", "smsConfirmations")
-  ) {
+    (bizForSms?.whatsappSenderNumber?.trim() || process.env.INFOBIP_TEST_SENDER?.trim())
+  );
+  const canSend =
+    isFeatureAllowed(bizForSms.plan || "starter", "smsConfirmations") &&
+    ((backend === "twilio" && canTwilio) || (backend === "infobip" && canInfobip));
+
+  if (canSend) {
     const newDay = formatInTimeZone(newStartDate, scheduleTz, "EEEE");
     const newDate = formatInTimeZone(newStartDate, scheduleTz, "MMMM d");
     const newTime = formatInTimeZone(newStartDate, scheduleTz, "h:mm a");
@@ -1199,7 +1227,8 @@ export async function rescheduleBooking(input) {
       newTime,
       language: lang
     });
-    const smsResult = await sendSMS({ to: toPhone, from: fromNumber, body });
+    const provider = getMessagingProvider(bizForSms);
+    const smsResult = await provider.sendBookingReschedule(bizForSms, { phone: toPhone }, { body });
     smsNotificationSent = !!smsResult.ok;
   }
 

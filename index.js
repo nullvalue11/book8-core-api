@@ -1,5 +1,6 @@
 // index.js — app bootstrap + route mounting (BOO-63A)
 import "dotenv/config";
+import { validateInfobipPartialConfig } from "./src/config/infobipEnv.js";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -37,6 +38,10 @@ import createBusinessServicesSyncRouter from "./src/routes/businessServicesSync.
 import cronRouter from "./src/routes/cron.js";
 import hardDeleteSoftDeletedRouter from "./src/routes/cron/hardDeleteSoftDeleted.js";
 import { requireInternalAuth } from "./src/middleware/internalAuth.js";
+
+if (process.env.NODE_ENV !== "test") {
+  validateInfobipPartialConfig();
+}
 
 const app = express();
 

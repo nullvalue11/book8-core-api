@@ -180,12 +180,23 @@ const BusinessSchema = new mongoose.Schema(
     timezone: { type: String, default: "America/Toronto", maxlength: 64, trim: true },
 
     phoneNumber: { type: String, index: true, unique: true, sparse: true, maxlength: 32, trim: true },
+    /** BOO-INFOBIP-INTEGRATE-1A: optional top-level country label for BSP routing (also uses businessProfile.address.country). */
+    country: { type: String, maxlength: 120, trim: true, sparse: true },
     email: { type: String, maxlength: 254, trim: true },
     /** Dashboard login email when distinct from root `email` (used with x-book8-user-email). */
     ownerEmail: { type: String, maxlength: 254, trim: true, sparse: true, index: true },
 
     /** Nested public profile for /b/[handle]; root email/phone/description remain for legacy/onboarding. */
     businessProfile: BusinessProfileSchema,
+
+    /** BOO-INFOBIP-INTEGRATE-1A — Infobip WhatsApp outbound sender (E.164 or digits). */
+    whatsappSenderNumber: { type: String, sparse: true, maxlength: 32, trim: true },
+    whatsappSenderStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none"
+    },
+    preferredBSP: { type: String, enum: ["twilio", "infobip"], sparse: true, trim: true },
 
     assignedTwilioNumber: { type: String, index: true, unique: true, sparse: true, maxlength: 32, trim: true },
     forwardingEnabled: { type: Boolean, default: false },
