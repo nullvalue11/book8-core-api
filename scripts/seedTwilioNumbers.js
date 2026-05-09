@@ -7,6 +7,7 @@ import "dotenv/config";
 import mongoose from "mongoose";
 import twilio from "twilio";
 import { TwilioNumber } from "../models/TwilioNumber.js";
+import { inferCountryIsoFromE164 } from "../src/utils/countryCodes.js";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/book8-core";
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
@@ -37,6 +38,7 @@ async function main() {
     const assignedToBusinessId = isSpecial ? SPECIAL_BUSINESS_ID : null;
     const assignedAt = isSpecial ? new Date() : null;
     const areaCode = number.phoneNumber.slice(2, 5);
+    const inferredCountry = inferCountryIsoFromE164(number.phoneNumber);
 
     await TwilioNumber.findOneAndUpdate(
       { phoneNumber: number.phoneNumber },
@@ -45,6 +47,7 @@ async function main() {
           phoneNumber: number.phoneNumber,
           twilioSid: number.sid,
           areaCode,
+          ...(inferredCountry ? { country: inferredCountry } : {}),
           capabilities: {
             voice: number.capabilities?.voice ?? true,
             sms: number.capabilities?.sms ?? true

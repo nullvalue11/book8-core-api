@@ -12,6 +12,8 @@ const TwilioNumberSchema = new mongoose.Schema(
     assignedToBusinessId: { type: String, default: null },
     assignedAt: { type: Date, default: null },
     twilioSid: { type: String },
+    /** ISO 3166-1 alpha-2 — drives country-aware pool assignment (BOO-TWILIO-UAE-NUMBERS-1A). */
+    country: { type: String, maxlength: 2, uppercase: true, sparse: true, index: true },
     areaCode: { type: String },
     capabilities: {
       voice: { type: Boolean, default: true },

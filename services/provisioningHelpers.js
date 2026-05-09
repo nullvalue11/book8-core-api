@@ -10,6 +10,8 @@ import {
 } from "./twilioNumberSetup.js";
 import { ensureBookableDefaultsForBusiness } from "./bookableBootstrap.js";
 import { isFeatureAllowed } from "../src/config/plans.js";
+import { resolveBusinessCountryIso } from "../src/utils/countryCodes.js";
+import { pickAvailableTwilioNumber } from "./twilioPoolSelection.js";
 
 /** Match business by canonical slug stored in `id` or duplicate `businessId`. */
 export function businessLookupFilter(slugOrId) {
@@ -56,22 +58,60 @@ export async function assignTwilioNumberFromPool(slugOrId) {
     };
   }
 
-  const number = await TwilioNumber.findOneAndUpdate(
-    { status: "available" },
-    {
-      status: "assigned",
-      assignedToBusinessId: bid,
-      assignedAt: new Date(),
-      updatedAt: new Date()
-    },
-    { new: true, sort: { createdAt: 1 } }
-  );
+  const requestedIso = resolveBusinessCountryIso(business);
+
+  let number = null;
+  /** @type {{ tier: string, assignedIso: string }|null} */
+  let selectionMeta = null;
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const available = await TwilioNumber.find({ status: "available" }).sort({ createdAt: 1 }).lean();
+    const picked = pickAvailableTwilioNumber(available, requestedIso);
+    if (!picked) break;
+
+    number = await TwilioNumber.findOneAndUpdate(
+      { _id: picked.doc._id, status: "available" },
+      {
+        status: "assigned",
+        assignedToBusinessId: bid,
+        assignedAt: new Date(),
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (number) {
+      selectionMeta = { tier: picked.tier, assignedIso: picked.assignedIso };
+      break;
+    }
+  }
 
   if (!number) {
     await Business.findOneAndUpdate(businessLookupFilter(slugOrId), {
       $set: { numberSetupMethod: "pending" }
     }).catch(() => {});
-    return { ok: false, detail: "No available Twilio numbers in pool" };
+    console.error(
+      "[TWILIO_POOL_EXHAUSTED]",
+      JSON.stringify({ businessId: bid, requestedCountry: requestedIso })
+    );
+    return {
+      ok: false,
+      detail: "No available Twilio numbers in pool",
+      requestedCountry: requestedIso
+    };
+  }
+
+  if (selectionMeta && selectionMeta.tier !== "country") {
+    console.warn(
+      "[TWILIO_POOL_COUNTRY_FALLBACK]",
+      JSON.stringify({
+        businessId: bid,
+        requestedCountry: requestedIso,
+        assignedCountry: selectionMeta.assignedIso,
+        tier: selectionMeta.tier,
+        phone: number.phoneNumber
+      })
+    );
   }
 
   await Business.findOneAndUpdate(businessLookupFilter(slugOrId), {
@@ -105,7 +145,10 @@ export async function assignTwilioNumberFromPool(slugOrId) {
     phone: number.phoneNumber,
     webhooksConfigured,
     elevenLabsRegistered,
-    detail: `Assigned ${number.phoneNumber}`
+    detail: `Assigned ${number.phoneNumber}`,
+    requestedCountry: requestedIso,
+    assignedCountry: selectionMeta?.assignedIso,
+    selectionTier: selectionMeta?.tier
   };
 }
 
