@@ -1,5 +1,9 @@
 /**
- * BOO-MULTI-CURRENCY-1A: map business country / phone → Stripe checkout currency.
+ * BOO-MULTI-CURRENCY-1A / BOO-MULTI-CURRENCY-FIX-1A:
+ * map business country / phone → Stripe checkout currency.
+ *
+ * Home market is Canada (CAD). USD is the international fallback for unknown
+ * countries; AED is the regional currency for Gulf customers.
  */
 
 function normalizePhoneDigits(phone) {
@@ -14,7 +18,7 @@ const COUNTRY_CURRENCY = {
   AE: "aed",
   SA: "aed",
   US: "usd",
-  CA: "usd",
+  CA: "cad",
   GB: "usd"
 };
 
@@ -63,7 +67,7 @@ export function getCurrencyForCountry(countryCode) {
   return DEFAULT_CURRENCY;
 }
 
-const SUPPORTED_OVERRIDE = new Set(["usd", "aed"]);
+const SUPPORTED_OVERRIDE = new Set(["usd", "aed", "cad"]);
 
 /**
  * @param {object} [business]

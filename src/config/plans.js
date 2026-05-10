@@ -42,8 +42,8 @@ export const PLANS = {
     price: 29,
     billing: {
       /** Smallest currency unit (cents / fils); must match Stripe Price amounts */
-      amounts: { usd: 1900, aed: 7000 },
-      defaultCurrency: "usd"
+      amounts: { cad: 2900, usd: 1900, aed: 7000 },
+      defaultCurrency: "cad"
     },
     features: {
       maxBusinesses: 1,
@@ -83,8 +83,8 @@ export const PLANS = {
     name: "Growth",
     price: 99,
     billing: {
-      amounts: { usd: 7900, aed: 29000 },
-      defaultCurrency: "usd"
+      amounts: { cad: 9900, usd: 6900, aed: 25000 },
+      defaultCurrency: "cad"
     },
     features: {
       maxBusinesses: 5,
@@ -119,8 +119,8 @@ export const PLANS = {
     name: "Enterprise",
     price: 299,
     billing: {
-      amounts: { usd: 19900, aed: 73000 },
-      defaultCurrency: "usd"
+      amounts: { cad: 29900, usd: 19900, aed: 73000 },
+      defaultCurrency: "cad"
     },
     features: {
       maxBusinesses: -1,
@@ -157,6 +157,7 @@ const PLAN_KEYS = new Set(["none", "starter", "growth", "enterprise"]);
 const PAID_PLAN_KEYS = ["starter", "growth", "enterprise"];
 
 const PRICING_DISPLAY_SYMBOL = {
+  cad: "CA$",
   usd: "$",
   aed: "AED"
 };
@@ -169,21 +170,29 @@ function envFirst(keys) {
   return "";
 }
 
+/**
+ * BOO-MULTI-CURRENCY-FIX-1A: home currency is CAD; the legacy no-suffix env vars
+ * (STRIPE_PRICE_STARTER, STRIPE_PRICE_GROWTH, STRIPE_PRICE_ENTERPRISE) hold the
+ * CAD Price IDs in production today, so they fall back to `cad`, not `usd`.
+ */
 function stripePriceIdsForPlan(planName) {
   switch (planName) {
     case "starter":
       return {
-        usd: envFirst(["STRIPE_PRICE_STARTER_USD", "STRIPE_PRICE_STARTER"]),
+        cad: envFirst(["STRIPE_PRICE_STARTER_CAD", "STRIPE_PRICE_STARTER"]),
+        usd: envFirst(["STRIPE_PRICE_STARTER_USD"]),
         aed: envFirst(["STRIPE_PRICE_STARTER_AED"])
       };
     case "growth":
       return {
-        usd: envFirst(["STRIPE_PRICE_GROWTH_USD", "STRIPE_PRICE_GROWTH"]),
+        cad: envFirst(["STRIPE_PRICE_GROWTH_CAD", "STRIPE_PRICE_GROWTH"]),
+        usd: envFirst(["STRIPE_PRICE_GROWTH_USD"]),
         aed: envFirst(["STRIPE_PRICE_GROWTH_AED"])
       };
     case "enterprise":
       return {
-        usd: envFirst(["STRIPE_PRICE_ENTERPRISE_USD", "STRIPE_PRICE_ENTERPRISE"]),
+        cad: envFirst(["STRIPE_PRICE_ENTERPRISE_CAD", "STRIPE_PRICE_ENTERPRISE"]),
+        usd: envFirst(["STRIPE_PRICE_ENTERPRISE_USD"]),
         aed: envFirst(["STRIPE_PRICE_ENTERPRISE_AED"])
       };
     default:

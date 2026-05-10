@@ -1,5 +1,5 @@
 /**
- * BOO-MULTI-CURRENCY-1A
+ * BOO-MULTI-CURRENCY-1A / BOO-MULTI-CURRENCY-FIX-1A
  */
 import { describe, it } from "node:test";
 import assert from "node:assert";
@@ -17,6 +17,11 @@ describe("currencyMap", () => {
     assert.strictEqual(getCurrencyForCountry("US"), "usd");
   });
 
+  it("getCurrencyForCountry maps CA → cad (home market)", () => {
+    assert.strictEqual(getCurrencyForCountry("CA"), "cad");
+    assert.strictEqual(getCurrencyForCountry("Canada"), "cad");
+  });
+
   it("getCurrencyForBusiness uses country AE", () => {
     assert.strictEqual(getCurrencyForBusiness({ country: "AE" }), "aed");
   });
@@ -25,7 +30,11 @@ describe("currencyMap", () => {
     assert.strictEqual(getCurrencyForBusiness({ country: "US" }), "usd");
   });
 
-  it("getCurrencyForBusiness defaults to usd", () => {
+  it("getCurrencyForBusiness uses country CA → cad", () => {
+    assert.strictEqual(getCurrencyForBusiness({ country: "CA" }), "cad");
+  });
+
+  it("getCurrencyForBusiness defaults to usd (international fallback)", () => {
     assert.strictEqual(getCurrencyForBusiness({}), "usd");
     assert.strictEqual(getCurrencyForBusiness(null), "usd");
   });
@@ -34,6 +43,10 @@ describe("currencyMap", () => {
     assert.strictEqual(
       getCurrencyForBusiness({ preferredCurrency: "aed", country: "US" }),
       "aed"
+    );
+    assert.strictEqual(
+      getCurrencyForBusiness({ preferredCurrency: "cad", country: "US" }),
+      "cad"
     );
   });
 
