@@ -24,18 +24,22 @@ Optional:
 - `INFOBIP_TEST_LANG` — defaults to `en`
 - `INFOBIP_TEST_PLACEHOLDERS` — comma-separated list for template body placeholders
 
-## Delivery status (do not poll `/whatsapp/1/logs` or `/whatsapp/1/reports`)
+## Delivery Status
 
-Those paths are **not** reliable public polling endpoints on Infobip WhatsApp (many hosts return `NOT_FOUND`). After a successful send, Infobip returns an immediate status on the **send response** (e.g. `PENDING_ENROUTE`). Final delivery/read state is obtained through:
+### Phase 1 (current)
 
-1. **Infobip portal** — Communications / WhatsApp message logs (exact navigation varies by UI version).
-2. **Delivery report webhooks** (production pattern):
-   - Configure a **global** delivery report URL under WhatsApp integration settings in the Infobip portal, **and/or**
-   - Pass **`notifyURL`** on each outbound send so Infobip POSTs delivery updates to your HTTPS endpoint.
+There is **no programmatic delivery-status API** in `infobipClient` for WhatsApp (polling helpers were removed). To inspect whether a message was delivered or read, use **Infobip Portal → Communications → Logs** and filter by sender or recipient. The outbound send response already includes an immediate routing status on success (e.g. pending / en route).
 
-Infobip docs: [Receive WhatsApp delivery reports](https://www.infobip.com/docs/api/channels/whatsapp/receive-whatsapp-delivery-reports).
+### Production pattern — Phase 2 (`BOO-INFOBIP-DLR-1A`)
 
-**Phase 1 (this repo)** does **not** implement an HTTP receiver for those webhooks — that belongs to a later ticket (e.g. inbound / ops webhook handling). Until then, use the portal or plan the webhook endpoint for Phase 2+.
+Infobip pushes **delivery reports** to your HTTPS endpoint (see their outbound delivery reports documentation below). Two configuration styles:
+
+- **Per send:** pass **`notifyUrl`** on the outbound payload where supported by the Infobip WhatsApp API for your integration.
+- **Global:** set the delivery-report webhook URL in the Infobip portal (product-specific location—often Webhooks or WhatsApp integration settings).
+
+This repo does **not** ship an HTTP receiver for those callbacks in Phase 1; implement that under **`BOO-INFOBIP-DLR-1A`** when you need automated delivery tracking.
+
+**Infobip reference:** [Receive WhatsApp delivery reports](https://www.infobip.com/docs/api/channels/whatsapp/receive-whatsapp-delivery-reports).
 
 ## Onboarding a MENA customer
 

@@ -7,6 +7,7 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "set NODE_ENV=test && node --test --test-concurrency=1 tests/*.js tests/messaging/*.js tests/infobip/*.js",
+    "lint": "node --check index.js && node --check services/infobip/infobipClient.js",
     "test:timezone": "set NODE_ENV=test && node --test tests/bookingService.timezone.test.js",
     "migrate:booking-slot-tz": "node scripts/migrate-booking-slot-tz.cjs",
     "purge:bookings": "node scripts/purgeBookingsAllBusinesses.js",
