@@ -6,7 +6,7 @@
 |----------|----------|-------------|
 | `INFOBIP_API_KEY` | For Infobip routes | API key (`Authorization: App …`). |
 | `INFOBIP_BASE_URL` | With API key | e.g. `https://YOURSUBDOMAIN.api.infobip.com` (no trailing slash). |
-| `INFOBIP_TEST_SENDER` | Staging / trial | Infobip trial WhatsApp sender (digits). Used when `business.whatsappSenderNumber` is unset. |
+| `INFOBIP_SENDER` | With Infobip messaging | Default outbound WhatsApp sender (digits). Used when `business.whatsappSenderNumber` is unset (production sender or shared fallback). |
 
 If **either** `INFOBIP_API_KEY` **or** `INFOBIP_BASE_URL` is set without the other, the API **exits at startup** (misconfiguration guard).
 
@@ -16,7 +16,7 @@ If **either** `INFOBIP_API_KEY` **or** `INFOBIP_BASE_URL` is set without the oth
 node scripts/testInfobipIntegration.mjs --to=+YOUR_MOBILE_E164
 ```
 
-Verify sender list and (if `--to` provided) send a template message using `INFOBIP_TEST_SENDER`.
+Verify sender list and (if `--to` provided) send a template message using `INFOBIP_SENDER` as `from`.
 
 Optional:
 
@@ -29,6 +29,8 @@ Optional:
 ### Phase 1 (current)
 
 There is **no programmatic delivery-status API** in `infobipClient` for WhatsApp (polling helpers were removed). To inspect whether a message was delivered or read, use **Infobip Portal → Communications → Logs** and filter by sender or recipient. The outbound send response already includes an immediate routing status on success (e.g. pending / en route).
+
+Sender configured via **`INFOBIP_SENDER`** env var when no per-business `whatsappSenderNumber` is set.
 
 ### Production pattern — Phase 2 (`BOO-INFOBIP-DLR-1A`)
 

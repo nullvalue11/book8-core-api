@@ -11,8 +11,8 @@ function customerFirstName(customer) {
 function resolveSender(business) {
   const explicit = business?.whatsappSenderNumber?.trim();
   if (explicit) return explicit;
-  const trial = process.env.INFOBIP_TEST_SENDER?.trim();
-  return trial || "";
+  const fallbackFromEnv = process.env.INFOBIP_SENDER?.trim();
+  return fallbackFromEnv || "";
 }
 
 export class InfobipProvider extends MessagingProvider {
@@ -21,7 +21,7 @@ export class InfobipProvider extends MessagingProvider {
     const to = customer?.phone;
     if (!to || !from) {
       console.warn("[InfobipProvider] Missing recipient phone or WhatsApp sender — skipping");
-      return { ok: false, error: "Missing phone or WhatsApp sender (set whatsappSenderNumber or INFOBIP_TEST_SENDER)" };
+      return { ok: false, error: "Missing phone or WhatsApp sender (set whatsappSenderNumber or INFOBIP_SENDER)" };
     }
 
     const lang = infobipLanguageCode(ctx.language || customer?.language || "en");

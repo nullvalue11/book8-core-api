@@ -6,7 +6,7 @@
  *   node scripts/testInfobipIntegration.mjs --to=+971501234567
  *   $env:INFOBIP_TEST_TO="+971501234567"; node scripts/testInfobipIntegration.mjs
  *
- * Requires: INFOBIP_API_KEY, INFOBIP_BASE_URL, INFOBIP_TEST_SENDER
+ * Requires: INFOBIP_API_KEY, INFOBIP_BASE_URL, INFOBIP_SENDER
  * Optional: INFOBIP_TEST_TEMPLATE (default booking_confirmation)
  */
 
@@ -39,9 +39,9 @@ async function main() {
     process.exit(0);
   }
 
-  const from = process.env.INFOBIP_TEST_SENDER?.trim();
+  const from = process.env.INFOBIP_SENDER?.trim();
   if (!from) {
-    console.error("INFOBIP_TEST_SENDER is required to send a test template");
+    console.error("INFOBIP_SENDER is required to send a test template");
     process.exit(1);
   }
 

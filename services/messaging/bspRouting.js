@@ -87,6 +87,6 @@ export function canSendTransactionalMessage(business, customerPhone) {
   }
   return !!(
     business?.whatsappSenderNumber?.trim() ||
-    process.env.INFOBIP_TEST_SENDER?.trim()
+    process.env.INFOBIP_SENDER?.trim()
   );
 }

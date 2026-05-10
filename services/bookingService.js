@@ -118,10 +118,10 @@ async function runBookingConfirmationSideEffects({
       }
       if (backend === "infobip") {
         const waSender =
-          bizForSms?.whatsappSenderNumber?.trim() || process.env.INFOBIP_TEST_SENDER?.trim();
+          bizForSms?.whatsappSenderNumber?.trim() || process.env.INFOBIP_SENDER?.trim();
         if (!waSender) {
           console.log(
-            "[bookingService] Infobip/WhatsApp confirmation skipped — no whatsappSenderNumber or INFOBIP_TEST_SENDER"
+            "[bookingService] Infobip/WhatsApp confirmation skipped — no whatsappSenderNumber or INFOBIP_SENDER"
           );
           return;
         }
@@ -1210,7 +1210,7 @@ export async function rescheduleBooking(input) {
   const canTwilio = !!(toPhone && fromNumber);
   const canInfobip = !!(
     toPhone &&
-    (bizForSms?.whatsappSenderNumber?.trim() || process.env.INFOBIP_TEST_SENDER?.trim())
+    (bizForSms?.whatsappSenderNumber?.trim() || process.env.INFOBIP_SENDER?.trim())
   );
   const canSend =
     isFeatureAllowed(bizForSms.plan || "starter", "smsConfirmations") &&
