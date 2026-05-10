@@ -2,6 +2,8 @@
  * Book8 plan definitions — source of truth for API enforcement and dashboard UI.
  */
 
+import { getCurrencyForBusiness } from "./currencyMap.js";
+
 export const PLANS = {
   /** BOO-76A: new locations until Stripe checkout completes — no live booking channels */
   none: {
@@ -38,6 +40,11 @@ export const PLANS = {
   starter: {
     name: "Starter",
     price: 29,
+    billing: {
+      /** Smallest currency unit (cents / fils); must match Stripe Price amounts */
+      amounts: { usd: 1900, aed: 7000 },
+      defaultCurrency: "usd"
+    },
     features: {
       maxBusinesses: 1,
       maxServices: 3,
@@ -75,6 +82,10 @@ export const PLANS = {
   growth: {
     name: "Growth",
     price: 99,
+    billing: {
+      amounts: { usd: 7900, aed: 29000 },
+      defaultCurrency: "usd"
+    },
     features: {
       maxBusinesses: 5,
       maxServices: 20,
@@ -107,6 +118,10 @@ export const PLANS = {
   enterprise: {
     name: "Enterprise",
     price: 299,
+    billing: {
+      amounts: { usd: 19900, aed: 73000 },
+      defaultCurrency: "usd"
+    },
     features: {
       maxBusinesses: -1,
       maxServices: -1,
@@ -138,6 +153,100 @@ export const PLANS = {
 };
 
 const PLAN_KEYS = new Set(["none", "starter", "growth", "enterprise"]);
+
+const PAID_PLAN_KEYS = ["starter", "growth", "enterprise"];
+
+const PRICING_DISPLAY_SYMBOL = {
+  usd: "$",
+  aed: "AED"
+};
+
+function envFirst(keys) {
+  for (const k of keys) {
+    const v = process.env[k];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return "";
+}
+
+function stripePriceIdsForPlan(planName) {
+  switch (planName) {
+    case "starter":
+      return {
+        usd: envFirst(["STRIPE_PRICE_STARTER_USD", "STRIPE_PRICE_STARTER"]),
+        aed: envFirst(["STRIPE_PRICE_STARTER_AED"])
+      };
+    case "growth":
+      return {
+        usd: envFirst(["STRIPE_PRICE_GROWTH_USD", "STRIPE_PRICE_GROWTH"]),
+        aed: envFirst(["STRIPE_PRICE_GROWTH_AED"])
+      };
+    case "enterprise":
+      return {
+        usd: envFirst(["STRIPE_PRICE_ENTERPRISE_USD", "STRIPE_PRICE_ENTERPRISE"]),
+        aed: envFirst(["STRIPE_PRICE_ENTERPRISE_AED"])
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * @param {string} planName - starter | growth | enterprise
+ * @param {string} currency - lowercase Stripe currency (e.g. usd, aed)
+ * @returns {string} Stripe Price ID
+ */
+export function getPriceIdForPlan(planName, currency) {
+  const plan = PLANS[planName];
+  if (!plan?.billing) {
+    throw new Error(`Unknown plan: ${planName}`);
+  }
+  const priceIds = stripePriceIdsForPlan(planName);
+  if (!priceIds) {
+    throw new Error(`Unknown plan: ${planName}`);
+  }
+  const { defaultCurrency } = plan.billing;
+  const cur = (currency || "").toLowerCase();
+  const id = priceIds[cur] || priceIds[defaultCurrency];
+  if (!id) {
+    throw new Error(`No Stripe price ID for plan ${planName} (${cur})`);
+  }
+  return id;
+}
+
+/**
+ * Stripe Checkout / subscription session: currency + Price ID from business + plan.
+ * @param {object} business
+ * @param {string} planName
+ * @returns {{ currency: string, priceId: string }}
+ */
+export function resolveSubscriptionPriceForBusiness(business, planName) {
+  const currency = getCurrencyForBusiness(business);
+  const priceId = getPriceIdForPlan(planName, currency);
+  return { currency, priceId };
+}
+
+/**
+ * Public pricing for onboarding UI (amounts in major units).
+ * @param {string} currency - resolved lowercase currency
+ * @returns {Record<string, { amount: number, currency: string, displaySymbol: string }>}
+ */
+export function getPlansPricingByCurrency(currency) {
+  const requested = (currency || "usd").toLowerCase();
+  const out = {};
+  for (const key of PAID_PLAN_KEYS) {
+    const billing = PLANS[key].billing;
+    const has = billing.amounts[requested] != null;
+    const eff = has ? requested : billing.defaultCurrency;
+    const minor = billing.amounts[eff];
+    out[key] = {
+      amount: minor / 100,
+      currency: eff,
+      displaySymbol: PRICING_DISPLAY_SYMBOL[eff] || eff.toUpperCase()
+    };
+  }
+  return out;
+}
 
 /**
  * @param {string} [plan]

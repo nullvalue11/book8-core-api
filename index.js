@@ -31,6 +31,7 @@ import reviewsRouter, { handleGetBusinessReviews } from "./src/routes/reviews.js
 import waitlistRouter from "./src/routes/waitlist.js";
 import rootHealthRouter from "./src/routes/rootHealth.js";
 import createApiOnboardingRouter from "./src/routes/apiOnboarding.js";
+import plansRouter from "./src/routes/plans.js";
 import categoriesRouter from "./src/routes/categories.js";
 import createBusinessesHttpRouter from "./src/routes/businessesHttp.js";
 import createAggregateRouter from "./src/routes/aggregate.js";
@@ -176,6 +177,7 @@ app.use("/api/businesses", noShowBusinessRouter);
 app.use("/api/businesses", waitlistRouter);
 
 app.use("/api", createApiOnboardingRouter({ requireApiKey }));
+app.use("/api/plans", plansRouter);
 app.use("/api", categoriesRouter);
 
 app.use("/api/calendar", calendarRouter);
