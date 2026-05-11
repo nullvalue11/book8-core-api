@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "set NODE_ENV=test && node --test --test-concurrency=1 tests/*.js tests/messaging/*.js tests/infobip/*.js",
+    "test": "set NODE_ENV=test && node --test --test-concurrency=1 tests/*.js tests/config/*.js tests/routes/*.js tests/messaging/*.js tests/infobip/*.js",
     "lint": "node --check index.js && node --check services/infobip/infobipClient.js",
     "test:timezone": "set NODE_ENV=test && node --test tests/bookingService.timezone.test.js",
     "migrate:booking-slot-tz": "node scripts/migrate-booking-slot-tz.cjs",
@@ -21,7 +21,8 @@
     "backfill:trial": "node scripts/backfill-trial-fields.js",
     "backfill:trial:dry": "node scripts/backfill-trial-fields.js --dry-run",
     "backfill:calendar-from-book8": "node scripts/backfill-calendar-state-from-book8.cjs",
-    "backfill:calendar-from-book8:apply": "node scripts/backfill-calendar-state-from-book8.cjs --apply"
+    "backfill:calendar-from-book8:apply": "node scripts/backfill-calendar-state-from-book8.cjs --apply",
+    "backfill:available-channels": "node scripts/migrations/backfillAvailableChannels.js"
   },
   "dependencies": {
     "chrono-node": "^2.9.0",

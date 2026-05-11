@@ -9,6 +9,7 @@ import { getDefaultServices, getDefaultWeeklySchedule } from "./bootstrapDefault
 import { ensureBookableDefaultsForBusiness } from "./bookableBootstrap.js";
 import { generateUniquePublicSlug } from "../src/utils/businessRouteHelpers.js";
 import { copyFranchiseServicesToNewBusiness } from "./franchiseServiceSync.js";
+import { resolveCountryIsoForBusiness, countryChannelBootstrap } from "../src/utils/businessCountry.js";
 
 /** BOO-97A */
 function buildTrialFields(anchorDate = new Date()) {
@@ -47,6 +48,7 @@ export async function ensureTenant(input) {
     timezone,
     email,
     phoneNumber,
+    country: inputCountry,
     services,
     plan: inputPlan
   } = input || {};
@@ -84,6 +86,9 @@ export async function ensureTenant(input) {
 
   const finalCategory = category || (await classifyBusinessCategory({ name, description }));
   const normalizedPhone = normalizePhone(phoneNumber);
+  const countryIso = resolveCountryIsoForBusiness(inputCountry);
+  const chBoot = countryChannelBootstrap(countryIso);
+  const voiceOk = chBoot.availableChannels.voice;
   const tz = timezone || "America/Toronto";
   const servicesToUse = Array.isArray(services) && services.length > 0 ? services : getDefaultServices();
   const weeklyScheduleToUse = getDefaultWeeklySchedule(tz);
@@ -99,7 +104,10 @@ export async function ensureTenant(input) {
       category: finalCategory,
       timezone: tz,
       email: email || undefined,
-      phoneNumber: normalizedPhone || undefined,
+      phoneNumber: voiceOk ? normalizedPhone || undefined : null,
+      country: chBoot.country,
+      availableChannels: chBoot.availableChannels,
+      twilioNumberStatus: chBoot.twilioNumberStatus,
       services: servicesToUse,
       weeklySchedule: weeklyScheduleToUse,
       trial: buildTrialFields(),

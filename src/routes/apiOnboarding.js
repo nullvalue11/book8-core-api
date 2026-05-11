@@ -8,6 +8,7 @@ import { copyFranchiseServicesToNewBusiness } from "../../services/franchiseServ
 import { strictLimiter } from "../middleware/strictLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
 import { generateUniquePublicSlug, normalizePhoneNumber } from "../utils/businessRouteHelpers.js";
+import { resolveCountryIsoForBusiness, countryChannelBootstrap } from "../utils/businessCountry.js";
 
 export default function createApiOnboardingRouter({ requireApiKey }) {
   const router = express.Router();
@@ -60,7 +61,8 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
         email,
         greetingOverride,
         services,
-        bookingSettings
+        bookingSettings,
+        country: countryBody
       } = req.body;
 
       if (!name) {
@@ -86,6 +88,9 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
       }
 
       const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+      const countryIso = resolveCountryIsoForBusiness(countryBody);
+      const chBoot = countryChannelBootstrap(countryIso);
+      const voiceOk = chBoot.availableChannels.voice;
 
       const tz = timezone || "America/Toronto";
       const servicesToUse = Array.isArray(services) && services.length > 0 ? services : getDefaultServices();
@@ -99,12 +104,15 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
         description,
         category: finalCategory,
         timezone: tz,
-        phoneNumber: normalizedPhoneNumber,
+        phoneNumber: voiceOk ? normalizedPhoneNumber : null,
         email,
         greetingOverride,
         services: servicesToUse,
         bookingSettings,
-        weeklySchedule: weeklyScheduleToUse
+        weeklySchedule: weeklyScheduleToUse,
+        country: chBoot.country,
+        availableChannels: chBoot.availableChannels,
+        twilioNumberStatus: chBoot.twilioNumberStatus
       });
 
       await business.save();
@@ -137,7 +145,16 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
 
   router.post("/provision", requireApiKey, async (req, res) => {
     try {
-      const { name, description, category, timezone, email, phoneNumber, services } = req.body;
+      const {
+        name,
+        description,
+        category,
+        timezone,
+        email,
+        phoneNumber,
+        services,
+        country: countryBodyProv
+      } = req.body;
 
       if (!name) {
         return res.status(400).json({
@@ -162,6 +179,9 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
       }
 
       const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+      const countryIsoProv = resolveCountryIsoForBusiness(countryBodyProv);
+      const chBootProv = countryChannelBootstrap(countryIsoProv);
+      const voiceOkProv = chBootProv.availableChannels.voice;
 
       const tz = timezone || "America/Toronto";
       const servicesToUse = Array.isArray(services) && services.length > 0 ? services : getDefaultServices();
@@ -175,10 +195,13 @@ export default function createApiOnboardingRouter({ requireApiKey }) {
         description,
         category: finalCategory,
         timezone: tz,
-        phoneNumber: normalizedPhoneNumber,
+        phoneNumber: voiceOkProv ? normalizedPhoneNumber : null,
         email,
         services: servicesToUse,
-        weeklySchedule: weeklyScheduleToUse
+        weeklySchedule: weeklyScheduleToUse,
+        country: chBootProv.country,
+        availableChannels: chBootProv.availableChannels,
+        twilioNumberStatus: chBootProv.twilioNumberStatus
       });
 
       await business.save();

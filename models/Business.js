@@ -154,6 +154,16 @@ const ReviewStatsSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/** BOO-WIZARD-COUNTRY-BRANCH-1A — telecom channels allowed for this business (wizard + gating). */
+const AvailableChannelsSchema = new mongoose.Schema(
+  {
+    voice: { type: Boolean, default: true },
+    whatsapp: { type: Boolean, default: true },
+    sms: { type: Boolean, default: true }
+  },
+  { _id: false }
+);
+
 const PortfolioItemSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, maxlength: 64, trim: true },
@@ -182,6 +192,17 @@ const BusinessSchema = new mongoose.Schema(
     phoneNumber: { type: String, index: true, unique: true, sparse: true, maxlength: 32, trim: true },
     /** BOO-INFOBIP-INTEGRATE-1A: optional top-level country label for BSP routing (also uses businessProfile.address.country). */
     country: { type: String, maxlength: 120, trim: true, sparse: true },
+    /** BOO-WIZARD-COUNTRY-BRANCH-1A */
+    availableChannels: {
+      type: AvailableChannelsSchema,
+      default: () => ({ voice: true, whatsapp: true, sms: true })
+    },
+    /** BOO-WIZARD-COUNTRY-BRANCH-1A — Twilio pool / voice provisioning lifecycle */
+    twilioNumberStatus: {
+      type: String,
+      enum: ["pending", "provisioned", "failed", "skipped_voice_blocked"],
+      default: "pending"
+    },
     email: { type: String, maxlength: 254, trim: true },
     /** Dashboard login email when distinct from root `email` (used with x-book8-user-email). */
     ownerEmail: { type: String, maxlength: 254, trim: true, sparse: true, index: true },

@@ -31,6 +31,8 @@ import {
 } from "../../services/franchiseServiceSync.js";
 import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 import { trialDeniedDashboardWrite, buildTrialStatusPayload } from "../utils/trialLifecycle.js";
+import { resolveCountryIsoForBusiness, countryChannelBootstrap } from "../utils/businessCountry.js";
+import { resolveVoiceAllowedForBusiness } from "../config/voiceCountries.js";
 
 /** Dashboard / book8-ai list all services; public booking widget only sees active. */
 function hasServiceListManagementAuth(req) {
@@ -693,6 +695,14 @@ export default function createBusinessesHttpRouter(deps) {
       const tdAssign = trialDeniedDashboardWrite(resolved.business);
       if (tdAssign) return res.status(tdAssign.status).json(tdAssign.body);
 
+      if (!resolveVoiceAllowedForBusiness(resolved.business)) {
+        return res.status(403).json({
+          ok: false,
+          error: "Voice and dedicated phone numbers are not available in this region. Use WhatsApp booking.",
+          voiceNotAvailable: true
+        });
+      }
+
       const rawPlan = resolved.business.plan;
       if (!rawPlan || String(rawPlan).toLowerCase() === "none") {
         const bid = encodeURIComponent(String(resolved.business.id ?? resolved.business.businessId ?? ""));
@@ -775,7 +785,8 @@ export default function createBusinessesHttpRouter(deps) {
         assignedTwilioNumber,
         greetingOverride,
         services,
-        bookingSettings
+        bookingSettings,
+        country: countryBody
       } = req.body;
 
       if (!id || !name) {
@@ -793,6 +804,10 @@ export default function createBusinessesHttpRouter(deps) {
       const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
       const normalizedAssignedTwilioNumber = normalizePhoneNumber(assignedTwilioNumber);
 
+      const countryIso = resolveCountryIsoForBusiness(countryBody);
+      const chBoot = countryChannelBootstrap(countryIso);
+      const voiceOk = chBoot.availableChannels.voice;
+
       const publicHandle = await generateUniquePublicSlug(name, { excludingId: id });
 
       const update = {
@@ -803,9 +818,12 @@ export default function createBusinessesHttpRouter(deps) {
         description,
         category: finalCategory,
         timezone,
-        phoneNumber: normalizedPhoneNumber,
+        country: chBoot.country,
+        availableChannels: chBoot.availableChannels,
+        twilioNumberStatus: chBoot.twilioNumberStatus,
+        phoneNumber: voiceOk ? normalizedPhoneNumber : null,
         email,
-        assignedTwilioNumber: normalizedAssignedTwilioNumber,
+        assignedTwilioNumber: voiceOk ? normalizedAssignedTwilioNumber : null,
         greetingOverride,
         services,
         bookingSettings

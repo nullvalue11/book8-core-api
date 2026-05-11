@@ -78,7 +78,8 @@ router.post("/", async (req, res) => {
       category,
       timezone: timezone || "America/Toronto",
       email,
-      phoneNumber
+      phoneNumber,
+      country: req.body.country
     });
 
     if (!result.ok) {

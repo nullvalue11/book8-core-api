@@ -10,6 +10,7 @@ import {
 } from "./twilioNumberSetup.js";
 import { ensureBookableDefaultsForBusiness } from "./bookableBootstrap.js";
 import { isFeatureAllowed } from "../src/config/plans.js";
+import { resolveVoiceAllowedForBusiness } from "../src/config/voiceCountries.js";
 
 /** Match business by canonical slug stored in `id` or duplicate `businessId`. */
 export function businessLookupFilter(slugOrId) {
@@ -44,6 +45,18 @@ export async function assignTwilioNumberFromPool(slugOrId) {
       detail:
         "Phone agent not included on this plan. Upgrade to Growth for a dedicated phone number.",
       plan
+    };
+  }
+
+  if (!resolveVoiceAllowedForBusiness(business)) {
+    console.log(
+      `[PROVISION] Skipping phone provisioning for ${bid} — voice not available (country=${business.country || "n/a"})`
+    );
+    return {
+      ok: true,
+      skipped: true,
+      reason: "voice_not_available_in_country",
+      detail: "Voice answering is not available in this region"
     };
   }
 

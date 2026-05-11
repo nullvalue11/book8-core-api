@@ -180,6 +180,7 @@ describe("GET /api/plans/pricing", () => {
     assert.strictEqual(res.body.starter.displaySymbol, "CA$");
     assert.strictEqual(res.body.growth.amount, 9900);
     assert.strictEqual(res.body.enterprise.amount, 29900);
+    assert.deepStrictEqual(res.body.channels, { voice: true, whatsapp: true, sms: true });
   });
 
   it("returns AED minor units for country=AE", async () => {
@@ -188,7 +189,8 @@ describe("GET /api/plans/pricing", () => {
     assert.deepStrictEqual(res.body, {
       starter: { amount: 7000, currency: "aed", displaySymbol: "AED" },
       growth: { amount: 25000, currency: "aed", displaySymbol: "AED" },
-      enterprise: { amount: 73000, currency: "aed", displaySymbol: "AED" }
+      enterprise: { amount: 73000, currency: "aed", displaySymbol: "AED" },
+      channels: { voice: false, whatsapp: true, sms: false }
     });
   });
 
@@ -200,6 +202,7 @@ describe("GET /api/plans/pricing", () => {
     assert.strictEqual(res.body.enterprise.amount, 19900);
     assert.strictEqual(res.body.growth.currency, "usd");
     assert.strictEqual(res.body.growth.displaySymbol, "$");
+    assert.deepStrictEqual(res.body.channels, { voice: true, whatsapp: true, sms: true });
   });
 
   it("defaults to USD minor units with no country query", async () => {
@@ -207,5 +210,6 @@ describe("GET /api/plans/pricing", () => {
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.starter.currency, "usd");
     assert.strictEqual(res.body.starter.amount, 1900);
+    assert.deepStrictEqual(res.body.channels, { voice: true, whatsapp: true, sms: false });
   });
 });

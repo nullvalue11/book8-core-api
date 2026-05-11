@@ -102,6 +102,7 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
           timezone,
           email,
           phoneNumber,
+          country,
           services,
           plan
         } = payload;
@@ -121,6 +122,7 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
             timezone,
             email,
             phoneNumber,
+            country,
             services,
             plan
           });
