@@ -20,6 +20,7 @@ import internalSubscriptionSyncRouter from "./src/routes/internalSubscriptionSyn
 import healthCheckRouter from "./src/routes/healthCheck.js";
 import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
 import twilioInboundRouter from "./src/routes/twilioInbound.js";
+import infobipInboundRouter from "./src/routes/webhooks/infobipInbound.js";
 import twilioPoolRouter from "./src/routes/twilioPool.js";
 import businessLogoRouter from "./src/routes/businessLogo.js";
 import businessPortfolioRouter from "./src/routes/businessPortfolio.js";
@@ -92,7 +93,10 @@ app.use(
   express.json({
     limit: "512kb",
     verify: (req, res, buf) => {
-      if (req.originalUrl.includes("/api/elevenlabs/")) {
+      if (
+        req.originalUrl.includes("/api/elevenlabs/") ||
+        req.originalUrl.includes("/api/webhooks/infobip")
+      ) {
         req.rawBody = buf;
       }
     }
@@ -188,6 +192,7 @@ app.use("/api/reviews", reviewsRouter);
 app.use("/api/bookings", bookingNoShowExtras);
 app.use("/api/bookings", bookingsRouter);
 app.use("/api/twilio", twilioInboundRouter);
+app.use("/api/webhooks/infobip", infobipInboundRouter);
 app.use("/api/elevenlabs", elevenLabsWebhookRouter);
 // BOO-43A: rate-limit cron + internal routes (shared strictLimiter instance)
 app.use("/api/cron", strictLimiter, cronRouter);

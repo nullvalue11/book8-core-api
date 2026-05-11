@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "set NODE_ENV=test && node --test --test-concurrency=1 tests/*.js tests/config/*.js tests/routes/*.js tests/messaging/*.js tests/infobip/*.js",
-    "lint": "node --check index.js && node --check services/infobip/infobipClient.js",
+    "test": "set NODE_ENV=test && node --test --test-concurrency=1 tests/*.js tests/config/*.js tests/routes/*.js tests/messaging/*.js tests/infobip/*.js tests/webhooks/*.js",
+    "lint": "node --check index.js && node --check services/infobip/infobipClient.js && node --check src/routes/webhooks/infobipInbound.js && node --check src/services/whatsappBusinessRouter.js && node --check src/models/WhatsappConversation.js",
     "test:timezone": "set NODE_ENV=test && node --test tests/bookingService.timezone.test.js",
     "migrate:booking-slot-tz": "node scripts/migrate-booking-slot-tz.cjs",
     "purge:bookings": "node scripts/purgeBookingsAllBusinesses.js",
