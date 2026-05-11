@@ -99,4 +99,4 @@ export function getCurrencyForBusiness(business) {
   return DEFAULT_CURRENCY;
 }
 
-export { COUNTRY_CURRENCY, DEFAULT_CURRENCY };
+export { COUNTRY_CURRENCY, DEFAULT_CURRENCY, normalizeCountryCode };

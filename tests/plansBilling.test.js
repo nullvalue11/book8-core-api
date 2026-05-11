@@ -3,6 +3,7 @@
  *
  * Home currency is CAD; USD + AED are additional currencies. Legacy no-suffix
  * STRIPE_PRICE_* env vars hold the CAD Price IDs (production reality).
+ * Pricing API amounts are always Stripe minor units (frontend divides by 100).
  */
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
@@ -144,62 +145,67 @@ describe("getPriceIdForPlan legacy no-suffix env var fallback", () => {
 });
 
 describe("getPlansPricingByCurrency", () => {
-  it("returns CAD major amounts (home currency)", () => {
+  it("returns CAD minor amounts (home currency)", () => {
     const p = getPlansPricingByCurrency("cad");
-    assert.strictEqual(p.starter.amount, 29);
+    assert.strictEqual(p.starter.amount, 2900);
+    assert.strictEqual(p.growth.amount, 9900);
+    assert.strictEqual(p.enterprise.amount, 29900);
     assert.strictEqual(p.starter.currency, "cad");
     assert.strictEqual(p.starter.displaySymbol, "CA$");
-    assert.strictEqual(p.growth.amount, 99);
-    assert.strictEqual(p.enterprise.amount, 299);
   });
 
-  it("returns USD major amounts", () => {
+  it("returns USD minor amounts (US list)", () => {
     const p = getPlansPricingByCurrency("usd");
-    assert.strictEqual(p.starter.amount, 19);
-    assert.strictEqual(p.growth.amount, 69);
-    assert.strictEqual(p.enterprise.amount, 199);
+    assert.strictEqual(p.starter.amount, 1900);
+    assert.strictEqual(p.growth.amount, 6900);
+    assert.strictEqual(p.enterprise.amount, 19900);
     assert.strictEqual(p.starter.displaySymbol, "$");
   });
 
-  it("returns AED major amounts", () => {
+  it("returns AED minor amounts", () => {
     const p = getPlansPricingByCurrency("aed");
-    assert.strictEqual(p.starter.amount, 70);
-    assert.strictEqual(p.growth.amount, 250);
-    assert.strictEqual(p.enterprise.amount, 730);
+    assert.strictEqual(p.starter.amount, 7000);
+    assert.strictEqual(p.growth.amount, 25000);
+    assert.strictEqual(p.enterprise.amount, 73000);
     assert.strictEqual(p.enterprise.currency, "aed");
   });
 });
 
 describe("GET /api/plans/pricing", () => {
-  it("returns CAD prices for country=CA (home market)", async () => {
+  it("returns CAD minor units for country=CA", async () => {
     const res = await request(pricingApp()).get("/api/plans/pricing?country=CA");
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.starter.currency, "cad");
-    assert.strictEqual(res.body.starter.amount, 29);
+    assert.strictEqual(res.body.starter.amount, 2900);
     assert.strictEqual(res.body.starter.displaySymbol, "CA$");
-    assert.strictEqual(res.body.growth.amount, 99);
-    assert.strictEqual(res.body.enterprise.amount, 299);
+    assert.strictEqual(res.body.growth.amount, 9900);
+    assert.strictEqual(res.body.enterprise.amount, 29900);
   });
 
-  it("returns AED prices for country=AE", async () => {
+  it("returns AED minor units for country=AE", async () => {
     const res = await request(pricingApp()).get("/api/plans/pricing?country=AE");
     assert.strictEqual(res.status, 200);
-    assert.strictEqual(res.body.starter.currency, "aed");
-    assert.strictEqual(res.body.starter.amount, 70);
-    assert.strictEqual(res.body.starter.displaySymbol, "AED");
+    assert.deepStrictEqual(res.body, {
+      starter: { amount: 7000, currency: "aed", displaySymbol: "AED" },
+      growth: { amount: 25000, currency: "aed", displaySymbol: "AED" },
+      enterprise: { amount: 73000, currency: "aed", displaySymbol: "AED" }
+    });
   });
 
-  it("returns USD prices for country=US", async () => {
+  it("returns USD minor units for country=US", async () => {
     const res = await request(pricingApp()).get("/api/plans/pricing?country=US");
     assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.starter.amount, 1900);
+    assert.strictEqual(res.body.growth.amount, 6900);
+    assert.strictEqual(res.body.enterprise.amount, 19900);
     assert.strictEqual(res.body.growth.currency, "usd");
-    assert.strictEqual(res.body.growth.amount, 69);
     assert.strictEqual(res.body.growth.displaySymbol, "$");
   });
 
-  it("defaults to USD with no country query (international fallback)", async () => {
+  it("defaults to USD minor units with no country query", async () => {
     const res = await request(pricingApp()).get("/api/plans/pricing");
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.starter.currency, "usd");
+    assert.strictEqual(res.body.starter.amount, 1900);
   });
 });

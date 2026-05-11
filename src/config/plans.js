@@ -41,7 +41,7 @@ export const PLANS = {
     name: "Starter",
     price: 29,
     billing: {
-      /** Smallest currency unit (cents / fils); must match Stripe Price amounts */
+      /** Minor units (Stripe); must match Price amounts */
       amounts: { cad: 2900, usd: 1900, aed: 7000 },
       defaultCurrency: "cad"
     },
@@ -236,22 +236,25 @@ export function resolveSubscriptionPriceForBusiness(business, planName) {
 }
 
 /**
- * Public pricing for onboarding UI (amounts in major units).
- * @param {string} currency - resolved lowercase currency
+ * Public pricing for onboarding UI — amounts are Stripe minor units (cents / fils / cents CAD).
+ * @param {string} currency - resolved lowercase currency (cad | usd | aed)
  * @returns {Record<string, { amount: number, currency: string, displaySymbol: string }>}
  */
 export function getPlansPricingByCurrency(currency) {
-  const requested = (currency || "usd").toLowerCase();
+  const cur = (currency || "usd").toLowerCase();
   const out = {};
   for (const key of PAID_PLAN_KEYS) {
     const billing = PLANS[key].billing;
-    const has = billing.amounts[requested] != null;
-    const eff = has ? requested : billing.defaultCurrency;
-    const minor = billing.amounts[eff];
+    let effCurrency = cur;
+    let minor = billing.amounts[cur];
+    if (minor == null) {
+      effCurrency = billing.defaultCurrency;
+      minor = billing.amounts[effCurrency];
+    }
     out[key] = {
-      amount: minor / 100,
-      currency: eff,
-      displaySymbol: PRICING_DISPLAY_SYMBOL[eff] || eff.toUpperCase()
+      amount: minor,
+      currency: effCurrency,
+      displaySymbol: PRICING_DISPLAY_SYMBOL[effCurrency] || effCurrency.toUpperCase()
     };
   }
   return out;

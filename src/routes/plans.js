@@ -9,10 +9,8 @@ const router = express.Router();
 router.get("/pricing", strictLimiter, (req, res) => {
   try {
     const raw = req.query.country;
-    const currency =
-      raw != null && String(raw).trim() !== ""
-        ? getCurrencyForCountry(String(raw).trim())
-        : DEFAULT_CURRENCY;
+    const trimmed = raw != null && String(raw).trim() !== "" ? String(raw).trim() : null;
+    const currency = trimmed ? getCurrencyForCountry(trimmed) : DEFAULT_CURRENCY;
     res.json(getPlansPricingByCurrency(currency));
   } catch (err) {
     console.error("[GET /api/plans/pricing]", err);
