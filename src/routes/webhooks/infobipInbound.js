@@ -111,6 +111,35 @@ function isDuplicateKeyError(err) {
 router.post("/inbound", async (req, res) => {
   try {
     if (!verifyInfobipWebhookSignature(req)) {
+      // === BOO-INFOBIP-WEBHOOK-DEBUG-1A: diagnostic logging ===
+      // Temporary — to be removed after signature format is identified
+      const rawBody = req.rawBody;
+      const secret = process.env.INFOBIP_WEBHOOK_SECRET;
+      let expectedSignature = null;
+      if (secret && rawBody) {
+        try {
+          expectedSignature = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+        } catch {
+          expectedSignature = null;
+        }
+      }
+      const signatureHeaders = {};
+      for (const [key, value] of Object.entries(req.headers || {})) {
+        if (/signature|hmac|infobip|hub/i.test(key)) {
+          signatureHeaders[key] = value;
+        }
+      }
+      console.log(
+        "[INFOBIP-SIG-DEBUG]",
+        JSON.stringify({
+          signatureHeaders,
+          computedExpected: expectedSignature,
+          rawBodyLength: rawBody && rawBody.length ? rawBody.length : 0,
+          secretLoaded: Boolean(secret && secret.length > 0),
+          secretLength: (secret || "").length
+        })
+      );
+      // === END DEBUG ===
       console.warn("[INFOBIP-INBOUND] Invalid or missing webhook signature");
       return res.status(401).end();
     }
