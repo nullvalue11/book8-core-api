@@ -15,18 +15,20 @@ const PHONE_ROUTED = "+971501111111";
 const PHONE_EXISTING = "+971502222222";
 const PHONE_UNROUTED = "+971503333333";
 const PHONE_MEDIA = "+971504444444";
+const PHONE_HUB_LOWER = "+971506666666";
 
-function signRawBody(raw) {
-  return crypto.createHmac("sha256", SECRET).update(raw).digest("hex");
+function hubSignatureForBody(raw) {
+  const hex = crypto.createHmac("sha256", SECRET).update(raw).digest("hex");
+  return `SHA256=${hex.toUpperCase()}`;
 }
 
 function postInbound(bodyObj, { signature } = {}) {
   const raw = typeof bodyObj === "string" ? bodyObj : JSON.stringify(bodyObj);
-  const sig = signature ?? signRawBody(raw);
+  const sig = signature ?? hubSignatureForBody(raw);
   return request(app)
     .post("/api/webhooks/infobip/inbound")
     .set("Content-Type", "application/json")
-    .set("X-Infobip-Signature", sig)
+    .set("X-Hub-Signature", sig)
     .send(raw);
 }
 
@@ -53,13 +55,13 @@ describe("POST /api/webhooks/infobip/inbound", () => {
       { upsert: true, new: true }
     );
     await WhatsappConversation.deleteMany({
-      customerPhone: { $in: [PHONE_ROUTED, PHONE_EXISTING, PHONE_UNROUTED, PHONE_MEDIA] }
+      customerPhone: { $in: [PHONE_ROUTED, PHONE_EXISTING, PHONE_UNROUTED, PHONE_MEDIA, PHONE_HUB_LOWER] }
     });
   });
 
   after(async () => {
     await WhatsappConversation.deleteMany({
-      customerPhone: { $in: [PHONE_ROUTED, PHONE_EXISTING, PHONE_UNROUTED, PHONE_MEDIA] }
+      customerPhone: { $in: [PHONE_ROUTED, PHONE_EXISTING, PHONE_UNROUTED, PHONE_MEDIA, PHONE_HUB_LOWER] }
     });
     await Business.deleteOne({ id: BIZ_TOKEN });
   });
@@ -175,6 +177,35 @@ describe("POST /api/webhooks/infobip/inbound", () => {
     const body = { results: [sampleTextResult({ text: "x" })] };
     const res = await postInbound(body, { signature: "deadbeef" });
     assert.equal(res.status, 401);
+  });
+
+  it("accepts lowercase sha256= prefix on X-Hub-Signature", async () => {
+    const messageId = crypto.randomUUID();
+    const body = {
+      results: [
+        sampleTextResult({
+          messageId,
+          from: PHONE_HUB_LOWER.replace("+", ""),
+          text: "Hub lowercase prefix"
+        })
+      ]
+    };
+    const raw = JSON.stringify(body);
+    const hex = crypto.createHmac("sha256", SECRET).update(raw).digest("hex");
+    const sig = `sha256=${hex.toUpperCase()}`;
+    const res = await request(app)
+      .post("/api/webhooks/infobip/inbound")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature", sig)
+      .send(raw);
+    assert.equal(res.status, 200);
+
+    const doc = await WhatsappConversation.findOne({
+      customerPhone: PHONE_HUB_LOWER,
+      "messages.messageId": messageId
+    }).lean();
+    assert.ok(doc);
+    assert.equal(doc.messages.find((m) => m.messageId === messageId)?.content.text, "Hub lowercase prefix");
   });
 
   it("persists audio url and mime type without text", async () => {

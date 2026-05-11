@@ -55,20 +55,21 @@ function extractDurationSeconds(message) {
 }
 
 /**
- * Infobip CPaaS X: HMAC-SHA256 over raw body, hex digest, header `X-Infobip-Signature` (same encoding as digest string).
+ * Infobip WhatsApp inbound: Meta Cloud API convention — `X-Hub-Signature: SHA256=<hex>` over raw body (HMAC-SHA256).
  */
 function verifyInfobipWebhookSignature(req) {
-  const signatureHeader = req.headers["x-infobip-signature"];
+  const signatureHeader = req.headers["x-hub-signature"];
   const secret = process.env.INFOBIP_WEBHOOK_SECRET;
   if (!signatureHeader || !secret || !req.rawBody) {
     return false;
   }
   try {
-    const expectedHex = crypto.createHmac("sha256", secret).update(req.rawBody).digest("hex");
-    const digestBuf = Buffer.from(expectedHex, "utf8");
-    const receivedBuf = Buffer.from(String(signatureHeader).trim(), "utf8");
-    if (digestBuf.length !== receivedBuf.length) return false;
-    return crypto.timingSafeEqual(digestBuf, receivedBuf);
+    const expectedSignature = crypto.createHmac("sha256", secret).update(req.rawBody).digest("hex");
+    const receivedHex = String(signatureHeader).trim().replace(/^SHA256=/i, "");
+    const receivedBuf = Buffer.from(receivedHex.toLowerCase(), "utf8");
+    const expectedBuf = Buffer.from(expectedSignature.toLowerCase(), "utf8");
+    if (receivedBuf.length !== expectedBuf.length) return false;
+    return crypto.timingSafeEqual(receivedBuf, expectedBuf);
   } catch {
     return false;
   }
@@ -111,35 +112,6 @@ function isDuplicateKeyError(err) {
 router.post("/inbound", async (req, res) => {
   try {
     if (!verifyInfobipWebhookSignature(req)) {
-      // === BOO-INFOBIP-WEBHOOK-DEBUG-1A: diagnostic logging ===
-      // Temporary — to be removed after signature format is identified
-      const rawBody = req.rawBody;
-      const secret = process.env.INFOBIP_WEBHOOK_SECRET;
-      let expectedSignature = null;
-      if (secret && rawBody) {
-        try {
-          expectedSignature = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-        } catch {
-          expectedSignature = null;
-        }
-      }
-      const signatureHeaders = {};
-      for (const [key, value] of Object.entries(req.headers || {})) {
-        if (/signature|hmac|infobip|hub/i.test(key)) {
-          signatureHeaders[key] = value;
-        }
-      }
-      console.log(
-        "[INFOBIP-SIG-DEBUG]",
-        JSON.stringify({
-          signatureHeaders,
-          computedExpected: expectedSignature,
-          rawBodyLength: rawBody && rawBody.length ? rawBody.length : 0,
-          secretLoaded: Boolean(secret && secret.length > 0),
-          secretLength: (secret || "").length
-        })
-      );
-      // === END DEBUG ===
       console.warn("[INFOBIP-INBOUND] Invalid or missing webhook signature");
       return res.status(401).end();
     }
