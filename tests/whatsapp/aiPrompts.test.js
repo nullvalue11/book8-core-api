@@ -17,4 +17,5 @@ test("buildSystemPrompt includes detect-and-match language instructions (BOO-INF
   assert.doesNotMatch(prompt, /respond in English/i);
   assert.doesNotMatch(prompt, /Respond in the customer's language/i);
   assert.match(prompt, /stored language preference is English/);
+  assert.match(prompt, /Permítame verificar/);
 });
