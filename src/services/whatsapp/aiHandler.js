@@ -5,7 +5,7 @@ import { Business } from "../../../models/Business.js";
 import { WhatsappConversation } from "../../models/WhatsappConversation.js";
 import { buildSystemPrompt } from "./aiPrompts.js";
 import { getToolDefinitions, executeTool } from "./aiTools.js";
-import { sendText, normalizeWhatsAppAddress } from "../../../services/infobip/infobipClient.js";
+import { sendText } from "../../../services/infobip/infobipClient.js";
 
 const MODEL = process.env.ANTHROPIC_MODEL_WHATSAPP || "claude-haiku-4-5-20251001";
 const FALLBACK_TEXT = "Sorry, I'm having trouble right now. Please try again in a moment.";
@@ -186,24 +186,9 @@ export async function processConversation(conversationId) {
     return;
   }
 
-  const fromDigits =
-    normalizeWhatsAppAddress(business.whatsappSenderNumber) ||
-    normalizeWhatsAppAddress(process.env.INFOBIP_SENDER);
-  if (!fromDigits) {
-    console.error("[AI-HANDLER] No WhatsApp sender (business.whatsappSenderNumber or INFOBIP_SENDER)");
-    return;
-  }
-
-  const toDigits = normalizeWhatsAppAddress(conversation.customerPhone);
-  if (!toDigits) {
-    console.error("[AI-HANDLER] Invalid customer phone for send");
-    return;
-  }
-
   try {
     await sendText({
-      from: fromDigits,
-      to: toDigits,
+      to: conversation.customerPhone,
       text: finalText,
       businessId: business.id
     });

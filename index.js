@@ -219,6 +219,13 @@ if (process.env.NODE_ENV !== "test") {
     process.exit(1);
   }
 
+  if (!process.env.INFOBIP_SENDER?.trim()) {
+    console.warn(
+      "[STARTUP] INFOBIP_SENDER env var is NOT set. WhatsApp outbound sends " +
+        "will fail unless each business has whatsappSenderNumber configured."
+    );
+  }
+
   app.listen(PORT, () => {
     console.log(`[book8-core-api] Listening on port ${PORT}`);
     mongoose

@@ -3,6 +3,7 @@
  * @see https://www.infobip.com/docs/api/channels/whatsapp
  */
 import { randomUUID } from "crypto";
+import { Business } from "../../models/Business.js";
 
 function baseUrl() {
   const raw = process.env.INFOBIP_BASE_URL?.trim()?.replace(/\/+$/, "");
@@ -68,22 +69,70 @@ export function normalizeWhatsAppAddress(e164OrDigits) {
 }
 
 /**
+ * Resolve the WhatsApp sender number for a given business (BOO-INFOBIP-SENDER-FALLBACK-1A).
+ * Precedence: 1) business.whatsappSenderNumber 2) process.env.INFOBIP_SENDER
+ *
+ * @param {object | null} [business] — Business document (lean or hydrated), optional
+ * @returns {string} Digits only (no leading +)
+ * @throws {Error} if no sender can be resolved
+ */
+export function resolveWhatsAppSender(business = null) {
+  const perBusiness =
+    typeof business?.whatsappSenderNumber === "string" ? business.whatsappSenderNumber.trim() : "";
+  const envSender = typeof process.env.INFOBIP_SENDER === "string" ? process.env.INFOBIP_SENDER.trim() : "";
+  const raw = (perBusiness.length > 0 ? perBusiness : null) || (envSender.length > 0 ? envSender : null);
+
+  if (!raw) {
+    throw new Error(
+      "No WhatsApp sender configured. Set INFOBIP_SENDER env var OR add whatsappSenderNumber to the business document. " +
+        `(business: ${business?.id || business?.businessId || "none"}, envSet: ${envSender.length > 0})`
+    );
+  }
+
+  const digits = normalizeWhatsAppAddress(raw);
+  if (!digits) {
+    throw new Error(`WhatsApp sender resolved to empty digits (raw=${JSON.stringify(raw)})`);
+  }
+  return digits;
+}
+
+async function loadBusinessForSender(businessId) {
+  if (!businessId || String(businessId).trim() === "") return null;
+  const id = String(businessId).trim();
+  return Business.findOne({ $or: [{ id }, { businessId: id }] }).lean();
+}
+
+/**
  * Send a WhatsApp template message (utility / approved templates).
  * @param {object} params
- * @param {string} params.from - Sender (digits)
+ * @param {string} [params.from] - Sender (digits); if omitted, resolved via businessId / INFOBIP_SENDER
  * @param {string} params.to - Recipient E.164 or digits
  * @param {string} params.templateName
  * @param {string} params.languageCode - WhatsApp locale (e.g. en_US, ar, fr_FR)
  * @param {string[]} params.placeholders - body placeholders in order
+ * @param {string} [params.businessId] - Book8 business id when `from` is omitted
  */
 export async function sendWhatsAppTemplate({
   from,
   to,
   templateName,
   languageCode,
-  placeholders = []
-}) {
-  const fromN = normalizeWhatsAppAddress(from);
+  placeholders = [],
+  businessId
+} = {}) {
+  let fromN;
+  if (from != null && String(from).trim() !== "") {
+    fromN = String(from).trim().replace(/^\+/, "");
+    fromN = normalizeWhatsAppAddress(fromN);
+  } else {
+    const biz = await loadBusinessForSender(businessId);
+    fromN = resolveWhatsAppSender(biz);
+  }
+  if (!fromN) {
+    throw new Error(
+      "WhatsApp sendWhatsAppTemplate: invalid or empty from (pass from, or businessId with INFOBIP_SENDER / whatsappSenderNumber)"
+    );
+  }
   const toN = normalizeWhatsAppAddress(to);
   const payload = {
     messages: [
@@ -130,14 +179,30 @@ export async function sendWhatsAppFreeForm({ from, to, text }) {
 }
 
 /**
- * Session free-form text (24h window). Alias for Infobip outbound text API.
- * @param {{ from: string, to: string, text: string, businessId?: string }} p
+ * Session free-form text (24h window). Resolves `from` when omitted (BOO-INFOBIP-SENDER-FALLBACK-1A).
+ * @param {{ from?: string, to: string, text: string, businessId?: string }} p
  */
-export async function sendText({ from, to, text, businessId }) {
-  if (businessId) {
-    void businessId;
+export async function sendText({ from, to, text, businessId } = {}) {
+  let sender;
+  if (from != null && String(from).trim() !== "") {
+    sender = normalizeWhatsAppAddress(String(from).trim().replace(/^\+/, ""));
+    if (!sender) {
+      throw new Error("WhatsApp sendText: explicit from normalized to empty digits");
+    }
+  } else {
+    const biz = await loadBusinessForSender(businessId);
+    sender = resolveWhatsAppSender(biz);
   }
-  return sendWhatsAppFreeForm({ from, to, text });
+
+  const recipient = normalizeWhatsAppAddress(to);
+  if (!recipient) {
+    throw new Error("WhatsApp sendText: recipient (to) is required");
+  }
+
+  console.log(
+    `[INFOBIP-SEND] from=${sender} to=${recipient} (business=${businessId || "none"}, len=${String(text ?? "").length})`
+  );
+  return sendWhatsAppFreeForm({ from: sender, to: recipient, text });
 }
 
 /** @returns {Promise<object>} */
