@@ -133,7 +133,11 @@ export class InfobipProvider extends MessagingProvider {
     }
     try {
       const data = await sendWhatsAppFreeForm({ from, to, text: body });
-      const mid = data?.messages?.[0]?.messageId || data?.messageId || "sent";
+      const mid =
+        data?.messages?.[0]?.messageId ||
+        data?.messageId ||
+        data?.bulkId ||
+        "sent";
       return { ok: true, messageSid: String(mid) };
     } catch (err) {
       console.error("[InfobipProvider] reschedule free-form failed:", err.message);

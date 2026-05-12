@@ -51,7 +51,7 @@ describe("sendText with businessId (Mongo)", () => {
 
     await sendText({ to: "+16130001111", text: "Hi", businessId: BIZ });
     const body = JSON.parse(String(captured.opts.body || "{}"));
-    assert.equal(body.messages[0].from, "15550003333");
+    assert.equal(body.from, "15550003333");
   });
 
   it("prefers business whatsappSenderNumber over INFOBIP_SENDER", async () => {
@@ -71,7 +71,7 @@ describe("sendText with businessId (Mongo)", () => {
 
     await sendText({ to: "+16130001111", text: "Hi", businessId: BIZ });
     const body = JSON.parse(String(captured.opts.body || "{}"));
-    assert.equal(body.messages[0].from, "14442223333");
+    assert.equal(body.from, "14442223333");
     await Business.updateOne({ id: BIZ }, { $unset: { whatsappSenderNumber: 1 } });
   });
 });

@@ -141,8 +141,10 @@ test("sendText resolves sender from INFOBIP_SENDER when from omitted", async (t)
   await sendText({ to: "+19998887777", text: "Hello there" });
 
   const body = JSON.parse(String(captured.opts.body || "{}"));
-  assert.equal(body.messages[0].from, "15550001111");
-  assert.equal(body.messages[0].to, "19998887777");
+  assert.equal(body.from, "15550001111");
+  assert.equal(body.to, "19998887777");
+  assert.equal(body.content.text, "Hello there");
+  assert.ok(body.messageId && String(body.messageId).length > 0);
 });
 
 test("sendText uses explicit from and strips +", async (t) => {
@@ -167,7 +169,8 @@ test("sendText uses explicit from and strips +", async (t) => {
 
   await sendText({ from: "+1 555 111 2222", to: "+19998887777", text: "x" });
   const body = JSON.parse(String(captured.opts.body || "{}"));
-  assert.equal(body.messages[0].from, "15551112222");
+  assert.equal(body.from, "15551112222");
+  assert.equal(body.content.text, "x");
 });
 
 test("sendText rejects when no sender can be resolved", async (t) => {

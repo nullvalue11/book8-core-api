@@ -163,19 +163,29 @@ export async function sendWhatsAppTemplate({
  * @param {string} params.text
  */
 export async function sendWhatsAppFreeForm({ from, to, text }) {
-  const payload = {
-    messages: [
-      {
-        from: normalizeWhatsAppAddress(from),
-        to: normalizeWhatsAppAddress(to),
-        messageId: randomUUID(),
-        content: {
-          text: String(text ?? "")
-        }
-      }
-    ]
+  // Infobip POST /whatsapp/1/message/text expects a single message object at the
+  // root (from, to, messageId, content) — not a `messages`[] wrapper like /template.
+  const fromN = normalizeWhatsAppAddress(from);
+  const toN = normalizeWhatsAppAddress(to);
+  if (!fromN) {
+    throw new Error("WhatsApp sendWhatsAppFreeForm: from is required (resolved to empty digits)");
+  }
+  if (!toN) {
+    throw new Error("WhatsApp sendWhatsAppFreeForm: to is required (resolved to empty digits)");
+  }
+  const requestBody = {
+    from: fromN,
+    to: toN,
+    messageId: randomUUID(),
+    content: {
+      text: String(text ?? "")
+    }
   };
-  return request("POST", "/whatsapp/1/message/text", { body: payload });
+  console.log(
+    "[INFOBIP-HTTP] POST /whatsapp/1/message/text body:",
+    JSON.stringify(requestBody)
+  );
+  return request("POST", "/whatsapp/1/message/text", { body: requestBody });
 }
 
 /**
