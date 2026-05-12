@@ -18,6 +18,14 @@ const messageSchema = new mongoose.Schema(
       transcription: String,
       transcriptionLanguage: String
     },
+    meta: {
+      model: String,
+      promptTokens: Number,
+      completionTokens: Number,
+      totalTokens: Number,
+      latencyMs: Number,
+      toolCalls: [{ type: String }]
+    },
     rawPayload: mongoose.Schema.Types.Mixed,
     createdAt: { type: Date, default: Date.now }
   },
@@ -31,6 +39,7 @@ const whatsappConversationSchema = new mongoose.Schema(
     customerName: { type: String },
     status: { type: String, enum: ["active", "archived"], default: "active" },
     windowExpiresAt: { type: Date },
+    lastInboundMessageAt: { type: Date, index: true },
     language: { type: String, default: "en" },
     messages: [messageSchema],
     startedAt: { type: Date, default: Date.now },

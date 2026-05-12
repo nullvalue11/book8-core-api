@@ -73,7 +73,7 @@ export function normalizeWhatsAppAddress(e164OrDigits) {
  * @param {string} params.from - Sender (digits)
  * @param {string} params.to - Recipient E.164 or digits
  * @param {string} params.templateName
- * @param {string} params.languageCode - e.g. en, ar, fr, es
+ * @param {string} params.languageCode - WhatsApp locale (e.g. en_US, ar, fr_FR)
  * @param {string[]} params.placeholders - body placeholders in order
  */
 export async function sendWhatsAppTemplate({
@@ -98,7 +98,7 @@ export async function sendWhatsAppTemplate({
               placeholders: placeholders.map((p) => String(p ?? ""))
             }
           },
-          language: languageCode || "en"
+          language: languageCode || "en_US"
         }
       }
     ]
@@ -127,6 +127,17 @@ export async function sendWhatsAppFreeForm({ from, to, text }) {
     ]
   };
   return request("POST", "/whatsapp/1/message/text", { body: payload });
+}
+
+/**
+ * Session free-form text (24h window). Alias for Infobip outbound text API.
+ * @param {{ from: string, to: string, text: string, businessId?: string }} p
+ */
+export async function sendText({ from, to, text, businessId }) {
+  if (businessId) {
+    void businessId;
+  }
+  return sendWhatsAppFreeForm({ from, to, text });
 }
 
 /** @returns {Promise<object>} */

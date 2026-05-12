@@ -37,7 +37,8 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { addDays, format, parseISO } from "date-fns";
 import { hashPhoneForLog } from "../src/utils/maskPhone.js";
 import { parseSlotInstantForStorage } from "./timeUtils.js";
-import { isMaskedEmail } from "../src/utils/emailMaskMatcher.js";
+import { tryChargeCancellationFee } from "./bookingFeeCharge.js";
+import { bookingLookupFilter, runBookingCancellationFollowups } from "./bookingCancelFollowups.js";
 
 /**
  * Generate a stable booking id (e.g. bk_01JQBOOK8XYZ).
@@ -456,7 +457,7 @@ async function createBookingInner(input) {
   const src = String(source || "web").toLowerCase();
   let channel = "web";
   if (src === "voice-agent" || src === "voice") channel = "voice";
-  else if (src === "sms") channel = "sms";
+  else if (src === "sms" || src === "whatsapp-ai" || src === "whatsapp") channel = "sms";
 
   if (!isChannelAllowed(plan, channel)) {
     return {
@@ -1255,4 +1256,94 @@ export async function rescheduleBooking(input) {
     ok: true,
     booking: resultBooking
   };
+}
+
+/**
+ * WhatsApp AI / channel cancel: confirmed booking by id, scoped to business + customer phone.
+ * @returns {Promise<{ ok: true, data: { bookingId: string, status: string } } | { ok: false, error: string, userMessage: string }>}
+ */
+export async function cancelBookingForCustomerChannel({ bookingId, businessId, customerPhone }) {
+  const phoneNorm = String(customerPhone || "")
+    .trim()
+    .replace(/\s/g, "");
+  if (!bookingId || !businessId || !isE164LookupPhone(phoneNorm)) {
+    return { ok: false, error: "validation", userMessage: "Invalid request." };
+  }
+
+  const bid = String(bookingId).trim();
+  const bizId = String(businessId).trim();
+
+  const bookingDoc = await Booking.findOne({
+    ...bookingLookupFilter(bid),
+    businessId: bizId,
+    status: "confirmed"
+  });
+
+  if (!bookingDoc) {
+    return { ok: false, error: "not_found", userMessage: "I couldn't find that booking." };
+  }
+
+  const storedPhone = normalizePhoneForLookupMatch(bookingDoc.customer?.phone);
+  if (storedPhone !== phoneNorm) {
+    return {
+      ok: false,
+      error: "unauthorized",
+      userMessage: "I can't find a booking under your number that matches."
+    };
+  }
+
+  const businessForFee = await Business.findOne({
+    $or: [{ id: bookingDoc.businessId }, { businessId: bookingDoc.businessId }]
+  }).lean();
+  const serviceForFee = await Service.findOne({
+    businessId: bookingDoc.businessId,
+    serviceId: bookingDoc.serviceId
+  }).lean();
+  const feeTry = await tryChargeCancellationFee(bookingDoc.toObject(), businessForFee, serviceForFee);
+  if (!feeTry.ok) {
+    return {
+      ok: false,
+      error: feeTry.error || "fee",
+      userMessage:
+        "We couldn't complete this cancellation automatically. Please use your booking link or call the business."
+    };
+  }
+
+  const feeSet =
+    feeTry.charged && feeTry.paymentIntentId
+      ? {
+          cancellationFeeCharged: true,
+          cancellationFeeChargedAt: new Date(),
+          cancellationFeeAmount: feeTry.amountMajor,
+          cancellationFeeChargeId: feeTry.paymentIntentId
+        }
+      : {};
+
+  const booking = await Booking.findOneAndUpdate(
+    { _id: bookingDoc._id, status: "confirmed" },
+    {
+      $set: {
+        status: "cancelled",
+        cancelledAt: new Date(),
+        cancellationMethod: "whatsapp-ai",
+        smsCancelAwaitingConfirm: false,
+        ...feeSet
+      }
+    },
+    { new: true }
+  ).lean();
+
+  if (!booking) {
+    return {
+      ok: false,
+      error: "conflict",
+      userMessage: "That booking could not be cancelled (it may have been updated)."
+    };
+  }
+
+  await runBookingCancellationFollowups(booking, {
+    cancellationFeeAmount: feeTry.charged ? feeTry.amountMajor : undefined
+  });
+
+  return { ok: true, data: { bookingId: booking.id, status: booking.status } };
 }

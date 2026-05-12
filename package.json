@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "set NODE_ENV=test && node --test --test-concurrency=1 tests/*.js tests/config/*.js tests/routes/*.js tests/messaging/*.js tests/infobip/*.js tests/webhooks/*.js",
-    "lint": "node --check index.js && node --check services/infobip/infobipClient.js && node --check src/routes/webhooks/infobipInbound.js && node --check src/services/whatsappBusinessRouter.js && node --check src/models/WhatsappConversation.js",
+    "test": "set NODE_ENV=test && node --test --test-concurrency=1 tests/*.js tests/config/*.js tests/routes/*.js tests/messaging/*.js tests/infobip/*.js tests/webhooks/*.js tests/whatsapp/*.js",
+    "lint": "node --check index.js && node --check services/infobip/infobipClient.js && node --check services/bookingCancelFollowups.js && node --check services/bookingService.js && node --check src/routes/bookings.js && node --check src/routes/webhooks/infobipInbound.js && node --check src/services/whatsappBusinessRouter.js && node --check src/models/WhatsappConversation.js && node --check src/services/whatsapp/aiHandler.js && node --check src/services/whatsapp/aiTools.js && node --check src/services/whatsapp/aiPrompts.js",
     "test:timezone": "set NODE_ENV=test && node --test tests/bookingService.timezone.test.js",
     "migrate:booking-slot-tz": "node scripts/migrate-booking-slot-tz.cjs",
     "purge:bookings": "node scripts/purgeBookingsAllBusinesses.js",
@@ -25,6 +25,7 @@
     "backfill:available-channels": "node scripts/migrations/backfillAvailableChannels.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "chrono-node": "^2.9.0",
     "cloudinary": "^2.9.0",
     "cors": "^2.8.5",

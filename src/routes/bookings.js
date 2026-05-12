@@ -1,38 +1,20 @@
 // src/routes/bookings.js
 import express from "express";
-import mongoose from "mongoose";
 import { strictLimiter } from "../middleware/strictLimiter.js";
 import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 import { requireInternalAuth } from "../middleware/internalAuth.js";
 import { requireChannel } from "../middleware/planCheck.js";
 import { createBooking } from "../../services/bookingService.js";
 import { Booking } from "../../models/Booking.js";
-import {
-  deleteGcalEvent,
-  resolveCalendarProviderForBusiness,
-  updateGcalEvent
-} from "../../services/gcalService.js";
-import { nextGcalSyncFromResult } from "../../services/gcalSyncHelpers.js";
 import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
-import { sendCancellation, sendCancellationWithFeeEmail } from "../../services/emailService.js";
 import { tryChargeCancellationFee } from "../../services/bookingFeeCharge.js";
-import { notifyWaitlistAfterCancellation } from "../../services/waitlistService.js";
-import { getMessagingProvider } from "../../services/messaging/messagingFactory.js";
-import { canSendTransactionalMessage } from "../../services/messaging/bspRouting.js";
-import { isFeatureAllowed } from "../../services/planLimits.js";
-import { formatSlotDateTime } from "../../services/localeFormat.js";
+import {
+  bookingLookupFilter,
+  runBookingCancellationFollowups
+} from "../../services/bookingCancelFollowups.js";
 
 const router = express.Router();
-
-/** Match by custom `id` (e.g. bk_…) and/or Mongo `_id` without casting bk_* to ObjectId. */
-function bookingLookupFilter(bookingId) {
-  const or = [{ id: bookingId }];
-  if (mongoose.isValidObjectId(bookingId)) {
-    or.push({ _id: bookingId });
-  }
-  return { $or: or };
-}
 
 function requireBookingChannelBySource(req, res, next) {
   const source = req.body?.source || req.body?.input?.source;
@@ -43,128 +25,6 @@ function requireBookingChannelBySource(req, res, next) {
     return requireChannel("sms")(req, res, next);
   }
   next();
-}
-
-/** Calendar + cancellation email after a booking is marked cancelled (fire-and-forget for async I/O). */
-async function applyCancelSideEffects(booking, options = {}) {
-  const { cancellationFeeAmount } = options;
-  const business = await Business.findOne({ id: booking.businessId }).lean();
-  const calProvider = resolveCalendarProviderForBusiness(business);
-
-  let serviceDisplay = booking.serviceId || "Appointment";
-  try {
-    const svc = await Service.findOne({ businessId: booking.businessId, serviceId: booking.serviceId }).lean();
-    if (svc?.name) serviceDisplay = svc.name;
-  } catch {
-    // keep fallback
-  }
-
-  const bookingIdStr = booking.id || booking._id?.toString();
-  const prevSync = booking.gcalSync;
-
-  try {
-    if (booking.calendarEventId && calProvider) {
-      const result = await updateGcalEvent({
-        businessId: booking.businessId,
-        eventId: booking.calendarEventId,
-        bookingId: bookingIdStr,
-        calendarProvider: calProvider,
-        updates: {
-          title: `CANCELLED — ${serviceDisplay}`,
-          showAs: "free"
-        }
-      });
-      const next = nextGcalSyncFromResult(prevSync, result, "update");
-      if (!result.ok && !result.skipped) {
-        console.warn("[booking-cancel][gcal-failed]", {
-          bookingId: bookingIdStr,
-          businessId: booking.businessId,
-          errorType: result.errorType,
-          failureCount: next.failureCount
-        });
-      }
-      await Booking.updateOne(bookingLookupFilter(bookingIdStr), { $set: { gcalSync: next } });
-    } else {
-      const result = await deleteGcalEvent({
-        businessId: booking.businessId,
-        booking,
-        calendarProvider: calProvider
-      });
-      const next = nextGcalSyncFromResult(prevSync, result, "delete");
-      if (!result.ok && !result.skipped) {
-        console.warn("[booking-cancel][gcal-failed]", {
-          bookingId: bookingIdStr,
-          businessId: booking.businessId,
-          errorType: result.errorType,
-          failureCount: next.failureCount
-        });
-      }
-      await Booking.updateOne(bookingLookupFilter(bookingIdStr), { $set: { gcalSync: next } });
-    }
-  } catch (err) {
-    console.error("[bookings.cancel] Calendar side effect failed:", err.message);
-  }
-
-  if (booking.customer?.email) {
-    (async () => {
-      try {
-        let serviceDisplayEmail = booking.serviceId || "Appointment";
-        let serviceForEmail = { name: serviceDisplayEmail };
-        try {
-          const svc = await Service.findOne({ businessId: booking.businessId, serviceId: booking.serviceId }).lean();
-          if (svc?.name) {
-            serviceDisplayEmail = svc.name;
-            serviceForEmail = svc;
-          }
-        } catch {
-          // keep fallback
-        }
-        if (cancellationFeeAmount != null && cancellationFeeAmount > 0) {
-          await sendCancellationWithFeeEmail(
-            booking,
-            business || { id: booking.businessId, name: booking.businessId },
-            serviceForEmail,
-            booking.customer,
-            { amountMajor: cancellationFeeAmount }
-          );
-        } else {
-          await sendCancellation(
-            booking,
-            business || { id: booking.businessId, name: booking.businessId },
-            serviceForEmail,
-            booking.customer
-          );
-        }
-      } catch (err) {
-        console.error("[bookings.cancel] Cancellation email failed:", err.message);
-      }
-    })().catch(() => {});
-  }
-
-  notifyWaitlistAfterCancellation(booking);
-
-  if (
-    booking.customer?.phone &&
-    business &&
-    canSendTransactionalMessage(business, booking.customer.phone) &&
-    isFeatureAllowed(business.plan || "starter", "smsConfirmations")
-  ) {
-      const tz = business.timezone || booking.slot?.timezone || "America/Toronto";
-      const lang = booking.language || "en";
-      const { dateStr, timeStr } = formatSlotDateTime(booking.slot?.start, tz, lang);
-      const provider = getMessagingProvider(business);
-      provider
-        .sendCancelNotification(business, booking.customer, {
-          language: lang,
-          serviceName: serviceDisplay,
-          businessName: business.name || booking.businessId,
-          slotLocalDate: dateStr,
-          slotLocalTime: timeStr
-        })
-        .catch((err) =>
-          console.error("[bookings.cancel] Cancellation SMS/WhatsApp failed:", err.message)
-        );
-  }
 }
 
 // GET /api/bookings?businessId=xxx
@@ -428,7 +288,7 @@ router.delete("/series/:seriesId", strictLimiter, requireInternalAuth, async (re
       const iso = new Date(updated.slot.start).toISOString();
       cancelledStarts.push(iso);
       results.push(updated);
-      await applyCancelSideEffects(updated, {
+      await runBookingCancellationFollowups(updated, {
         cancellationFeeAmount: feeTry.charged ? feeTry.amountMajor : undefined
       });
     }
@@ -563,7 +423,7 @@ router.post("/cancel-by-slot", strictLimiter, requireInternalAuth, async (req, r
       });
     }
 
-    await applyCancelSideEffects(updated, {
+    await runBookingCancellationFollowups(updated, {
       cancellationFeeAmount: feeTry.charged ? feeTry.amountMajor : undefined
     });
     return res.json({ ok: true, booking: updated });
@@ -643,7 +503,7 @@ router.patch("/:bookingId/cancel", strictLimiter, requireInternalAuth, async (re
       });
     }
 
-    await applyCancelSideEffects(booking, {
+    await runBookingCancellationFollowups(booking, {
       cancellationFeeAmount: feeTry.charged ? feeTry.amountMajor : undefined
     });
     return res.json({ ok: true, booking });

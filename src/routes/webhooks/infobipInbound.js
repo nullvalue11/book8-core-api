@@ -7,6 +7,7 @@ import express from "express";
 import { WhatsappConversation } from "../../models/WhatsappConversation.js";
 import { identifyBusiness } from "../../services/whatsappBusinessRouter.js";
 import { normalizePhoneNumber } from "../../utils/businessRouteHelpers.js";
+import { processConversation } from "../../services/whatsapp/aiHandler.js";
 
 const router = express.Router();
 
@@ -117,6 +118,8 @@ router.post("/inbound", async (req, res) => {
     }
 
     const entries = normalizeInboundEntries(req.body);
+    const aiQueue = [];
+
     for (const entry of entries) {
       const { messageId } = entry;
 
@@ -142,8 +145,11 @@ router.post("/inbound", async (req, res) => {
         createdAt: entry.receivedAt
       };
 
+      const inboundAt = entry.receivedAt instanceof Date ? entry.receivedAt : new Date();
+      const windowExpiresAt = new Date(inboundAt.getTime() + 24 * 60 * 60 * 1000);
+
       try {
-        await WhatsappConversation.findOneAndUpdate(
+        const conv = await WhatsappConversation.findOneAndUpdate(
           { businessId, customerPhone: entry.customerPhone },
           {
             $setOnInsert: {
@@ -154,12 +160,19 @@ router.post("/inbound", async (req, res) => {
             $push: { messages: messageDoc },
             $set: {
               lastMessageAt: new Date(),
-              windowExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              lastInboundMessageAt: inboundAt,
+              windowExpiresAt,
               ...(entry.customerName ? { customerName: entry.customerName } : {})
             }
           },
           { upsert: true, new: true }
-        );
+        )
+          .select("_id businessId")
+          .lean();
+
+        if (businessId !== "_unrouted" && conv?._id && process.env.NODE_ENV !== "test") {
+          aiQueue.push(String(conv._id));
+        }
       } catch (err) {
         if (isDuplicateKeyError(err)) {
           console.log(`[INFOBIP-INBOUND] Duplicate messageId ${messageId} (index), skipping`);
@@ -173,7 +186,15 @@ router.post("/inbound", async (req, res) => {
       );
     }
 
-    return res.status(200).end();
+    res.status(200).end();
+
+    for (const cid of aiQueue) {
+      setImmediate(() => {
+        processConversation(cid).catch((err) => {
+          console.error("[INFOBIP-INBOUND] AI handler crashed:", err);
+        });
+      });
+    }
   } catch (err) {
     console.error("[INFOBIP-INBOUND] Handler error:", err);
     return res.status(200).end();
