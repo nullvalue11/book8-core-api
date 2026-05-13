@@ -4,6 +4,7 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "crypto";
+import mongoose from "mongoose";
 import request from "supertest";
 import { app } from "../../index.js";
 import { Business } from "../../models/Business.js";
@@ -16,6 +17,19 @@ const PHONE_EXISTING = "+971502222222";
 const PHONE_UNROUTED = "+971503333333";
 const PHONE_MEDIA = "+971504444444";
 const PHONE_HUB_LOWER = "+971506666666";
+
+const TEST_MONGO_URI =
+  process.env.MONGODB_URI || process.env.MONGO_URI || "mongodb://127.0.0.1:27017/book8-core";
+
+async function ensureMongoConnected() {
+  const c = mongoose.connection;
+  if (c.readyState === 1) return;
+  if (c.readyState === 2 && typeof c.asPromise === "function") {
+    await c.asPromise();
+    return;
+  }
+  await mongoose.connect(TEST_MONGO_URI);
+}
 
 function hubSignatureForBody(raw) {
   const hex = crypto.createHmac("sha256", SECRET).update(raw).digest("hex");
@@ -48,6 +62,7 @@ function sampleTextResult(overrides = {}) {
 
 describe("POST /api/webhooks/infobip/inbound", () => {
   before(async () => {
+    await ensureMongoConnected();
     process.env.INFOBIP_WEBHOOK_SECRET = SECRET;
     await Business.findOneAndUpdate(
       { id: BIZ_TOKEN },
@@ -64,6 +79,7 @@ describe("POST /api/webhooks/infobip/inbound", () => {
       customerPhone: { $in: [PHONE_ROUTED, PHONE_EXISTING, PHONE_UNROUTED, PHONE_MEDIA, PHONE_HUB_LOWER] }
     });
     await Business.deleteOne({ id: BIZ_TOKEN });
+    await mongoose.disconnect().catch(() => {});
   });
 
   it("creates conversation with businessId from [BIZ:…] token and strips marker from stored text", async () => {

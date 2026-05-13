@@ -3,6 +3,7 @@
  */
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
+import mongoose from "mongoose";
 import { app } from "../../index.js";
 import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
@@ -15,10 +16,24 @@ const BIZ = "biz_whatsapp_ai_tools_test";
 const PHONE = "+15559990001";
 const PHONE_OTHER = "+15559990002";
 
+const TEST_MONGO_URI =
+  process.env.MONGODB_URI || process.env.MONGO_URI || "mongodb://127.0.0.1:27017/book8-core";
+
+async function ensureMongoConnected() {
+  const c = mongoose.connection;
+  if (c.readyState === 1) return;
+  if (c.readyState === 2 && typeof c.asPromise === "function") {
+    await c.asPromise();
+    return;
+  }
+  await mongoose.connect(TEST_MONGO_URI);
+}
+
 void app;
 
 describe("whatsapp aiTools", () => {
   before(async () => {
+    await ensureMongoConnected();
     await Business.findOneAndUpdate(
       { id: BIZ },
       {
@@ -187,4 +202,8 @@ describe("whatsapp aiHandler", () => {
     assert.ok(String(out.content?.text || "").includes("Sorry"));
     assert.ok(out.meta?.model);
   });
+});
+
+after(async () => {
+  await mongoose.disconnect().catch(() => {});
 });
