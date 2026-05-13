@@ -36,6 +36,7 @@ import { getTrialBookingBlock, trialDeniedPublicChannel } from "../src/utils/tri
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { addDays, format, parseISO } from "date-fns";
 import { hashPhoneForLog } from "../src/utils/maskPhone.js";
+import { isMaskedEmail } from "../src/utils/emailMaskMatcher.js";
 import { parseSlotInstantForStorage } from "./timeUtils.js";
 import { tryChargeCancellationFee } from "./bookingFeeCharge.js";
 import { bookingLookupFilter, runBookingCancellationFollowups } from "./bookingCancelFollowups.js";
