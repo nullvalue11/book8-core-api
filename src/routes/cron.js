@@ -6,6 +6,7 @@ import { Business } from "../../models/Business.js";
 import { Service } from "../../models/Service.js";
 import { TwilioNumber } from "../../models/TwilioNumber.js";
 import { formatReminderSMS } from "../../services/smsService.js";
+import { formatSlotDateTimeShort } from "../../services/localeFormat.js";
 import { getMessagingProvider } from "../../services/messaging/messagingFactory.js";
 import { canSendTransactionalMessage } from "../../services/messaging/bspRouting.js";
 import { sendReminder as sendReminderEmail } from "../../services/emailService.js";
@@ -65,20 +66,14 @@ router.get("/send-reminders", async (req, res) => {
         const smsAllowed = isFeatureAllowed(plan, "smsConfirmations");
 
         const tz = business?.timezone || booking.slot?.timezone || "America/Toronto";
-        const slotDate = new Date(booking.slot.start);
-        const dateStr = slotDate.toLocaleDateString("en-US", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          timeZone: tz
-        });
-        const timeStr = slotDate.toLocaleTimeString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-          timeZone: tz
-        });
+        const reminderLang = booking.language || "en";
+        // BOO-SMS-COMPLIANCE-1A: short date + language so reminder template renders
+        // localized copy with STOP opt-out hint and stays in 1 segment.
+        const { dateShort: dateStr, timeStr } = formatSlotDateTimeShort(
+          booking.slot.start,
+          tz,
+          reminderLang
+        );
 
         let serviceName = booking.serviceId || "Appointment";
         try {
@@ -96,7 +91,8 @@ router.get("/send-reminders", async (req, res) => {
           businessName: business.name || booking.businessId,
           date: dateStr,
           time: timeStr,
-          isOneHour: false
+          isOneHour: false,
+          language: reminderLang
         });
 
         if (smsAllowed) {
@@ -196,7 +192,8 @@ router.get("/send-reminders", async (req, res) => {
           businessName: business.name || booking.businessId,
           date: "",
           time: "",
-          isOneHour: true
+          isOneHour: true,
+          language: booking.language || "en"
         });
 
         if (smsAllowed) {
@@ -298,7 +295,8 @@ router.get("/send-reminders", async (req, res) => {
           date: "",
           time: "",
           isOneHour: false,
-          isThirtyMinutes: true
+          isThirtyMinutes: true,
+          language: booking.language || "en"
         });
 
         if (smsAllowed) {

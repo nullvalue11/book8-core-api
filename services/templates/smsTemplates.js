@@ -1,6 +1,15 @@
 /**
  * Multilingual SMS templates for booking confirmations and cancellations.
- * "CANCEL BOOKING" stays English in all languages (carrier / Twilio keyword requirement).
+ *
+ * BOO-SMS-COMPLIANCE-1A: TCPA / CTIA / Infobip 10DLC required disclosures.
+ * - Confirmation (first/transactional message): business name, service name, date/time,
+ *   CANCEL BOOKING (in-app cancel keyword), STOP (opt-out), HELP (support),
+ *   "Msg&data rates may apply" (or locale-equivalent).
+ * - Reminder / Cancellation / Reschedule: business name, service name, STOP (opt-out)
+ *   at minimum. CANCEL BOOKING included where the appointment can still be cancelled.
+ *
+ * "STOP" / "HELP" / "CANCEL BOOKING" stay English in all locales because they are
+ * keywords interpreted by the carrier / our messaging layer.
  */
 
 import { normalizeLangCode } from "../localeFormat.js";
@@ -8,11 +17,22 @@ import { normalizeLangCode } from "../localeFormat.js";
 const SMS_TEMPLATES = {
   en: {
     confirmation: (data) =>
-      `Your appointment at ${data.businessName} is confirmed for ${data.date} at ${data.time}. To cancel, reply CANCEL BOOKING.`,
+      `${data.businessName}: Your ${data.serviceName} is confirmed for ${data.date} at ${data.time}. ` +
+      `Reply CANCEL BOOKING to cancel, STOP to unsubscribe, HELP for help. Msg&data rates may apply.`,
+
+    reminder: (data) =>
+      `${data.businessName}: Reminder — your ${data.serviceName} is tomorrow at ${data.time}. ` +
+      `Reply CANCEL BOOKING to cancel, STOP to unsubscribe.`,
+    reminderOneHour: (data) =>
+      `${data.businessName}: Reminder — your ${data.serviceName} starts in 1 hour. ` +
+      `Reply STOP to unsubscribe.`,
+    reminderThirtyMin: (data) =>
+      `${data.businessName}: Reminder — your ${data.serviceName} starts in 30 min. ` +
+      `Reply STOP to unsubscribe.`,
 
     cancellation: (data) =>
-      `Your ${data.serviceName} appointment on ${data.date} at ${data.time} has been cancelled.\n` +
-      `If you need to rebook, call us!`,
+      `${data.businessName}: Your ${data.serviceName} on ${data.date} at ${data.time} has been cancelled. ` +
+      `Reply STOP to unsubscribe.`,
 
     cancelFeeWarning: (data) => data.message,
 
@@ -22,7 +42,8 @@ const SMS_TEMPLATES = {
 
     /** BOO-98A reschedule */
     reschedule: (data) =>
-      `Your booking at ${data.businessName} has been moved to ${data.newDay}, ${data.newDate} at ${data.newTime}. Reply CANCEL BOOKING to cancel.`,
+      `${data.businessName}: Your ${data.serviceName} has been moved to ${data.date} at ${data.time}. ` +
+      `Reply CANCEL BOOKING to cancel, STOP to unsubscribe.`,
 
     /** BOO-59A */
     waitlistJoin: (data) =>
@@ -43,16 +64,29 @@ const SMS_TEMPLATES = {
 
   fr: {
     confirmation: (data) =>
-      `Votre rendez-vous chez ${data.businessName} est confirmé pour le ${data.date} à ${data.time}. Pour annuler, répondez CANCEL BOOKING.`,
+      `${data.businessName}: Votre ${data.serviceName} est confirmé pour ${data.date} à ${data.time}. ` +
+      `Répondez CANCEL BOOKING pour annuler, STOP pour vous désinscrire, HELP pour aide. ` +
+      `Frais de messagerie applicables.`,
+
+    reminder: (data) =>
+      `${data.businessName}: Rappel — votre ${data.serviceName} est demain à ${data.time}. ` +
+      `Répondez CANCEL BOOKING pour annuler, STOP pour vous désinscrire.`,
+    reminderOneHour: (data) =>
+      `${data.businessName}: Rappel — votre ${data.serviceName} commence dans 1 heure. ` +
+      `Répondez STOP pour vous désinscrire.`,
+    reminderThirtyMin: (data) =>
+      `${data.businessName}: Rappel — votre ${data.serviceName} commence dans 30 min. ` +
+      `Répondez STOP pour vous désinscrire.`,
 
     cancellation: (data) =>
-      `Votre rendez-vous ${data.serviceName} du ${data.date} à ${data.time} a été annulé.\n` +
-      `Pour reprendre un rendez-vous, appelez-nous!`,
+      `${data.businessName}: Votre ${data.serviceName} du ${data.date} à ${data.time} a été annulé. ` +
+      `Répondez STOP pour vous désinscrire.`,
 
     cancelFeeWarning: (data) => data.message,
 
     reschedule: (data) =>
-      `Votre rendez-vous chez ${data.businessName} a été déplacé au ${data.newDay} ${data.newDate} à ${data.newTime}. Répondez ANNULER RÉSERVATION pour annuler.`,
+      `${data.businessName}: Votre ${data.serviceName} a été déplacé au ${data.date} à ${data.time}. ` +
+      `Répondez CANCEL BOOKING pour annuler, STOP pour vous désinscrire.`,
 
     reviewRequest: (data) =>
       `Comment s'est passé votre ${data.serviceName} chez ${data.businessName} ? Donnez-nous votre avis : ${data.link}`,
@@ -74,16 +108,29 @@ const SMS_TEMPLATES = {
 
   es: {
     confirmation: (data) =>
-      `Su cita en ${data.businessName} está confirmada para el ${data.date} a las ${data.time}. Para cancelar, responda CANCEL BOOKING.`,
+      `${data.businessName}: Su ${data.serviceName} está confirmado para ${data.date} a las ${data.time}. ` +
+      `Responda CANCEL BOOKING para cancelar, STOP para cancelar la suscripción, HELP para ayuda. ` +
+      `Pueden aplicar tarifas.`,
+
+    reminder: (data) =>
+      `${data.businessName}: Recordatorio — su ${data.serviceName} es mañana a las ${data.time}. ` +
+      `Responda CANCEL BOOKING para cancelar, STOP para cancelar la suscripción.`,
+    reminderOneHour: (data) =>
+      `${data.businessName}: Recordatorio — su ${data.serviceName} comienza en 1 hora. ` +
+      `Responda STOP para cancelar la suscripción.`,
+    reminderThirtyMin: (data) =>
+      `${data.businessName}: Recordatorio — su ${data.serviceName} comienza en 30 min. ` +
+      `Responda STOP para cancelar la suscripción.`,
 
     cancellation: (data) =>
-      `Su cita de ${data.serviceName} del ${data.date} a las ${data.time} ha sido cancelada.\n` +
-      `Si necesita reservar de nuevo, ¡llámenos!`,
+      `${data.businessName}: Su ${data.serviceName} del ${data.date} a las ${data.time} ha sido cancelado. ` +
+      `Responda STOP para cancelar la suscripción.`,
 
     cancelFeeWarning: (data) => data.message,
 
     reschedule: (data) =>
-      `Su cita en ${data.businessName} se ha movido al ${data.newDay} ${data.newDate} a las ${data.newTime}. Responda CANCELAR RESERVA para cancelar.`,
+      `${data.businessName}: Su ${data.serviceName} se ha movido al ${data.date} a las ${data.time}. ` +
+      `Responda CANCEL BOOKING para cancelar, STOP para cancelar la suscripción.`,
 
     reviewRequest: (data) =>
       `¿Cómo fue su ${data.serviceName} en ${data.businessName}? Nos encantaría su opinión: ${data.link}`,
@@ -105,17 +152,29 @@ const SMS_TEMPLATES = {
 
   ar: {
     confirmation: (data) =>
-      `تم تأكيد موعدك في ${data.businessName} بتاريخ ${data.date} الساعة ${data.time}. للإلغاء، أرسل CANCEL BOOKING.`,
+      `${data.businessName}: تم تأكيد ${data.serviceName} يوم ${data.date} الساعة ${data.time}. ` +
+      `للإلغاء أرسل CANCEL BOOKING. لإلغاء الاشتراك أرسل STOP. للمساعدة أرسل HELP. قد تطبق رسوم.`,
+
+    reminder: (data) =>
+      `${data.businessName}: تذكير — موعد ${data.serviceName} غدًا الساعة ${data.time}. ` +
+      `للإلغاء أرسل CANCEL BOOKING. لإلغاء الاشتراك أرسل STOP.`,
+    reminderOneHour: (data) =>
+      `${data.businessName}: تذكير — موعد ${data.serviceName} يبدأ خلال ساعة. ` +
+      `لإلغاء الاشتراك أرسل STOP.`,
+    reminderThirtyMin: (data) =>
+      `${data.businessName}: تذكير — موعد ${data.serviceName} يبدأ خلال 30 دقيقة. ` +
+      `لإلغاء الاشتراك أرسل STOP.`,
 
     cancellation: (data) =>
-      `تم إلغاء موعد ${data.serviceName} يوم ${data.date} الساعة ${data.time}.\n` +
-      `لإعادة الحجز، اتصل بنا!`,
+      `${data.businessName}: تم إلغاء موعد ${data.serviceName} يوم ${data.date} الساعة ${data.time}. ` +
+      `لإلغاء الاشتراك أرسل STOP.`,
 
     /** BOO-45A: fee warning — body must include CONFIRM CANCEL instruction */
     cancelFeeWarning: (data) => data.message,
 
     reschedule: (data) =>
-      `تم تغيير موعدك في ${data.businessName} إلى ${data.newDay} ${data.newDate} الساعة ${data.newTime}. للإلغاء، قم بالرد بـ CANCEL BOOKING.`,
+      `${data.businessName}: تم نقل موعد ${data.serviceName} إلى ${data.date} الساعة ${data.time}. ` +
+      `للإلغاء أرسل CANCEL BOOKING. لإلغاء الاشتراك أرسل STOP.`,
 
     reviewRequest: (data) =>
       `كيف كانت تجربتك مع ${data.serviceName} في ${data.businessName}؟ نقدر رأيك: ${data.link}`,
@@ -138,7 +197,7 @@ const SMS_TEMPLATES = {
 
 /**
  * @param {string} language - booking language (e.g. fr, fr-CA)
- * @param {'confirmation'|'cancellation'|'cancelFeeWarning'|'reviewRequest'|'reschedule'|'waitlistJoin'|'waitlistSlotOpen'|'waitlistExpired'|'recurringInitial'|'recurringNext'|'recurringUnavailable'} type
+ * @param {'confirmation'|'reminder'|'reminderOneHour'|'reminderThirtyMin'|'cancellation'|'cancelFeeWarning'|'reviewRequest'|'reschedule'|'waitlistJoin'|'waitlistSlotOpen'|'waitlistExpired'|'recurringInitial'|'recurringNext'|'recurringUnavailable'} type
  */
 export function getSmsTemplate(language, type) {
   const lang = normalizeLangCode(language);

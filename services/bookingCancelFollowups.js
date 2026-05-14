@@ -17,7 +17,7 @@ import { notifyWaitlistAfterCancellation } from "./waitlistService.js";
 import { getMessagingProvider } from "./messaging/messagingFactory.js";
 import { canSendTransactionalMessage } from "./messaging/bspRouting.js";
 import { isFeatureAllowed } from "./planLimits.js";
-import { formatSlotDateTime } from "./localeFormat.js";
+import { formatSlotDateTimeShort } from "./localeFormat.js";
 
 /** Match by custom `id` (e.g. bk_…) and/or Mongo `_id` without casting bk_* to ObjectId. */
 export function bookingLookupFilter(bookingId) {
@@ -133,14 +133,16 @@ export async function runBookingCancellationFollowups(booking, options = {}) {
   ) {
     const tz = business.timezone || booking.slot?.timezone || "America/Toronto";
     const lang = booking.language || "en";
-    const { dateStr, timeStr } = formatSlotDateTime(booking.slot?.start, tz, lang);
+    // BOO-SMS-COMPLIANCE-1A: short date keeps the cancellation SMS in 1 segment
+    // alongside the new STOP opt-out hint.
+    const { dateShort, timeStr } = formatSlotDateTimeShort(booking.slot?.start, tz, lang);
     const provider = getMessagingProvider(business);
     provider
       .sendCancelNotification(business, booking.customer, {
         language: lang,
         serviceName: serviceDisplay,
         businessName: business.name || booking.businessId,
-        slotLocalDate: dateStr,
+        slotLocalDate: dateShort,
         slotLocalTime: timeStr
       })
       .catch((err) =>

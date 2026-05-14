@@ -11,7 +11,7 @@ import {
   updateGcalEvent
 } from "./gcalService.js";
 import { nextGcalSyncFromResult } from "./gcalSyncHelpers.js";
-import { formatSlotDateTime } from "./localeFormat.js";
+import { formatSlotDateTimeShort } from "./localeFormat.js";
 import { getSmsTemplate } from "./templates/smsTemplates.js";
 import {
   feeAppliesForSlot,
@@ -156,7 +156,9 @@ export async function confirmSmsCancelForPhone(business, customerPhoneE164) {
 
   const tz = business.timezone || "America/Toronto";
   const lang = booking.language || "en";
-  const { dateStr, timeStr } = formatSlotDateTime(booking.slot.start, tz, lang);
+  // BOO-SMS-COMPLIANCE-1A: short composite date ("Fri May 15") so the cancellation
+  // SMS — which now includes a STOP opt-out hint — fits within 1 segment where possible.
+  const { dateShort, timeStr } = formatSlotDateTimeShort(booking.slot.start, tz, lang);
   let serviceDisplay = booking.serviceId || "Appointment";
   if (service?.name) serviceDisplay = service.name;
 
@@ -171,7 +173,7 @@ export async function confirmSmsCancelForPhone(business, customerPhoneE164) {
   const replyMsg = cancelTpl({
     serviceName: serviceDisplay,
     businessName: business.name || business.id,
-    date: dateStr,
+    date: dateShort,
     time: timeStr,
     customerName: ""
   });
@@ -270,7 +272,9 @@ export async function cancelUpcomingBookingForPhone(business, customerPhoneE164)
 
   const tz = business.timezone || "America/Toronto";
   const lang = booking.language || "en";
-  const { dateStr, timeStr } = formatSlotDateTime(booking.slot.start, tz, lang);
+  // BOO-SMS-COMPLIANCE-1A: short composite date ("Fri May 15") so the cancellation
+  // SMS — which now includes a STOP opt-out hint — fits within 1 segment where possible.
+  const { dateShort, timeStr } = formatSlotDateTimeShort(booking.slot.start, tz, lang);
   let serviceDisplay = booking.serviceId || "Appointment";
   if (service?.name) serviceDisplay = service.name;
 
@@ -285,7 +289,7 @@ export async function cancelUpcomingBookingForPhone(business, customerPhoneE164)
   const replyMsg = cancelTpl({
     serviceName: serviceDisplay,
     businessName: business.name || business.id,
-    date: dateStr,
+    date: dateShort,
     time: timeStr,
     customerName: ""
   });

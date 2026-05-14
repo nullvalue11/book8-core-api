@@ -11,7 +11,7 @@ import { formatSlotDisplay } from "./slotDisplay.js";
 import { randomBytes } from "crypto";
 import { formatRescheduleSMS } from "./smsService.js";
 import { getMessagingProvider, resolveMessagingBackend } from "./messaging/messagingFactory.js";
-import { formatSlotDateTime } from "./localeFormat.js";
+import { formatSlotDateTime, formatSlotDateTimeShort } from "./localeFormat.js";
 import { sendConfirmation as sendConfirmationEmail } from "./emailService.js";
 import {
   createGcalEvent,
@@ -139,7 +139,10 @@ async function runBookingConfirmationSideEffects({
 
       const bizTz = bizForSms?.timezone || timezone || "America/Toronto";
       const smsLang = booking.language || "en";
-      const { dateStr, timeStr } = formatSlotDateTime(normStart, bizTz, smsLang);
+      // BOO-SMS-COMPLIANCE-1A: short composite date ("Fri May 15, 2026") so the
+      // confirmation SMS — which also carries CANCEL BOOKING / STOP / HELP / msg&data
+      // disclosures — fits within 2 SMS segments.
+      const { dateStr, timeStr } = formatSlotDateTimeShort(normStart, bizTz, smsLang);
 
       let serviceName = serviceId || "Appointment";
       try {
@@ -1219,11 +1222,19 @@ export async function rescheduleBooking(input) {
     ((backend === "twilio" && canTwilio) || (backend === "infobip" && canInfobip));
 
   if (canSend) {
+    // BOO-SMS-COMPLIANCE-1A: short date ("Fri May 15") + serviceName so the rescheduled
+    // SMS includes the service that moved and stays within 1 segment where possible.
+    const { dateShort: newDate, timeStr: newTime } = formatSlotDateTimeShort(
+      newStartDate.toISOString(),
+      scheduleTz,
+      lang
+    );
     const newDay = formatInTimeZone(newStartDate, scheduleTz, "EEEE");
-    const newDate = formatInTimeZone(newStartDate, scheduleTz, "MMMM d");
-    const newTime = formatInTimeZone(newStartDate, scheduleTz, "h:mm a");
     const body = formatRescheduleSMS({
       businessName: bizForSms.name || booking.businessId,
+      serviceName: service.name || booking.serviceId,
+      date: newDate,
+      time: newTime,
       newDay,
       newDate,
       newTime,

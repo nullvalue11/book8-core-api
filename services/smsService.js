@@ -89,14 +89,35 @@ export function formatConfirmationSMS({ serviceName, businessName, date, time, c
   });
 }
 
-/** BOO-98A: reschedule notice (multilingual). */
-export function formatRescheduleSMS({ businessName, newDay, newDate, newTime, language }) {
+/**
+ * BOO-98A reschedule notice (multilingual).
+ *
+ * BOO-SMS-COMPLIANCE-1A: now also includes the rescheduled service name and a STOP
+ * opt-out hint. Callers should pass `serviceName` + a short composite `date` string
+ * (e.g. "Fri May 15" / "15 mai"). Legacy callers can still pass the old
+ * { newDay, newDate, newTime } trio and we'll compose them.
+ */
+export function formatRescheduleSMS({
+  businessName,
+  serviceName,
+  date,
+  time,
+  newDay,
+  newDate,
+  newTime,
+  language
+}) {
   const template = getSmsTemplate(language, "reschedule");
+  const composedDate =
+    date != null && date !== ""
+      ? date
+      : [newDay, newDate].filter(Boolean).join(" ").trim();
+  const composedTime = time != null && time !== "" ? time : newTime || "";
   return template({
     businessName: businessName || "Book8",
-    newDay: newDay || "",
-    newDate: newDate || "",
-    newTime: newTime || ""
+    serviceName: serviceName || "appointment",
+    date: composedDate,
+    time: composedTime
   });
 }
 
@@ -117,19 +138,32 @@ export function formatReviewRequestSMS({ serviceName, businessName, link, langua
   });
 }
 
-export function formatReminderSMS({ serviceName, businessName, date, time, isOneHour, isThirtyMinutes }) {
-  if (isThirtyMinutes) {
-    return `Your ${serviceName} appointment at ${businessName} starts in 30 minutes. See you soon!`;
-  }
-  if (isOneHour) {
-    return `Your ${serviceName} appointment at ${businessName} starts in 1 hour. See you soon!`;
-  }
-  return [
-    `⏰ Reminder: Appointment tomorrow`,
-    `${serviceName} with ${businessName}`,
-    `📅 ${date} at ${time}`,
-    "",
-    `Reply CANCEL BOOKING to cancel your appointment.`
-  ].join("\n");
+/**
+ * BOO-SMS-COMPLIANCE-1A: reminder SMS (multilingual + STOP opt-out keyword).
+ * `language` defaults to English to preserve previous behavior.
+ */
+export function formatReminderSMS({
+  serviceName,
+  businessName,
+  date,
+  time,
+  isOneHour,
+  isThirtyMinutes,
+  language
+}) {
+  const safeService = serviceName || "appointment";
+  const safeBusiness = businessName || "Book8";
+  const type = isThirtyMinutes
+    ? "reminderThirtyMin"
+    : isOneHour
+      ? "reminderOneHour"
+      : "reminder";
+  const template = getSmsTemplate(language, type);
+  return template({
+    serviceName: safeService,
+    businessName: safeBusiness,
+    date: date || "",
+    time: time || ""
+  });
 }
 
