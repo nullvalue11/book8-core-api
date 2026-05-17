@@ -10,6 +10,7 @@ import { Booking } from "../models/Booking.js";
 import { Provider } from "../models/Provider.js";
 import { formatSlotDisplay } from "./slotDisplay.js";
 import { getGcalBusyPeriods, resolveCalendarProviderForBusiness } from "./gcalService.js";
+import { getBusyTimes, setBusyTimes } from "./calendarCache.js";
 import { providerWeeklyHoursToBlocks } from "../src/utils/providerSchedule.js";
 import { trialDeniedPublicChannel } from "../src/utils/trialLifecycle.js";
 
@@ -113,14 +114,15 @@ export async function getAvailability(params) {
     (s) => !conflictingStarts.some((booked) => slotsOverlap(s, booked))
   );
 
-  const busyPeriods = await getGcalBusyPeriods({
+  const calendarProvider = resolveCalendarProviderForBusiness(business);
+  const { busyPeriods, cacheHit, gcalMs } = await resolveBusyPeriodsForRange({
     businessId,
     from: normalizedFrom,
     to: normalizedTo,
     timezone: scheduleTz,
-    calendarProvider: resolveCalendarProviderForBusiness(business)
+    calendarProvider
   });
-  if (busyPeriods && busyPeriods.length > 0) {
+  if (busyPeriods.length > 0) {
     slots = slots.filter(
       (s) => !busyPeriods.some((busy) => slotOverlapsBusy(s, busy))
     );
@@ -128,7 +130,7 @@ export async function getAvailability(params) {
 
   const tEnd = Date.now();
   console.log(
-    `[perf:calendar-availability] complete total=${tEnd - t0}ms db=${tAfterDb - t0}ms gcal=${tEnd - tAfterDb}ms slots=${slots.length}`
+    `[perf:calendar-availability] complete total=${tEnd - t0}ms db=${tAfterDb - t0}ms gcal=${gcalMs}ms cache=${cacheHit ? "hit" : "miss"} slots=${slots.length}`
   );
 
   return {
@@ -146,6 +148,80 @@ export async function getAvailability(params) {
 
 function slotsOverlap(slot, booked) {
   return slot.start < booked.end && slot.end > booked.start;
+}
+
+/** Calendar dates (YYYY-MM-DD) touched by [from, to) in the given timezone. */
+function datesInRange(fromIso, toIso, timezone) {
+  const dates = [];
+  const seen = new Set();
+  const start = new Date(fromIso);
+  const end = new Date(toIso);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return dates;
+
+  let cursor = new Date(start);
+  while (cursor < end) {
+    const { year, month, day } = getLocalDatePartsInTz(cursor, timezone);
+    const dateISO = `${year}-${month}-${day}`;
+    if (!seen.has(dateISO)) {
+      seen.add(dateISO);
+      dates.push(dateISO);
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function nextDateISO(dateISO) {
+  const [y, m, d] = dateISO.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + 1));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+}
+
+async function fetchBusyForDate({ businessId, dateISO, timezone, calendarProvider }) {
+  const dayStart = ensureTimezoneOffset(`${dateISO}T00:00:00`, timezone);
+  const dayEnd = ensureTimezoneOffset(`${nextDateISO(dateISO)}T00:00:00`, timezone);
+  const busy = await getGcalBusyPeriods({
+    businessId,
+    from: dayStart,
+    to: dayEnd,
+    timezone,
+    calendarProvider
+  });
+  return busy || [];
+}
+
+/**
+ * Resolve GCal busy periods for a range, using per-day cache when enabled.
+ * @returns {Promise<{ busyPeriods: Array<{start:string,end:string}>, cacheHit: boolean, gcalMs: number }>}
+ */
+async function resolveBusyPeriodsForRange({ businessId, from, to, timezone, calendarProvider }) {
+  const dates = datesInRange(from, to, timezone);
+  if (dates.length === 0) {
+    return { busyPeriods: [], cacheHit: true, gcalMs: 0 };
+  }
+
+  const allBusy = [];
+  let cacheHit = true;
+  let gcalMs = 0;
+
+  for (const dateISO of dates) {
+    let dayBusy = getBusyTimes(businessId, dateISO, timezone);
+    if (dayBusy === null) {
+      cacheHit = false;
+      const tGcal = Date.now();
+      dayBusy = await fetchBusyForDate({ businessId, dateISO, timezone, calendarProvider });
+      gcalMs += Date.now() - tGcal;
+      setBusyTimes(businessId, dateISO, timezone, dayBusy);
+    } else {
+      console.log(
+        `[perf:calendar-availability] cache-hit businessId=${businessId} date=${dateISO}`
+      );
+    }
+    allBusy.push(...dayBusy);
+  }
+
+  return { busyPeriods: allBusy, cacheHit, gcalMs };
 }
 
 /**

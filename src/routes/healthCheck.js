@@ -6,6 +6,7 @@ import { Schedule } from "../../models/Schedule.js";
 import { businessLookupFilter, canonicalBusinessId } from "../../services/provisioningHelpers.js";
 import { getPlanFeatures } from "../config/plans.js";
 import { getVerticalPromptAddendum } from "../utils/verticalPromptAddendum.js";
+import { stats as calendarCacheStats } from "../../services/calendarCache.js";
 
 const router = express.Router();
 
@@ -195,6 +196,7 @@ router.get("/all", async (req, res) => {
       total: results.length,
       ready: results.filter((r) => r.status === "READY").length,
       incomplete: results.filter((r) => r.status === "INCOMPLETE").length,
+      calendarCache: calendarCacheStats(),
       businesses: results
     });
   } catch (err) {

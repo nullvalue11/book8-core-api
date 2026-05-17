@@ -25,6 +25,7 @@ import {
 } from "./calendarAvailability.js";
 import { providerWeeklyHoursToBlocks } from "../src/utils/providerSchedule.js";
 import { invalidateFreebusyCacheForBusiness } from "../src/services/gcalBusyCache.js";
+import { invalidateCalendarCacheForSlot } from "./calendarCache.js";
 import { isFeatureAllowed, isChannelAllowed } from "../src/config/plans.js";
 import { tryMarkWaitlistBooked } from "./waitlistService.js";
 import { validateAndBuildRecurringMeta } from "./recurringBookingUtils.js";
@@ -658,6 +659,7 @@ async function createBookingInner(input) {
   }
 
   invalidateFreebusyCacheForBusiness(businessId);
+  invalidateCalendarCacheForSlot(businessId, normStart, timezone, "booking.create");
 
   void runBookingConfirmationSideEffects({
     bookingId,
@@ -1226,6 +1228,19 @@ export async function rescheduleBooking(input) {
   }
 
   invalidateFreebusyCacheForBusiness(booking.businessId);
+  const rescheduleTz = booking.slot?.timezone || business.timezone || "America/Toronto";
+  invalidateCalendarCacheForSlot(
+    booking.businessId,
+    booking.slot.start,
+    rescheduleTz,
+    "booking.reschedule"
+  );
+  invalidateCalendarCacheForSlot(
+    booking.businessId,
+    newSlotStartStr,
+    tz,
+    "booking.reschedule"
+  );
 
   let gcalSynced = false;
   const tPreGcal = Date.now();
@@ -1415,6 +1430,14 @@ export async function cancelBookingForCustomerChannel({ bookingId, businessId, c
       userMessage: "That booking could not be cancelled (it may have been updated)."
     };
   }
+
+  invalidateFreebusyCacheForBusiness(booking.businessId);
+  invalidateCalendarCacheForSlot(
+    booking.businessId,
+    booking.slot?.start,
+    booking.slot?.timezone || businessForFee?.timezone || "America/Toronto",
+    "booking.cancel"
+  );
 
   await runBookingCancellationFollowups(booking, {
     cancellationFeeAmount: feeTry.charged ? feeTry.amountMajor : undefined
