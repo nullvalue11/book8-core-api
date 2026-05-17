@@ -235,7 +235,8 @@ function extractDetectedLanguageFromPostCallData(data) {
  * serves all businesses by receiving per-call context from this webhook.
  */
 router.post("/conversation-init/:token", async (req, res) => {
-  const startTime = Date.now();
+  const t0 = Date.now();
+  let callSidForPerf = "";
 
   try {
     const { token } = req.params;
@@ -255,6 +256,8 @@ router.post("/conversation-init/:token", async (req, res) => {
 
     const dynamicExtras = extraDynamicVariableDefaults();
     const { caller_id, agent_id, called_number, call_sid } = parseConversationInitBody(req.body);
+    callSidForPerf = call_sid || "";
+    console.log(`[perf:conv-init] start callSid=${callSidForPerf} t0=${t0}`);
 
     console.log("[elevenlabs-webhook] Conversation init request:", {
       caller_id: maskPhone(caller_id),
@@ -274,6 +277,11 @@ router.post("/conversation-init/:token", async (req, res) => {
         assignedTwilioNumber: e164
       }).lean();
     }
+
+    const tBusinessResolved = Date.now();
+    console.log(
+      `[perf:conv-init] business-resolved elapsed=${tBusinessResolved - t0}ms callSid=${callSidForPerf} found=${!!business}`
+    );
 
     if (business) {
       const trialBlock = trialDeniedPublicChannel(business);
@@ -301,6 +309,10 @@ router.post("/conversation-init/:token", async (req, res) => {
       const todayIso = dynamicVarTodayDate("unknown", "America/Toronto");
       console.log("[elevenlabs-init]", { businessId: "unknown", today_date: todayIso, caller_known: false });
       const defaultVoiceId = getDefaultConversationVoiceId();
+      const tEndUnknown = Date.now();
+      console.log(
+        `[perf:conv-init] complete total=${tEndUnknown - t0}ms callSid=${callSidForPerf} path=unknown-business`
+      );
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
@@ -345,6 +357,11 @@ router.post("/conversation-init/:token", async (req, res) => {
       console.warn("[elevenlabs-webhook] caller recognition failed:", recErr?.message);
     }
 
+    const tCallerResolved = Date.now();
+    console.log(
+      `[perf:conv-init] caller-resolved elapsed=${tCallerResolved - tBusinessResolved}ms total=${tCallerResolved - t0}ms callSid=${callSidForPerf}`
+    );
+
     // 2b) Gate AI phone agent based on plan
     const plan = business.plan || "starter";
     if (!isFeatureAllowed(plan, "aiPhoneAgent")) {
@@ -357,6 +374,10 @@ router.post("/conversation-init/:token", async (req, res) => {
       logElevenLabsInit(businessId, locPlan);
       const voiceId = resolveVoiceIdForBusiness(business);
       const upgradeFirstMessage = `Thank you for calling ${businessName}. AI phone booking is not available on this plan. Please visit our website to book online or ask the business owner to upgrade to our Growth plan. Goodbye.`;
+      const tEndPlanBlock = Date.now();
+      console.log(
+        `[perf:conv-init] complete total=${tEndPlanBlock - t0}ms callSid=${callSidForPerf} path=plan-blocked`
+      );
       return res.json({
         type: "conversation_initiation_client_data",
         dynamic_variables: {
@@ -416,6 +437,11 @@ router.post("/conversation-init/:token", async (req, res) => {
       console.error("[elevenlabs-webhook] Error loading schedule:", err);
     }
 
+    const tServicesResolved = Date.now();
+    console.log(
+      `[perf:conv-init] services-resolved elapsed=${tServicesResolved - tCallerResolved}ms total=${tServicesResolved - t0}ms callSid=${callSidForPerf} servicesCount=${services.length}`
+    );
+
     // Format schedule as a spoken-friendly string
     let businessHours = "Monday to Friday, 9 AM to 5 PM";
     if (schedule && schedule.weeklyHours) {
@@ -463,14 +489,17 @@ router.post("/conversation-init/:token", async (req, res) => {
     const todayIso = dynamicVarTodayDate(businessId, business.timezone);
     console.log("[elevenlabs-init]", { businessId, today_date: todayIso, caller_known: callerKnownForLog });
 
-    const elapsed = Date.now() - startTime;
+    const tEnd = Date.now();
+    console.log(
+      `[perf:conv-init] complete total=${tEnd - t0}ms callSid=${callSidForPerf} businessId=${businessId}`
+    );
     console.log("[elevenlabs-webhook] Resolved business:", {
       businessId,
       businessName,
       today_date: todayIso,
       servicesCount: services.length,
       hasSchedule: !!schedule,
-      elapsed: `${elapsed}ms`
+      elapsed: `${tEnd - t0}ms`
     });
 
     const locOk = getElevenLabsBusinessLocationVars(business);
@@ -511,6 +540,10 @@ router.post("/conversation-init/:token", async (req, res) => {
     });
   } catch (err) {
     console.error("[elevenlabs-webhook] Error:", err);
+    const tEndErr = Date.now();
+    console.log(
+      `[perf:conv-init] complete total=${tEndErr - t0}ms callSid=${callSidForPerf} path=error-fallback`
+    );
 
     // Return generic defaults on error — don't fail the call
     const todayIsoErr = dynamicVarTodayDate("unknown", null);

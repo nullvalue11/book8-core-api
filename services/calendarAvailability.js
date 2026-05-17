@@ -21,6 +21,9 @@ import { trialDeniedPublicChannel } from "../src/utils/trialLifecycle.js";
  * @returns {Promise<{ ok: boolean, error?: string, businessId?: string, serviceId?: string, timezone?: string, slots?: Array<{ start: string, end: string, display: string }> }>}
  */
 export async function getAvailability(params) {
+  const t0 = Date.now();
+  console.log("[perf:calendar-availability] start");
+
   const { businessId, serviceId, from, to, timezone, providerId } = params;
 
   const normalizedFrom = ensureTimezoneOffset(from, timezone || "America/Toronto");
@@ -102,6 +105,9 @@ export async function getAvailability(params) {
     weeklyHours
   });
 
+  const tAfterDb = Date.now();
+  console.log(`[perf:calendar-availability] db-queries elapsed=${tAfterDb - t0}ms`);
+
   const conflictingStarts = await getBookedSlotStarts(businessId, normalizedFrom, normalizedTo, providerId || null);
   let slots = candidateSlots.filter(
     (s) => !conflictingStarts.some((booked) => slotsOverlap(s, booked))
@@ -119,6 +125,11 @@ export async function getAvailability(params) {
       (s) => !busyPeriods.some((busy) => slotOverlapsBusy(s, busy))
     );
   }
+
+  const tEnd = Date.now();
+  console.log(
+    `[perf:calendar-availability] complete total=${tEnd - t0}ms db=${tAfterDb - t0}ms gcal=${tEnd - tAfterDb}ms slots=${slots.length}`
+  );
 
   return {
     ok: true,

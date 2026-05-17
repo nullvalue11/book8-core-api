@@ -104,8 +104,11 @@ async function runBookingConfirmationSideEffects({
   timezone,
   isRecurringCron
 }) {
+  const sideFxT0 = Date.now();
   const tasks = [
     (async () => {
+      const tPreSms = Date.now();
+      console.log(`[perf:booking-create] pre-sms elapsed=${tPreSms - sideFxT0}ms bookingId=${bookingId}`);
       if (!customer.phone) {
         console.log("[bookingService] No customer phone — skipping confirmation SMS");
         return;
@@ -198,6 +201,11 @@ async function runBookingConfirmationSideEffects({
         });
       }
 
+      const tAfterSms = Date.now();
+      console.log(
+        `[perf:booking-create] sms-send elapsed=${tAfterSms - tPreSms}ms bookingId=${bookingId} ok=${!!smsResult?.ok}`
+      );
+
       if (smsResult.ok) {
         await Booking.findOneAndUpdate(
           { id: bookingId },
@@ -237,6 +245,8 @@ async function runBookingConfirmationSideEffects({
     })(),
 
     (async () => {
+      const tPreGcal = Date.now();
+      console.log(`[perf:booking-create] pre-gcal elapsed=${tPreGcal - sideFxT0}ms bookingId=${bookingId}`);
       const resolvedCalendarProvider = resolveCalendarProviderForBusiness(business);
       if (process.env.NODE_ENV !== "test") {
         console.log("[gcalService] Routing calendar call:", {
@@ -282,6 +292,10 @@ async function runBookingConfirmationSideEffects({
         console.log("[bookingService] Stored calendarEventId:", calResult.eventId, "on booking:", bookingId);
       }
       await Booking.findOneAndUpdate({ id: bookingId }, { $set: setDoc });
+      const tAfterGcal = Date.now();
+      console.log(
+        `[perf:booking-create] gcal-write elapsed=${tAfterGcal - tPreGcal}ms bookingId=${bookingId} ok=${!!calResult?.ok}`
+      );
       if (!calResult.ok && !calResult.skipped) {
         console.warn("[booking-create][gcal-failed]", {
           bookingId,
@@ -294,6 +308,8 @@ async function runBookingConfirmationSideEffects({
   ];
 
   const results = await Promise.allSettled(tasks);
+  const tSideFxEnd = Date.now();
+  console.log(`[perf:booking-create] side-effects-complete total=${tSideFxEnd - sideFxT0}ms bookingId=${bookingId}`);
   results.forEach((r, idx) => {
     if (r.status === "rejected") {
       const labels = ["sms", "email", "gcal"];
@@ -351,6 +367,9 @@ export async function isSlotAvailable(businessId, slot, providerId = null) {
  * @returns {Promise<{ ok: boolean, error?: string, booking?: object, summary?: string, idempotent?: boolean }>}
  */
 async function createBookingInner(input) {
+  const t0 = Date.now();
+  console.log("[perf:booking-create] start");
+
   const {
     businessId,
     serviceId,
@@ -598,6 +617,9 @@ async function createBookingInner(input) {
     ...(normalizedReqId ? { clientRequestId: normalizedReqId } : {})
   });
 
+  const tBeforeDB = Date.now();
+  console.log(`[perf:booking-create] pre-db elapsed=${tBeforeDB - t0}ms`);
+
   try {
     await booking.save();
   } catch (err) {
@@ -624,6 +646,9 @@ async function createBookingInner(input) {
     throw err;
   }
 
+  const tAfterDB = Date.now();
+  console.log(`[perf:booking-create] db-write elapsed=${tAfterDB - tBeforeDB}ms`);
+
   if (waitlistId && typeof waitlistId === "string") {
     try {
       await tryMarkWaitlistBooked(waitlistId, booking.toObject());
@@ -649,6 +674,11 @@ async function createBookingInner(input) {
 
   const display = formatSlotDisplay(normStart, timezone);
   const summary = `Booked ${customer.name} for ${display}.`;
+
+  const tEnd = Date.now();
+  console.log(
+    `[perf:booking-create] complete total=${tEnd - t0}ms bookingId=${bookingId} sideEffects=async`
+  );
 
   return {
     ok: true,
@@ -712,6 +742,9 @@ function slotDurationMinutes(slot) {
  * @returns {Promise<{ ok: true, count: number, bookings: object[] } | { ok: false, error: string }>}
  */
 export async function lookupBookingsByPhone(input) {
+  const t0 = Date.now();
+  console.log("[perf:booking-lookup] start");
+
   const {
     businessId,
     customerPhone,
@@ -779,6 +812,9 @@ export async function lookupBookingsByPhone(input) {
 
   docs = docs.filter((b) => normalizePhoneForLookupMatch(b.customer?.phone) === normalizedInput);
 
+  const tAfterDb = Date.now();
+  console.log(`[perf:booking-lookup] db-query elapsed=${tAfterDb - t0}ms count=${docs.length}`);
+
   console.log("[booking-lookup]", {
     businessId: bizId,
     phoneHashed: hashPhoneForLog(normalizedInput),
@@ -819,6 +855,9 @@ export async function lookupBookingsByPhone(input) {
       rescheduleUrl: `${origin}/manage/${b.id}`
     });
   }
+
+  const tEnd = Date.now();
+  console.log(`[perf:booking-lookup] complete total=${tEnd - t0}ms count=${bookings.length}`);
 
   return {
     ok: true,
@@ -936,6 +975,9 @@ function buildRescheduleBookingResult({
  * BOO-98A: voice-agent reschedule — phone must match booking.customer.phone.
  */
 export async function rescheduleBooking(input) {
+  const t0 = Date.now();
+  console.log("[perf:booking-reschedule] start");
+
   const {
     bookingId: bookingIdRaw,
     customerPhone,
@@ -1139,6 +1181,9 @@ export async function rescheduleBooking(input) {
     };
   }
 
+  const tBeforeDb = Date.now();
+  console.log(`[perf:booking-reschedule] pre-db elapsed=${tBeforeDb - t0}ms bookingId=${bookingId}`);
+
   const updated = await Booking.findOneAndUpdate(
     {
       id: bookingId,
@@ -1166,6 +1211,9 @@ export async function rescheduleBooking(input) {
     { new: true }
   ).lean();
 
+  const tAfterDb = Date.now();
+  console.log(`[perf:booking-reschedule] db-write elapsed=${tAfterDb - tBeforeDb}ms bookingId=${bookingId}`);
+
   if (!updated) {
     const suggestedSlots = await suggest();
     logLine({ businessId: booking.businessId, result: "atomic_fail", newSlot: newSlotStartStr });
@@ -1180,6 +1228,8 @@ export async function rescheduleBooking(input) {
   invalidateFreebusyCacheForBusiness(booking.businessId);
 
   let gcalSynced = false;
+  const tPreGcal = Date.now();
+  console.log(`[perf:booking-reschedule] pre-gcal elapsed=${tPreGcal - tAfterDb}ms bookingId=${bookingId}`);
   const calProv = resolveCalendarProviderForBusiness(business);
   const prevForGcal = {
     failureCount: booking.gcalSync?.failureCount,
@@ -1206,8 +1256,14 @@ export async function rescheduleBooking(input) {
     }
     await Booking.findOneAndUpdate({ id: bookingId }, { $set: { gcalSync: nextGcal } });
   }
+  const tAfterGcal = Date.now();
+  console.log(
+    `[perf:booking-reschedule] gcal-write elapsed=${tAfterGcal - tPreGcal}ms bookingId=${bookingId} synced=${gcalSynced}`
+  );
 
   let smsNotificationSent = false;
+  const tPreSms = Date.now();
+  console.log(`[perf:booking-reschedule] pre-sms elapsed=${tPreSms - tAfterGcal}ms bookingId=${bookingId}`);
   const bizForSms = await Business.findOne({ id: booking.businessId }).lean();
   const fromNumber = bizForSms?.assignedTwilioNumber;
   const toPhone = booking.customer?.phone;
@@ -1244,6 +1300,10 @@ export async function rescheduleBooking(input) {
     const smsResult = await provider.sendBookingReschedule(bizForSms, { phone: toPhone }, { body });
     smsNotificationSent = !!smsResult.ok;
   }
+  const tAfterSms = Date.now();
+  console.log(
+    `[perf:booking-reschedule] sms-send elapsed=${tAfterSms - tPreSms}ms bookingId=${bookingId} sent=${smsNotificationSent}`
+  );
 
   const resultBooking = buildRescheduleBookingResult({
     bookingId,
@@ -1263,6 +1323,9 @@ export async function rescheduleBooking(input) {
     smsSent: smsNotificationSent,
     result: "ok"
   });
+
+  const tEnd = Date.now();
+  console.log(`[perf:booking-reschedule] complete total=${tEnd - t0}ms bookingId=${bookingId}`);
 
   return {
     ok: true,

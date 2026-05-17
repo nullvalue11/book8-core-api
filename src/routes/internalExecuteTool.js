@@ -38,8 +38,10 @@ function requireVoiceForBookingTool(req, res, next) {
  * Returns: { ok, status, tool, tenantId, requestId, executionKey, result, error }
  */
 router.post("/", requireVoiceForBookingTool, async (req, res) => {
+  const t0 = Date.now();
   try {
     const { tool, input, requestId, executionKey } = req.body;
+    console.log(`[perf:exec-tool] start tool=${tool ?? "unknown"} requestId=${requestId ?? ""} t0=${t0}`);
 
     if (!tool || typeof tool !== "string") {
       return res.status(400).json({
@@ -90,6 +92,9 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
         }
       }
     }
+
+    const tHandlerStart = Date.now();
+    console.log(`[perf:exec-tool] routing-done elapsed=${tHandlerStart - t0}ms tool=${tool}`);
 
     let outcome;
     switch (tool) {
@@ -356,6 +361,10 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
         };
     }
 
+    const tEnd = Date.now();
+    console.log(
+      `[perf:exec-tool] complete total=${tEnd - t0}ms tool=${tool} requestId=${requestId ?? ""}`
+    );
     return res.json({
       ok: outcome.ok,
       status: outcome.status,
@@ -369,6 +378,10 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
   } catch (err) {
     console.error("Error in POST /internal/execute-tool:", err);
     const { tool, input, requestId, executionKey } = req.body || {};
+    const tEndErr = Date.now();
+    console.log(
+      `[perf:exec-tool] complete total=${tEndErr - t0}ms tool=${tool ?? "unknown"} requestId=${requestId ?? ""} path=error`
+    );
     return res.status(500).json({
       ok: false,
       status: "failed",
