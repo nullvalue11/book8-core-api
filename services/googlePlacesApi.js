@@ -6,7 +6,12 @@
 const PLACES_BASE = "https://places.googleapis.com/v1";
 
 function apiKey() {
-  return process.env.GOOGLE_PLACES_API_KEY || "";
+  return (
+    process.env.GOOGLE_PLACES_API_KEY ||
+    process.env.GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_MAPS_SERVER_KEY ||
+    ""
+  );
 }
 
 export function isGooglePlacesConfigured() {
@@ -277,35 +282,59 @@ export async function placeDetails(placeId) {
 export async function fetchPlacePhoto(reference, maxWidthPx) {
   const key = apiKey();
   if (!key) {
-    return { ok: false, error: "GOOGLE_PLACES_API_KEY is not configured" };
-  }
-  if (!reference || typeof reference !== "string") {
-    return { ok: false, error: "reference is required" };
+    return { ok: false, error: "server_misconfigured", status: 500 };
   }
 
-  const mw = Math.min(Math.max(Number(maxWidthPx) || 800, 1), 4800);
-  const pathSegs = String(reference)
-    .split("/")
-    .filter(Boolean)
-    .map(encodeURIComponent)
-    .join("/");
+  const ref = typeof reference === "string" ? reference.trim() : "";
+  if (!ref) {
+    return { ok: false, error: "missing_reference", status: 400 };
+  }
+  if (!ref.startsWith("places/") || !ref.includes("/photos/")) {
+    return { ok: false, error: "invalid_reference_format", status: 400 };
+  }
+
+  const widthParam = parseInt(maxWidthPx, 10);
+  const mw = Number.isFinite(widthParam) ? Math.min(Math.max(widthParam, 1), 4800) : 600;
 
   try {
-    const url = `${PLACES_BASE}/${pathSegs}/media?maxWidthPx=${mw}`;
-    const res = await fetch(url, {
+    const googleUrl = `${PLACES_BASE}/${ref}/media?maxWidthPx=${mw}&skipHttpRedirect=true`;
+    const googleRes = await fetch(googleUrl, {
       method: "GET",
       headers: { "X-Goog-Api-Key": key }
     });
-    if (!res.ok) {
-      const t = await res.text();
-      console.error("[googlePlaces] photo:", res.status, t?.slice(0, 200));
-      return { ok: false, error: "Photo fetch failed", status: res.status };
+
+    if (!googleRes.ok) {
+      const text = await googleRes.text().catch(() => "");
+      console.error("[places/photo] Google returned", googleRes.status, text.slice(0, 200));
+      return {
+        ok: false,
+        error: "google_photo_fetch_failed",
+        status: googleRes.status === 429 ? 429 : 502,
+        upstream_status: googleRes.status
+      };
     }
-    const contentType = res.headers.get("content-type") || "image/jpeg";
-    const buf = Buffer.from(await res.arrayBuffer());
-    return { ok: true, buffer: buf, contentType };
+
+    const data = await googleRes.json().catch(() => ({}));
+    const photoUri = data.photoUri;
+    if (!photoUri || typeof photoUri !== "string") {
+      console.error(
+        "[places/photo] no photoUri in Google response:",
+        JSON.stringify(data).slice(0, 200)
+      );
+      return { ok: false, error: "no_photo_uri", status: 502 };
+    }
+
+    const imgRes = await fetch(photoUri);
+    if (!imgRes.ok) {
+      console.error("[places/photo] photoUri fetch failed:", imgRes.status, photoUri.slice(0, 80));
+      return { ok: false, error: "photo_uri_fetch_failed", status: 502 };
+    }
+
+    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+    const buffer = Buffer.from(await imgRes.arrayBuffer());
+    return { ok: true, buffer, contentType };
   } catch (err) {
-    console.error("[googlePlaces] photo:", err);
-    return { ok: false, error: err.message || "Photo request failed" };
+    console.error("[places/photo] unexpected error:", err);
+    return { ok: false, error: "internal_error", status: 500 };
   }
 }

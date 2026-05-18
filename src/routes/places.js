@@ -87,27 +87,48 @@ router.get("/details", strictLimiter, requireInternalAuth, async (req, res) => {
   }
 });
 
-/** GET /api/places/photo?reference=&maxwidth=800 — public proxy */
+/** GET /api/places/photo?reference=&maxwidth=600 — public proxy (Places API New) */
 router.get("/photo", photoProxyLimiter, async (req, res) => {
   try {
-    if (!isGooglePlacesConfigured()) {
-      return res.status(503).send("Places photo unavailable");
-    }
     const reference = req.query.reference;
     const maxwidth = req.query.maxwidth || req.query.maxWidthPx;
+
     if (!reference || typeof reference !== "string") {
-      return res.status(400).send("Missing reference");
+      return res.status(400).json({ error: "missing_reference" });
     }
+
+    if (!reference.startsWith("places/") || !reference.includes("/photos/")) {
+      console.warn(
+        "[places/photo] rejected legacy or malformed reference:",
+        reference.slice(0, 80)
+      );
+      return res.status(400).json({ error: "invalid_reference_format" });
+    }
+
+    if (!isGooglePlacesConfigured()) {
+      console.error("[places/photo] no Google Maps API key configured");
+      return res.status(500).json({ error: "server_misconfigured" });
+    }
+
     const r = await fetchPlacePhoto(reference, maxwidth);
     if (!r.ok) {
-      return res.status(r.status || 502).send(r.error || "Photo error");
+      const status = r.status || 502;
+      const body = {
+        error: r.error || "google_photo_fetch_failed",
+        ...(r.upstream_status != null && { upstream_status: r.upstream_status })
+      };
+      return res.status(status).json(body);
     }
+
     res.setHeader("Content-Type", r.contentType);
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000"
+    );
     return res.send(r.buffer);
   } catch (err) {
-    console.error("[places] photo", err);
-    return res.status(500).send("Internal error");
+    console.error("[places/photo] unexpected error:", err);
+    return res.status(500).json({ error: "internal_error" });
   }
 });
 
