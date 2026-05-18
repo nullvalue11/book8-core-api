@@ -11,6 +11,10 @@ import {
   fetchPlacePhoto,
   isGooglePlacesConfigured
 } from "../../services/googlePlacesApi.js";
+import {
+  findBusinessIdByPhotoReference,
+  refreshBusinessPhotos
+} from "../../services/refreshBusinessPhotos.js";
 
 const router = express.Router();
 
@@ -112,6 +116,21 @@ router.get("/photo", photoProxyLimiter, async (req, res) => {
 
     const r = await fetchPlacePhoto(reference, maxwidth);
     if (!r.ok) {
+      if (r.stale || r.error === "photo_reference_stale") {
+        void findBusinessIdByPhotoReference(reference)
+          .then((bizId) => {
+            if (!bizId) return;
+            console.log("[places/photo] triggering background refresh for", bizId);
+            return refreshBusinessPhotos(bizId);
+          })
+          .catch((err) => console.error("[places/photo] background refresh failed:", err?.message));
+
+        return res.status(410).json({
+          error: "photo_reference_stale",
+          message: "Photo reference is no longer valid; refresh in progress"
+        });
+      }
+
       const status = r.status || 502;
       const body = {
         error: r.error || "google_photo_fetch_failed",

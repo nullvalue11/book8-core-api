@@ -138,7 +138,9 @@ const GooglePlacesSchema = new mongoose.Schema(
     photos: [GooglePlacesPhotoSchema],
     location: GooglePlacesLocationSchema,
     googleMapsUrl: { type: String, maxlength: 2048, trim: true },
-    lastSynced: { type: Date }
+    lastSynced: { type: Date },
+    /** BOO-PHOTO-REFRESH-1A: last time photo references were refreshed from Places API */
+    photosRefreshedAt: { type: Date }
   },
   { _id: false }
 );

@@ -393,6 +393,19 @@ export async function fetchPlacePhoto(reference, maxWidthPx) {
     if (!attempt.ok) {
       const text = attempt.text || "";
       const upstreamStatus = attempt.lastFailure?.status ?? attempt.res?.status ?? 502;
+      if (
+        upstreamStatus === 400 &&
+        (text.includes("photo resource in the request is invalid") ||
+          text.toLowerCase().includes("retrieve it from places api"))
+      ) {
+        return {
+          ok: false,
+          error: "photo_reference_stale",
+          status: 410,
+          stale: true,
+          upstream_status: upstreamStatus
+        };
+      }
       console.error(
         "[places/photo] Google returned",
         upstreamStatus,

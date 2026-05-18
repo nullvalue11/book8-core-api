@@ -59,6 +59,7 @@ export function applyGooglePlacesToBusiness(doc, place) {
     })),
     location: place.location || undefined,
     googleMapsUrl: place.googleMapsUrl || undefined,
-    lastSynced: new Date()
+    lastSynced: new Date(),
+    photosRefreshedAt: new Date()
   };
 }
