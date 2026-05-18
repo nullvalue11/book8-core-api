@@ -1,21 +1,92 @@
 /**
- * Google Places API (New) — server-side only. Uses GOOGLE_PLACES_API_KEY.
+ * Google Places API (New) — server-side only.
  * @see https://developers.google.com/maps/documentation/places/web-service/op-overview
  */
 
 const PLACES_BASE = "https://places.googleapis.com/v1";
 
+/** Prefer MAPS keys first — Render often still has an expired GOOGLE_PLACES_API_KEY set. */
+const API_KEY_ENV_PRIORITY = [
+  "GOOGLE_MAPS_API_KEY",
+  "GOOGLE_MAPS_SERVER_KEY",
+  "GOOGLE_PLACES_API_KEY"
+];
+
+/**
+ * Distinct configured keys in priority order (for fallback when one key is expired).
+ * @returns {Array<{ env: string, key: string }>}
+ */
+export function configuredGoogleApiKeys() {
+  const seen = new Set();
+  const out = [];
+  for (const env of API_KEY_ENV_PRIORITY) {
+    const raw = process.env[env];
+    const key = typeof raw === "string" ? raw.trim() : "";
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      out.push({ env, key });
+    }
+  }
+  return out;
+}
+
 function apiKey() {
-  return (
-    process.env.GOOGLE_PLACES_API_KEY ||
-    process.env.GOOGLE_MAPS_API_KEY ||
-    process.env.GOOGLE_MAPS_SERVER_KEY ||
-    ""
-  );
+  return configuredGoogleApiKeys()[0]?.key ?? "";
+}
+
+function isGoogleApiKeyError(status, bodyText) {
+  const t = String(bodyText ?? "").toLowerCase();
+  if (status === 401 || status === 403) return true;
+  if (status === 400 && (t.includes("api key") || t.includes("apikey") || t.includes("expired"))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @param {(key: string, keyEnv: string) => Promise<Response>} requestFn
+ * @param {string} logTag
+ */
+async function fetchWithGoogleApiKeyFallback(requestFn, logTag) {
+  const keys = configuredGoogleApiKeys();
+  if (keys.length === 0) {
+    return { ok: false, error: "server_misconfigured", status: 500 };
+  }
+
+  let lastFailure = null;
+  for (let i = 0; i < keys.length; i++) {
+    const { env, key } = keys[i];
+    const res = await requestFn(key, env);
+    if (res.ok) {
+      if (i > 0) {
+        console.log(`[googlePlaces] ${logTag} succeeded with ${env} after earlier key rejection`);
+      }
+      return { ok: true, res, keyEnv: env };
+    }
+
+    const text = await res.text().catch(() => "");
+    if (isGoogleApiKeyError(res.status, text) && i < keys.length - 1) {
+      console.warn(
+        `[googlePlaces] ${logTag} ${env} rejected (${res.status}): ${text.slice(0, 160)} — trying next key`
+      );
+      lastFailure = { status: res.status, text, env };
+      continue;
+    }
+
+    return { ok: false, res, text, keyEnv: env, lastFailure };
+  }
+
+  return {
+    ok: false,
+    error: "google_api_key_failed",
+    status: 502,
+    text: lastFailure?.text ?? "",
+    keyEnv: lastFailure?.env
+  };
 }
 
 export function isGooglePlacesConfigured() {
-  return !!apiKey();
+  return configuredGoogleApiKeys().length > 0;
 }
 
 /**
@@ -23,9 +94,8 @@ export function isGooglePlacesConfigured() {
  * @param {string} [primaryType] e.g. "establishment" — may be ignored if not a valid primary type in new API
  */
 export async function placesAutocomplete(query, primaryType) {
-  const key = apiKey();
-  if (!key) {
-    return { ok: false, error: "GOOGLE_PLACES_API_KEY is not configured" };
+  if (!isGooglePlacesConfigured()) {
+    return { ok: false, error: "Google Places API key is not configured" };
   }
   const input = typeof query === "string" ? query.trim() : "";
   if (!input) {
@@ -44,20 +114,29 @@ export async function placesAutocomplete(query, primaryType) {
   }
 
   try {
-    const res = await fetch(`${PLACES_BASE}/places:autocomplete`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": key
-      },
-      body: JSON.stringify(body)
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = data?.error?.message || res.statusText || "Autocomplete failed";
-      console.error("[googlePlaces] autocomplete:", res.status, msg);
+    const attempt = await fetchWithGoogleApiKeyFallback(
+      (key) =>
+        fetch(`${PLACES_BASE}/places:autocomplete`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": key
+          },
+          body: JSON.stringify(body)
+        }),
+      "autocomplete"
+    );
+    if (!attempt.ok) {
+      const msg =
+        attempt.error ||
+        attempt.text?.slice(0, 200) ||
+        "Autocomplete failed";
+      console.error("[googlePlaces] autocomplete:", attempt.lastFailure?.status ?? 502, msg);
       return { ok: false, error: msg };
     }
+
+    const res = attempt.res;
+    const data = await res.json().catch(() => ({}));
 
     const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
     const predictions = [];
@@ -182,9 +261,8 @@ function mapOpeningHours(regular) {
  * @param {string} placeId - ChIJ… style ID
  */
 export async function placeDetails(placeId) {
-  const key = apiKey();
-  if (!key) {
-    return { ok: false, error: "GOOGLE_PLACES_API_KEY is not configured" };
+  if (!isGooglePlacesConfigured()) {
+    return { ok: false, error: "Google Places API key is not configured" };
   }
   const id = typeof placeId === "string" ? placeId.trim() : "";
   if (!id) {
@@ -194,19 +272,25 @@ export async function placeDetails(placeId) {
   const pathId = encodeURIComponent(id);
 
   try {
-    const res = await fetch(`${PLACES_BASE}/places/${pathId}`, {
-      method: "GET",
-      headers: {
-        "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask": DETAILS_FIELD_MASK
-      }
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = data?.error?.message || res.statusText || "Place details failed";
-      console.error("[googlePlaces] details:", res.status, msg);
+    const attempt = await fetchWithGoogleApiKeyFallback(
+      (key) =>
+        fetch(`${PLACES_BASE}/places/${pathId}`, {
+          method: "GET",
+          headers: {
+            "X-Goog-Api-Key": key,
+            "X-Goog-FieldMask": DETAILS_FIELD_MASK
+          }
+        }),
+      "details"
+    );
+    if (!attempt.ok) {
+      const msg = attempt.text?.slice(0, 200) || attempt.error || "Place details failed";
+      console.error("[googlePlaces] details:", attempt.lastFailure?.status ?? 502, msg);
       return { ok: false, error: msg };
     }
+
+    const res = attempt.res;
+    const data = await res.json().catch(() => ({}));
 
     const name = data.displayName?.text || data.name || "";
     const formatted = data.formattedAddress || "";
@@ -280,8 +364,7 @@ export async function placeDetails(placeId) {
  * Fetch raw photo bytes from Places API (New). `reference` is the photo resource name (places/.../photos/...).
  */
 export async function fetchPlacePhoto(reference, maxWidthPx) {
-  const key = apiKey();
-  if (!key) {
+  if (!isGooglePlacesConfigured()) {
     return { ok: false, error: "server_misconfigured", status: 500 };
   }
 
@@ -298,22 +381,41 @@ export async function fetchPlacePhoto(reference, maxWidthPx) {
 
   try {
     const googleUrl = `${PLACES_BASE}/${ref}/media?maxWidthPx=${mw}&skipHttpRedirect=true`;
-    const googleRes = await fetch(googleUrl, {
-      method: "GET",
-      headers: { "X-Goog-Api-Key": key }
-    });
+    const attempt = await fetchWithGoogleApiKeyFallback(
+      (key) =>
+        fetch(googleUrl, {
+          method: "GET",
+          headers: { "X-Goog-Api-Key": key }
+        }),
+      "photo"
+    );
 
-    if (!googleRes.ok) {
-      const text = await googleRes.text().catch(() => "");
-      console.error("[places/photo] Google returned", googleRes.status, text.slice(0, 200));
+    if (!attempt.ok) {
+      const text = attempt.text || "";
+      const upstreamStatus = attempt.lastFailure?.status ?? attempt.res?.status ?? 502;
+      console.error(
+        "[places/photo] Google returned",
+        upstreamStatus,
+        text.slice(0, 200),
+        attempt.keyEnv ? `(last key: ${attempt.keyEnv})` : ""
+      );
+      if (attempt.error === "google_api_key_failed") {
+        return {
+          ok: false,
+          error: "google_api_key_expired",
+          status: 503,
+          upstream_status: upstreamStatus
+        };
+      }
       return {
         ok: false,
         error: "google_photo_fetch_failed",
-        status: googleRes.status === 429 ? 429 : 502,
-        upstream_status: googleRes.status
+        status: upstreamStatus === 429 ? 429 : 502,
+        upstream_status: upstreamStatus
       };
     }
 
+    const googleRes = attempt.res;
     const data = await googleRes.json().catch(() => ({}));
     const photoUri = data.photoUri;
     if (!photoUri || typeof photoUri !== "string") {

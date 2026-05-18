@@ -3,18 +3,44 @@
  */
 import { describe, it, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { fetchPlacePhoto } from "../services/googlePlacesApi.js";
+import { configuredGoogleApiKeys, fetchPlacePhoto } from "../services/googlePlacesApi.js";
+
+describe("configuredGoogleApiKeys", () => {
+  const prev = {
+    GOOGLE_PLACES_API_KEY: process.env.GOOGLE_PLACES_API_KEY,
+    GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
+    GOOGLE_MAPS_SERVER_KEY: process.env.GOOGLE_MAPS_SERVER_KEY
+  };
+
+  after(() => {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  it("prefers GOOGLE_MAPS_API_KEY over expired GOOGLE_PLACES_API_KEY", () => {
+    process.env.GOOGLE_PLACES_API_KEY = "expired-places-key";
+    process.env.GOOGLE_MAPS_API_KEY = "valid-maps-key";
+    delete process.env.GOOGLE_MAPS_SERVER_KEY;
+    const keys = configuredGoogleApiKeys();
+    assert.equal(keys[0].env, "GOOGLE_MAPS_API_KEY");
+    assert.equal(keys[0].key, "valid-maps-key");
+    assert.equal(keys[1].env, "GOOGLE_PLACES_API_KEY");
+  });
+});
 
 describe("fetchPlacePhoto", () => {
-  const prevKey = process.env.GOOGLE_PLACES_API_KEY;
+  const prevKey = process.env.GOOGLE_MAPS_API_KEY;
 
   beforeEach(() => {
-    process.env.GOOGLE_PLACES_API_KEY = "test-key";
+    delete process.env.GOOGLE_PLACES_API_KEY;
+    process.env.GOOGLE_MAPS_API_KEY = "test-key";
   });
 
   after(() => {
-    if (prevKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
-    else process.env.GOOGLE_PLACES_API_KEY = prevKey;
+    if (prevKey === undefined) delete process.env.GOOGLE_MAPS_API_KEY;
+    else process.env.GOOGLE_MAPS_API_KEY = prevKey;
   });
 
   it("returns missing_reference when reference is empty", async () => {

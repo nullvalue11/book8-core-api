@@ -7,6 +7,7 @@ import { businessLookupFilter, canonicalBusinessId } from "../../services/provis
 import { getPlanFeatures } from "../config/plans.js";
 import { getVerticalPromptAddendum } from "../utils/verticalPromptAddendum.js";
 import { stats as calendarCacheStats } from "../../services/calendarCache.js";
+import { configuredGoogleApiKeys } from "../../services/googlePlacesApi.js";
 
 const router = express.Router();
 
@@ -197,6 +198,9 @@ router.get("/all", async (req, res) => {
       ready: results.filter((r) => r.status === "READY").length,
       incomplete: results.filter((r) => r.status === "INCOMPLETE").length,
       calendarCache: calendarCacheStats(),
+      googlePlaces: {
+        keySources: configuredGoogleApiKeys().map((k) => k.env)
+      },
       businesses: results
     });
   } catch (err) {
