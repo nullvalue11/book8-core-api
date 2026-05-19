@@ -297,6 +297,9 @@ const BusinessSchema = new mongoose.Schema(
     /** BOO-CANCEL-1A — set after cascade-delete + Twilio release to make hard-delete idempotent. Sparse. */
     hardDeletedAt: { type: Date, index: { sparse: true } },
 
+    /** BOO-DEMO-LINE-1A — optional flags (isDemoLine, promptVersion, etc.) */
+    metadata: { type: mongoose.Schema.Types.Mixed },
+
     /** BOO-99A / BOO-102A — idempotent drip + monthly recap preferences */
     notifications: {
       preferences: {

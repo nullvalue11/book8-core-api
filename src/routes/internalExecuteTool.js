@@ -17,6 +17,11 @@ import { ensureTenant } from "../../services/tenantEnsure.js";
 import { requireChannel } from "../middleware/planCheck.js";
 import { Business } from "../../models/Business.js";
 import { trialDeniedPublicChannel } from "../utils/trialLifecycle.js";
+import {
+  isDemoBlockedBookingTool,
+  isDemoSandboxToolContext,
+  simulatedDemoBookingOutcome
+} from "../utils/demoLine.js";
 
 const router = express.Router();
 
@@ -95,6 +100,25 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
 
     const tHandlerStart = Date.now();
     console.log(`[perf:exec-tool] routing-done elapsed=${tHandlerStart - t0}ms tool=${tool}`);
+
+    if (isDemoBlockedBookingTool(tool) && (await isDemoSandboxToolContext(tenantId, payload))) {
+      console.log("[execute-tool] demo sandbox — simulated booking tool:", tool, tenantId);
+      const outcome = simulatedDemoBookingOutcome(tool);
+      const tEndDemo = Date.now();
+      console.log(
+        `[perf:exec-tool] complete total=${tEndDemo - t0}ms tool=${tool} requestId=${requestId ?? ""} path=demo-sandbox`
+      );
+      return res.json({
+        ok: outcome.ok,
+        status: outcome.status,
+        tool,
+        tenantId,
+        requestId: requestId ?? null,
+        executionKey: executionKey ?? null,
+        result: outcome.result,
+        error: outcome.error
+      });
+    }
 
     let outcome;
     switch (tool) {

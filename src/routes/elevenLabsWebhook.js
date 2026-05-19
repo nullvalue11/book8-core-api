@@ -28,6 +28,11 @@ import {
   resolveVoiceIdForBusiness,
   withPinnedVoice
 } from "../config/voiceMapping.js";
+import {
+  DEMO_GREETING,
+  isDemoLineBusiness,
+  logDemoCallStarted
+} from "../utils/demoLine.js";
 
 const router = express.Router();
 
@@ -282,6 +287,60 @@ router.post("/conversation-init/:token", async (req, res) => {
     console.log(
       `[perf:conv-init] business-resolved elapsed=${tBusinessResolved - t0}ms callSid=${callSidForPerf} found=${!!business}`
     );
+
+    if (business && isDemoLineBusiness(business)) {
+      logDemoCallStarted({
+        businessId: business.id,
+        calledNumber: called_number,
+        callerNumber: caller_id
+      });
+
+      const businessId = business.id;
+      const tz = business.timezone || "America/Toronto";
+      const todayIso = dynamicVarTodayDate(businessId, business.timezone);
+      const voiceId = resolveVoiceIdForBusiness(business);
+      const locDemo = getElevenLabsBusinessLocationVars(business);
+      logElevenLabsInit(businessId, locDemo);
+
+      const tEndDemo = Date.now();
+      console.log(
+        `[perf:conv-init] complete total=${tEndDemo - t0}ms callSid=${callSidForPerf} businessId=${businessId} path=demo`
+      );
+
+      return res.json({
+        type: "conversation_initiation_client_data",
+        dynamic_variables: {
+          ...dynamicExtras,
+          business_name: business.name || "Book8 AI Demo Line",
+          business_id: businessId,
+          business_category: "demo",
+          vertical_prompt_addendum: "",
+          voice_id: voiceId,
+          services_list: "Book8 AI product demo — no live booking",
+          services_json: "[]",
+          business_hours: "Demo line — available any time",
+          timezone: tz,
+          today_date: todayIso,
+          caller_phone: caller_id || "",
+          call_sid: call_sid || "",
+          ...emptyCallerDynamicVariables(),
+          noShowPolicy: "",
+          ...locDemo,
+          ...languageDynamicVarsFromBusiness(business),
+          is_demo: true,
+          sandbox_mode: true,
+          booking_enabled: false
+        },
+        conversation_config_override: withPinnedVoice(
+          {
+            agent: {
+              first_message: business.greetingOverride || DEMO_GREETING
+            }
+          },
+          voiceId
+        )
+      });
+    }
 
     if (business) {
       const trialBlock = trialDeniedPublicChannel(business);
