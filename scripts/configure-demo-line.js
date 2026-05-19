@@ -103,22 +103,31 @@ async function main() {
     return;
   }
 
+  const $set = {
+    ...patch,
+    services: [],
+    updatedAt: new Date()
+  };
+  delete $set.greetingOverride;
+
   if (!doc) {
-    doc = new Business(patch);
+    await Business.create({ ...$set, createdAt: new Date() });
   } else {
-    Object.assign(doc, patch);
+    // Partial $set — avoid doc.save(): legacy embedded services on biz_book8demo may
+    // lack required id/duration and fail full-document ServiceSchema validation.
+    await Business.updateOne(businessLookupFilter(DEMO_BUSINESS_ID), { $set }, { runValidators: false });
   }
 
-  doc.markModified("metadata");
-  doc.markModified("availableChannels");
-  doc.markModified("supportedLanguages");
-  await doc.save();
+  const saved = await Business.findOne(businessLookupFilter(DEMO_BUSINESS_ID))
+    .select("id assignedTwilioNumber category plan metadata")
+    .lean();
 
   console.log("[configure-demo-line] saved", {
-    id: doc.id,
-    assignedTwilioNumber: doc.assignedTwilioNumber,
-    category: doc.category,
-    plan: doc.plan
+    id: saved?.id,
+    assignedTwilioNumber: saved?.assignedTwilioNumber,
+    category: saved?.category,
+    plan: saved?.plan,
+    isDemoLine: saved?.metadata?.isDemoLine
   });
 
   await mongoose.disconnect();
