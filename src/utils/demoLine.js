@@ -7,8 +7,7 @@ import { businessLookupFilter } from "../../services/provisioningHelpers.js";
 
 export const DEMO_BUSINESS_ID = "biz_book8demo";
 
-export const DEMO_GREETING =
-  "Hi, you've reached the Book8 AI demo line. I'm what your AI receptionist could sound like for your business. What kind of business are you calling about today?";
+export { DEMO_LINE_FIRST_MESSAGE as DEMO_GREETING } from "../prompts/demoLinePrompt.js";
 
 /**
  * @param {object | null | undefined} business

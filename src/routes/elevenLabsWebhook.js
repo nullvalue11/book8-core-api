@@ -29,10 +29,10 @@ import {
   withPinnedVoice
 } from "../config/voiceMapping.js";
 import {
-  DEMO_GREETING,
-  isDemoLineBusiness,
-  logDemoCallStarted
-} from "../utils/demoLine.js";
+  DEMO_LINE_FIRST_MESSAGE,
+  DEMO_LINE_SYSTEM_PROMPT
+} from "../prompts/demoLinePrompt.js";
+import { isDemoLineBusiness, logDemoCallStarted } from "../utils/demoLine.js";
 
 const router = express.Router();
 
@@ -334,7 +334,11 @@ router.post("/conversation-init/:token", async (req, res) => {
         conversation_config_override: withPinnedVoice(
           {
             agent: {
-              first_message: business.greetingOverride || DEMO_GREETING
+              prompt: {
+                prompt: DEMO_LINE_SYSTEM_PROMPT
+              },
+              first_message: business.greetingOverride || DEMO_LINE_FIRST_MESSAGE,
+              language: business.primaryLanguage || "en"
             }
           },
           voiceId
