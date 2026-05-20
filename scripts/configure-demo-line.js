@@ -88,8 +88,9 @@ async function main() {
     numberSetupMethod: "direct",
     plan: "enterprise",
     availableChannels: { voice: true, whatsapp: false, sms: false },
-    metadata,
-    greetingOverride: undefined
+    // No predefined services — demo agent improvises flows; execute-tool blocks real bookings.
+    services: [],
+    metadata
   };
 
   if (dryRun) {
@@ -97,18 +98,14 @@ async function main() {
       businessId: DEMO_BUSINESS_ID,
       assignedTwilioNumber,
       exists: !!doc,
+      services: [],
       metadata
     });
     await mongoose.disconnect();
     return;
   }
 
-  const $set = {
-    ...patch,
-    services: [],
-    updatedAt: new Date()
-  };
-  delete $set.greetingOverride;
+  const $set = { ...patch, updatedAt: new Date() };
 
   if (!doc) {
     await Business.create({ ...$set, createdAt: new Date() });
