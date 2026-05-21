@@ -7,6 +7,12 @@ import { businessLookupFilter } from "../../services/provisioningHelpers.js";
 
 export const DEMO_BUSINESS_ID = "biz_book8demo";
 
+/** Conv-init dynamic variable (string for ElevenLabs). */
+export const DEMO_DYNAMIC_SESSION_FLAG = "book8_is_demo_session";
+
+/** Hidden execute-tool input populated from dynamic variable (not LLM-controlled). */
+export const DEMO_TOOL_INPUT_SESSION_FLAG = "is_demo_session";
+
 export { DEMO_LINE_FIRST_MESSAGE as DEMO_GREETING } from "../prompts/demoLinePrompt.js";
 
 /**
@@ -53,7 +59,14 @@ export const DEMO_LINE_TOOLS_DISABLED_MESSAGE =
  * @param {string | null | undefined} tenantId
  * @param {object} [payload]
  */
+function isTruthyDemoSessionFlag(payload) {
+  const v =
+    payload[DEMO_TOOL_INPUT_SESSION_FLAG] ?? payload[DEMO_DYNAMIC_SESSION_FLAG];
+  return v === true || v === "true";
+}
+
 export function isDemoLineToolsDisabledSync(tenantId, payload = {}) {
+  if (isTruthyDemoSessionFlag(payload)) return true;
   if (payload.businessId === DEMO_BUSINESS_ID) return true;
   if (tenantId === DEMO_BUSINESS_ID) return true;
   if (payload.is_demo === true || payload.sandbox_mode === true) return true;

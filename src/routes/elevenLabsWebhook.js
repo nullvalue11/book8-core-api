@@ -329,7 +329,9 @@ router.post("/conversation-init/:token", async (req, res) => {
           ...languageDynamicVarsFromBusiness(business),
           is_demo: true,
           sandbox_mode: true,
-          booking_enabled: false
+          booking_enabled: false,
+          /** ElevenLabs → book8_execute_tool maps to hidden input is_demo_session */
+          book8_is_demo_session: "true"
         },
         conversation_config_override: withPinnedVoice(
           {

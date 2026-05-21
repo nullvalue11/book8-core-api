@@ -49,7 +49,7 @@ async function demoLineToolGuardrail(req, res, next) {
   const t0 = Date.now();
   console.log(`[perf:exec-tool] start tool=${tool} requestId=${requestId ?? ""} t0=${t0}`);
   console.log(
-    `[demo-guardrail] blocked tool=${tool} for demo line, returning synthetic response`
+    `[demo-guardrail] blocked tool=${tool} session-flag=${payload.is_demo_session} bizId=${payload.businessId}`
   );
   console.log(
     `[perf:exec-tool] complete total=${Date.now() - t0}ms tool=${tool} requestId=${requestId ?? ""} path=demo-guardrail`

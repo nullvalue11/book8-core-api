@@ -56,6 +56,25 @@ describe("Demo line guardrail", () => {
     assert.equal(res.body.error_code, "tools_disabled_for_demo");
   });
 
+  it("blocks when is_demo_session=true even with hallucinated businessId", async () => {
+    const res = await internalAuth(
+      request(app).post("/internal/execute-tool").send({
+        tool: "calendar.availability",
+        input: {
+          is_demo_session: "true",
+          businessId: "biz_mndcnl0ftmlew8",
+          serviceId: "ser_fake_test",
+          date: "2026-05-23",
+          timezone: "America/Toronto"
+        }
+      })
+    );
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.status, "demo_mode");
+    assert.equal(res.body.error_code, "tools_disabled_for_demo");
+  });
+
   it("does NOT block tools for real businesses", async () => {
     const res = await internalAuth(
       request(app).post("/internal/execute-tool").send({

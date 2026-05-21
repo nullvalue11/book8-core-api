@@ -31,6 +31,10 @@ describe("demoLine", () => {
     assert.equal(isDemoLineToolsDisabledSync(DEMO_BUSINESS_ID, {}), true);
     assert.equal(isDemoLineToolsDisabledSync(null, { businessId: DEMO_BUSINESS_ID }), true);
     assert.equal(isDemoLineToolsDisabledSync(null, { is_demo: true }), true);
+    assert.equal(
+      isDemoLineToolsDisabledSync("biz_mndcnl0ftmlew8", { is_demo_session: "true" }),
+      true
+    );
     assert.equal(isDemoLineToolsDisabledSync("biz_other", {}), false);
   });
 
