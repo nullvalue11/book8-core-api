@@ -45,6 +45,39 @@ export function isDemoBlockedBookingTool(tool) {
   return DEMO_WRITE_TOOLS.has(tool);
 }
 
+export const DEMO_LINE_TOOLS_DISABLED_MESSAGE =
+  'Demo line - do not actually book. Walk through it conversationally: "In a real call, I would book this in your Google Calendar. Since this is a demo, no real booking gets created."';
+
+/**
+ * Sync checks for demo-line tool guardrail (no DB).
+ * @param {string | null | undefined} tenantId
+ * @param {object} [payload]
+ */
+export function isDemoLineToolsDisabledSync(tenantId, payload = {}) {
+  if (payload.businessId === DEMO_BUSINESS_ID) return true;
+  if (tenantId === DEMO_BUSINESS_ID) return true;
+  if (payload.is_demo === true || payload.sandbox_mode === true) return true;
+  return false;
+}
+
+/**
+ * @param {string | null | undefined} tenantId
+ * @param {object} [payload]
+ */
+export async function shouldBlockDemoLineToolExecution(tenantId, payload = {}) {
+  if (isDemoLineToolsDisabledSync(tenantId, payload)) return true;
+  return isDemoSandboxToolContext(tenantId, payload);
+}
+
+/** @returns {{ status: string, error_code: string, message: string }} */
+export function demoLineToolGuardrailBody() {
+  return {
+    status: "demo_mode",
+    error_code: "tools_disabled_for_demo",
+    message: DEMO_LINE_TOOLS_DISABLED_MESSAGE
+  };
+}
+
 /**
  * Normalized execute-tool outcome for demo sandbox (no DB writes).
  */

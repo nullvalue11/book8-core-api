@@ -18,9 +18,8 @@ import { requireChannel } from "../middleware/planCheck.js";
 import { Business } from "../../models/Business.js";
 import { trialDeniedPublicChannel } from "../utils/trialLifecycle.js";
 import {
-  isDemoBlockedBookingTool,
-  isDemoSandboxToolContext,
-  simulatedDemoBookingOutcome
+  shouldBlockDemoLineToolExecution,
+  demoLineToolGuardrailBody
 } from "../utils/demoLine.js";
 
 const router = express.Router();
@@ -37,12 +36,33 @@ function requireVoiceForBookingTool(req, res, next) {
   next();
 }
 
+/** Demo line guardrail — before planCheck / DB routing (BOO-DEMO-PROMPT-NOTOOLS-1A). */
+async function demoLineToolGuardrail(req, res, next) {
+  const { tool, input, requestId } = req.body || {};
+  if (!tool || typeof tool !== "string") return next();
+
+  const payload = typeof input === "object" && input !== null ? input : {};
+  const tenantId = payload.businessId ?? null;
+
+  if (!(await shouldBlockDemoLineToolExecution(tenantId, payload))) return next();
+
+  const t0 = Date.now();
+  console.log(`[perf:exec-tool] start tool=${tool} requestId=${requestId ?? ""} t0=${t0}`);
+  console.log(
+    `[demo-guardrail] blocked tool=${tool} for demo line, returning synthetic response`
+  );
+  console.log(
+    `[perf:exec-tool] complete total=${Date.now() - t0}ms tool=${tool} requestId=${requestId ?? ""} path=demo-guardrail`
+  );
+  return res.json(demoLineToolGuardrailBody());
+}
+
 /**
  * POST /internal/execute-tool
  * Body: { tool, input, requestId?, executionKey? }
  * Returns: { ok, status, tool, tenantId, requestId, executionKey, result, error }
  */
-router.post("/", requireVoiceForBookingTool, async (req, res) => {
+router.post("/", demoLineToolGuardrail, requireVoiceForBookingTool, async (req, res) => {
   const t0 = Date.now();
   try {
     const { tool, input, requestId, executionKey } = req.body;
@@ -62,6 +82,7 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
 
     const payload = typeof input === "object" && input !== null ? input : {};
     let tenantId = payload.businessId ?? null;
+
     if (!tenantId && tool === "booking.reschedule" && payload.bookingId) {
       const rb = await Booking.findOne({ id: String(payload.bookingId).trim() })
         .select("businessId")
@@ -100,25 +121,6 @@ router.post("/", requireVoiceForBookingTool, async (req, res) => {
 
     const tHandlerStart = Date.now();
     console.log(`[perf:exec-tool] routing-done elapsed=${tHandlerStart - t0}ms tool=${tool}`);
-
-    if (isDemoBlockedBookingTool(tool) && (await isDemoSandboxToolContext(tenantId, payload))) {
-      console.log("[execute-tool] demo sandbox — simulated booking tool:", tool, tenantId);
-      const outcome = simulatedDemoBookingOutcome(tool);
-      const tEndDemo = Date.now();
-      console.log(
-        `[perf:exec-tool] complete total=${tEndDemo - t0}ms tool=${tool} requestId=${requestId ?? ""} path=demo-sandbox`
-      );
-      return res.json({
-        ok: outcome.ok,
-        status: outcome.status,
-        tool,
-        tenantId,
-        requestId: requestId ?? null,
-        executionKey: executionKey ?? null,
-        result: outcome.result,
-        error: outcome.error
-      });
-    }
 
     let outcome;
     switch (tool) {
