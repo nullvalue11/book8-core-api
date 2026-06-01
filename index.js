@@ -17,6 +17,8 @@ import bookingsRouter from "./src/routes/bookings.js";
 import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
 import internalProvisionRouter from "./src/routes/internalProvision.js";
 import internalSubscriptionSyncRouter from "./src/routes/internalSubscriptionSync.js";
+import internalRatelimitRouter from "./src/routes/internalRatelimit.js";
+import { ensureRateLimitIndexes } from "./src/lib/rateLimiter.js";
 import healthCheckRouter from "./src/routes/healthCheck.js";
 import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
 import twilioInboundRouter from "./src/routes/twilioInbound.js";
@@ -61,10 +63,17 @@ if (!process.env.MONGODB_URI && !process.env.MONGO_URI) {
   console.warn("[book8-core-api] MONGODB_URI not set — using local fallback");
 }
 
+function onMongoConnected() {
+  console.log("[book8-core-api] Connected to MongoDB");
+  return ensureRateLimitIndexes().catch((err) => {
+    console.error("[book8-core-api] Rate limit index ensure failed:", err);
+  });
+}
+
 if (process.env.NODE_ENV === "test") {
   mongoose
     .connect(MONGODB_URI)
-    .then(() => console.log("[book8-core-api] Connected to MongoDB"))
+    .then(onMongoConnected)
     .catch((err) => {
       console.error("[book8-core-api] MongoDB connection error:", err);
       process.exit(1);
@@ -208,6 +217,7 @@ app.use("/internal/provision-from-stripe", strictLimiter, requireInternalAuth, i
 app.use("/internal/subscription-sync", strictLimiter, requireInternalAuth, internalSubscriptionSyncRouter);
 app.use("/api/health", requireInternalAuth, healthCheckRouter);
 app.use("/internal/twilio-pool", strictLimiter, requireInternalAuth, twilioPoolRouter);
+app.use("/internal/ratelimit", strictLimiter, requireInternalSecretOrApiKey, internalRatelimitRouter);
 
 if (process.env.NODE_ENV !== "test") {
   const requireInitToken =
@@ -230,7 +240,7 @@ if (process.env.NODE_ENV !== "test") {
     console.log(`[book8-core-api] Listening on port ${PORT}`);
     mongoose
       .connect(MONGODB_URI)
-      .then(() => console.log("[book8-core-api] Connected to MongoDB"))
+      .then(onMongoConnected)
       .catch((err) => {
         console.error("[book8-core-api] MongoDB connection error:", err);
         process.exit(1);
