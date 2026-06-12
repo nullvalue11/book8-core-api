@@ -7,6 +7,12 @@ import {
   businessLookupFilter
 } from "../../services/provisioningHelpers.js";
 import { maskPhone } from "../utils/maskPhone.js";
+import {
+  getPlanForPriceId,
+  resolveCurrencyFromStripeSubscription,
+  resolvePlanFromStripeSubscription
+} from "../config/plans.js";
+import { getStripe } from "../../services/stripeNoShow.js";
 
 const router = express.Router();
 
@@ -48,6 +54,7 @@ router.post("/", async (req, res) => {
       phoneNumber,
       stripeCustomerId,
       stripeSubscriptionId,
+      stripePriceId,
       plan,
       calendarProvider,
       calendar
@@ -92,12 +99,42 @@ router.post("/", async (req, res) => {
 
     // If we have Stripe IDs, store them on the business for billing linkage
     // This is a best-effort update — don't fail provisioning if it errors
-    if (stripeCustomerId || stripeSubscriptionId || plan) {
+    if (stripeCustomerId || stripeSubscriptionId || plan || stripePriceId) {
       try {
+        let resolvedPlan =
+          typeof plan === "string" ? plan.trim().toLowerCase() : "";
+        if (stripePriceId) {
+          const fromPrice = getPlanForPriceId(stripePriceId);
+          if (fromPrice) resolvedPlan = fromPrice;
+        }
+        let resolvedCurrency =
+          typeof req.body.currency === "string" ? req.body.currency.trim().toLowerCase() : "";
+        if (stripeSubscriptionId && getStripe()) {
+          try {
+            const sub = await getStripe().subscriptions.retrieve(stripeSubscriptionId);
+            const fromSub = resolvePlanFromStripeSubscription(sub);
+            if (fromSub) resolvedPlan = fromSub;
+            const fromStripeCurrency = resolveCurrencyFromStripeSubscription(sub);
+            if (fromStripeCurrency) resolvedCurrency = fromStripeCurrency;
+          } catch (subErr) {
+            console.warn(
+              "[provision-from-stripe] Could not resolve plan from Stripe subscription:",
+              subErr?.message || subErr
+            );
+          }
+        }
+
         const update = {};
         if (stripeCustomerId) update.stripeCustomerId = stripeCustomerId;
         if (stripeSubscriptionId) update.stripeSubscriptionId = stripeSubscriptionId;
-        if (plan) update.plan = plan;
+        if (resolvedPlan && resolvedPlan !== "none") {
+          update.plan = resolvedPlan;
+          update["subscription.plan"] = resolvedPlan;
+        }
+        if (resolvedCurrency) {
+          update.preferredCurrency = resolvedCurrency;
+          update["subscription.currency"] = resolvedCurrency;
+        }
         if (stripeSubscriptionId) {
           update["trial.status"] = "subscribed";
           update["subscription.status"] = "active";

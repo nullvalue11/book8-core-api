@@ -194,6 +194,8 @@ const BusinessSchema = new mongoose.Schema(
     phoneNumber: { type: String, index: true, unique: true, sparse: true, maxlength: 32, trim: true },
     /** BOO-INFOBIP-INTEGRATE-1A: optional top-level country label for BSP routing (also uses businessProfile.address.country). */
     country: { type: String, maxlength: 120, trim: true, sparse: true },
+    /** BOO-MULTI-CURRENCY-FIX-1A — billing currency override (cad | usd | aed) */
+    preferredCurrency: { type: String, maxlength: 8, trim: true, lowercase: true, sparse: true },
     /** BOO-WIZARD-COUNTRY-BRANCH-1A */
     availableChannels: {
       type: AvailableChannelsSchema,
@@ -283,6 +285,14 @@ const BusinessSchema = new mongoose.Schema(
     /** BOO-CANCEL-1A — cancellation lifecycle, refund accounting, and audit timestamps. */
     subscription: {
       status: { type: String, maxlength: 32, trim: true },
+      /** BOO-MULTI-CURRENCY-FIX-1A — tier mirrored from Stripe price at sync time */
+      plan: {
+        type: String,
+        enum: ["starter", "growth", "enterprise"],
+        sparse: true
+      },
+      /** BOO-MULTI-CURRENCY-FIX-1A — Stripe subscription currency (cad | usd | aed) */
+      currency: { type: String, maxlength: 8, trim: true, lowercase: true, sparse: true },
       updatedAt: { type: Date },
       cancelAtPeriodEnd: { type: Boolean, default: false },
       cancellationRequestedAt: { type: Date },

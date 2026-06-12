@@ -1,7 +1,11 @@
 /**
  * BOO-44A: Verify paid-like subscription sync against live Stripe before mutating trial / DB.
  */
+import { resolvePlanFromStripeSubscription } from "../src/config/plans.js";
+
 export const PAID_LIKE = new Set(["active", "trialing", "past_due"]);
+
+export { resolvePlanFromStripeSubscription };
 
 /**
  * @param {object} params
@@ -105,8 +109,14 @@ export async function verifyPaidSubscriptionSync({
     };
   }
 
+  const resolvedPlan = resolvePlanFromStripeSubscription(sub);
   console.log(
-    `[subscription-sync] Stripe verified sub=${sid} stripeStatus=${stripeStatus} customer=${custId || "n/a"}`
+    `[subscription-sync] Stripe verified sub=${sid} stripeStatus=${stripeStatus} customer=${custId || "n/a"} plan=${resolvedPlan || "n/a"}`
   );
-  return { ok: true, stripeSubscription: sub, stripeCustomerId: custId || undefined };
+  return {
+    ok: true,
+    stripeSubscription: sub,
+    stripeCustomerId: custId || undefined,
+    resolvedPlan: resolvedPlan || undefined
+  };
 }

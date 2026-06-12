@@ -10,14 +10,27 @@ import {
   PAID_LIKE,
   verifyPaidSubscriptionSync
 } from "../../services/stripeSubscriptionVerify.js";
+import {
+  getPlanForPriceId,
+  resolveCurrencyFromStripeSubscription,
+  resolvePlanFromStripeSubscription
+} from "../config/plans.js";
 
 const router = express.Router();
 
 const ENDED = new Set(["canceled", "unpaid", "incomplete_expired"]);
+const VALID_PLANS = new Set(["starter", "growth", "enterprise"]);
+
+function normalizePlanInput(plan) {
+  if (typeof plan !== "string") return null;
+  const p = plan.trim().toLowerCase();
+  return VALID_PLANS.has(p) ? p : null;
+}
 
 router.post("/", async (req, res) => {
   try {
-    const { businessId, stripeSubscriptionId, subscriptionStatus } = req.body || {};
+    const { businessId, stripeSubscriptionId, subscriptionStatus, plan, stripePriceId, currency } =
+      req.body || {};
     if (!businessId || typeof businessId !== "string") {
       return res.status(400).json({ ok: false, error: "businessId is required" });
     }
@@ -31,6 +44,13 @@ router.post("/", async (req, res) => {
     if (!doc) {
       return res.status(404).json({ ok: false, error: "Business not found" });
     }
+
+    let resolvedPlan = normalizePlanInput(plan);
+    if (!resolvedPlan && stripePriceId) {
+      resolvedPlan = getPlanForPriceId(stripePriceId);
+    }
+    let resolvedCurrency =
+      typeof currency === "string" && currency.trim() ? currency.trim().toLowerCase() : null;
 
     if (PAID_LIKE.has(st)) {
       const vr = await verifyPaidSubscriptionSync({
@@ -46,6 +66,16 @@ router.post("/", async (req, res) => {
           message: vr.message
         });
       }
+      const fromStripe =
+        vr.resolvedPlan ||
+        resolvePlanFromStripeSubscription(vr.stripeSubscription);
+      if (fromStripe) {
+        resolvedPlan = fromStripe;
+      }
+      const fromStripeCurrency = resolveCurrencyFromStripeSubscription(vr.stripeSubscription);
+      if (fromStripeCurrency) {
+        resolvedCurrency = fromStripeCurrency;
+      }
     }
 
     const update = {
@@ -54,6 +84,16 @@ router.post("/", async (req, res) => {
     };
     if (stripeSubscriptionId && typeof stripeSubscriptionId === "string") {
       update.stripeSubscriptionId = stripeSubscriptionId.trim();
+    }
+    if (resolvedPlan) {
+      update.plan = resolvedPlan;
+    }
+    if (PAID_LIKE.has(st) && resolvedPlan) {
+      update["subscription.plan"] = resolvedPlan;
+    }
+    if (resolvedCurrency) {
+      update.preferredCurrency = resolvedCurrency;
+      update["subscription.currency"] = resolvedCurrency;
     }
 
     const unset = {};

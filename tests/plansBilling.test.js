@@ -5,16 +5,24 @@
  * STRIPE_PRICE_* env vars hold the CAD Price IDs (production reality).
  * Pricing API amounts are always Stripe minor units (frontend divides by 100).
  */
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, before, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import express from "express";
 import request from "supertest";
 import plansRouter from "../src/routes/plans.js";
 import {
   getPriceIdForPlan,
+  getPlanForPriceId,
+  buildPriceIdToPlanMap,
+  normalizeCheckoutCurrency,
+  resolveCheckoutPrice,
+  resolveCurrencyFromStripeSubscription,
+  resolvePlanFromStripePrice,
+  resolvePlanFromStripeSubscription,
   getPlansPricingByCurrency,
   resolveSubscriptionPriceForBusiness
 } from "../src/config/plans.js";
+import { app } from "../index.js";
 
 function pricingApp() {
   const app = express();
@@ -34,8 +42,17 @@ const STRIPE_ENV_KEYS = [
   "STRIPE_PRICE_ENTERPRISE",
   "STRIPE_PRICE_ENTERPRISE_CAD",
   "STRIPE_PRICE_ENTERPRISE_USD",
-  "STRIPE_PRICE_ENTERPRISE_AED"
+  "STRIPE_PRICE_ENTERPRISE_AED",
+  "STRIPE_PRICE_LEGACY_STARTER_USD",
+  "STRIPE_PRICE_LEGACY_GROWTH_USD",
+  "STRIPE_PRICE_LEGACY_ENTERPRISE_USD"
 ];
+
+const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET || "test-internal-secret";
+
+function internalAuth(req) {
+  return req.set("x-book8-internal-secret", INTERNAL_SECRET);
+}
 
 function snapshotEnv() {
   const snap = {};
@@ -141,6 +158,156 @@ describe("getPriceIdForPlan legacy no-suffix env var fallback", () => {
 
   it("USD request with only legacy env falls back to CAD Price ID via defaultCurrency", () => {
     assert.strictEqual(getPriceIdForPlan("enterprise", "usd"), "price_legacy_enterprise_cad");
+  });
+});
+
+describe("getPlanForPriceId / resolvePlanFromStripePrice", () => {
+  let backup;
+
+  beforeEach(() => {
+    backup = snapshotEnv();
+    clearEnv();
+    process.env.STRIPE_PRICE_STARTER_CAD = "price_starter_cad";
+    process.env.STRIPE_PRICE_GROWTH_CAD = "price_growth_cad";
+    process.env.STRIPE_PRICE_ENTERPRISE_CAD = "price_ent_cad";
+  });
+
+  afterEach(() => {
+    restoreEnv(backup);
+  });
+
+  it("maps configured price IDs back to plan keys", () => {
+    assert.strictEqual(getPlanForPriceId("price_growth_cad"), "growth");
+    assert.strictEqual(getPlanForPriceId("price_starter_cad"), "starter");
+    assert.strictEqual(getPlanForPriceId("unknown"), null);
+  });
+
+  it("resolves plan from Stripe price amount when env mapping is missing", () => {
+    const plan = resolvePlanFromStripePrice({
+      id: "price_unknown",
+      unit_amount: 9900,
+      metadata: {}
+    });
+    assert.strictEqual(plan, "growth");
+  });
+
+  it("maps legacy USD price IDs to plan tiers", () => {
+    process.env.STRIPE_PRICE_LEGACY_GROWTH_USD = "price_legacy_growth_usd_99";
+    assert.strictEqual(getPlanForPriceId("price_legacy_growth_usd_99"), "growth");
+    const map = buildPriceIdToPlanMap();
+    assert.strictEqual(map.price_legacy_growth_usd_99, "growth");
+    assert.strictEqual(map.price_growth_cad, "growth");
+  });
+
+  it("resolves plan from subscription metadata and price", () => {
+    const fromMeta = resolvePlanFromStripeSubscription({
+      metadata: { plan: "enterprise" },
+      items: { data: [{ price: { id: "x", unit_amount: 9900 } }] }
+    });
+    assert.strictEqual(fromMeta, "enterprise");
+
+    const fromPrice = resolvePlanFromStripeSubscription({
+      metadata: {},
+      items: { data: [{ price: { id: "price_growth_cad", unit_amount: 9900 } }] }
+    });
+    assert.strictEqual(fromPrice, "growth");
+  });
+});
+
+describe("normalizeCheckoutCurrency / resolveCheckoutPrice", () => {
+  let backup;
+
+  beforeEach(() => {
+    backup = snapshotEnv();
+    clearEnv();
+    process.env.STRIPE_PRICE_GROWTH_CAD = "price_growth_cad";
+    process.env.STRIPE_PRICE_GROWTH_USD = "price_growth_usd";
+  });
+
+  afterEach(() => {
+    restoreEnv(backup);
+  });
+
+  it("defaults invalid currency to cad", () => {
+    assert.strictEqual(normalizeCheckoutCurrency(undefined), "cad");
+    assert.strictEqual(normalizeCheckoutCurrency("eur"), "cad");
+  });
+
+  it("resolveCheckoutPrice selects tier + currency Price ID", () => {
+    assert.deepStrictEqual(resolveCheckoutPrice("growth", "usd"), {
+      plan: "growth",
+      currency: "usd",
+      priceId: "price_growth_usd"
+    });
+    assert.deepStrictEqual(resolveCheckoutPrice("growth", null), {
+      plan: "growth",
+      currency: "cad",
+      priceId: "price_growth_cad"
+    });
+  });
+});
+
+describe("resolveCurrencyFromStripeSubscription", () => {
+  it("reads currency from subscription line item price", () => {
+    assert.strictEqual(
+      resolveCurrencyFromStripeSubscription({
+        items: { data: [{ price: { currency: "cad", id: "p1" } }] }
+      }),
+      "cad"
+    );
+    assert.strictEqual(resolveCurrencyFromStripeSubscription(null), null);
+  });
+});
+
+describe("POST /internal/billing/checkout-price", () => {
+  let backup;
+
+  before(() => {
+    if (!process.env.INTERNAL_API_SECRET) process.env.INTERNAL_API_SECRET = INTERNAL_SECRET;
+  });
+
+  beforeEach(() => {
+    backup = snapshotEnv();
+    clearEnv();
+    process.env.STRIPE_PRICE_STARTER_CAD = "price_starter_cad";
+    process.env.STRIPE_PRICE_STARTER_USD = "price_starter_usd";
+  });
+
+  afterEach(() => {
+    restoreEnv(backup);
+  });
+
+  it("returns 401 without auth", async () => {
+    const res = await request(app)
+      .post("/internal/billing/checkout-price")
+      .send({ plan: "starter", currency: "cad" });
+    assert.strictEqual(res.status, 401);
+  });
+
+  it("resolves checkout price by plan + currency", async () => {
+    const res = await internalAuth(
+      request(app).post("/internal/billing/checkout-price").send({
+        plan: "starter",
+        currency: "usd"
+      })
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.ok, true);
+    assert.strictEqual(res.body.plan, "starter");
+    assert.strictEqual(res.body.currency, "usd");
+    assert.strictEqual(res.body.priceId, "price_starter_usd");
+  });
+
+  it("defaults currency to cad when invalid", async () => {
+    const res = await internalAuth(
+      request(app).post("/internal/billing/checkout-price").send({
+        plan: "starter",
+        currency: "xyz"
+      })
+    );
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.currency, "cad");
+    assert.strictEqual(res.body.priceId, "price_starter_cad");
   });
 });
 

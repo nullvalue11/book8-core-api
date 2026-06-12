@@ -18,6 +18,7 @@ import internalExecuteToolRouter from "./src/routes/internalExecuteTool.js";
 import internalProvisionRouter from "./src/routes/internalProvision.js";
 import internalSubscriptionSyncRouter from "./src/routes/internalSubscriptionSync.js";
 import internalRatelimitRouter from "./src/routes/internalRatelimit.js";
+import internalBillingRouter from "./src/routes/internalBilling.js";
 import { ensureRateLimitIndexes } from "./src/lib/rateLimiter.js";
 import healthCheckRouter from "./src/routes/healthCheck.js";
 import elevenLabsWebhookRouter from "./src/routes/elevenLabsWebhook.js";
@@ -218,6 +219,7 @@ app.use("/internal/subscription-sync", strictLimiter, requireInternalAuth, inter
 app.use("/api/health", requireInternalAuth, healthCheckRouter);
 app.use("/internal/twilio-pool", strictLimiter, requireInternalAuth, twilioPoolRouter);
 app.use("/internal/ratelimit", strictLimiter, requireInternalSecretOrApiKey, internalRatelimitRouter);
+app.use("/internal/billing", strictLimiter, requireInternalSecretOrApiKey, internalBillingRouter);
 
 if (process.env.NODE_ENV !== "test") {
   const requireInitToken =

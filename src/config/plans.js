@@ -156,6 +156,9 @@ const PLAN_KEYS = new Set(["none", "starter", "growth", "enterprise"]);
 
 const PAID_PLAN_KEYS = ["starter", "growth", "enterprise"];
 
+const CHECKOUT_CURRENCIES = new Set(["cad", "usd", "aed"]);
+const DEFAULT_CHECKOUT_CURRENCY = "cad";
+
 const PRICING_DISPLAY_SYMBOL = {
   cad: "CA$",
   usd: "$",
@@ -200,6 +203,30 @@ function stripePriceIdsForPlan(planName) {
   }
 }
 
+/** Pre-fix USD prices ($29/$99/$299) — webhook reverse lookup only; never used for new checkout. */
+function legacyUsdStripePriceIdsForPlan(planName) {
+  switch (planName) {
+    case "starter":
+      return envFirst(["STRIPE_PRICE_LEGACY_STARTER_USD"]);
+    case "growth":
+      return envFirst(["STRIPE_PRICE_LEGACY_GROWTH_USD"]);
+    case "enterprise":
+      return envFirst(["STRIPE_PRICE_LEGACY_ENTERPRISE_USD"]);
+    default:
+      return "";
+  }
+}
+
+/**
+ * BOO-MULTI-CURRENCY-FIX-1A: strict checkout currency; CAD is base when absent/invalid.
+ * @param {unknown} currency
+ * @returns {"cad"|"usd"|"aed"}
+ */
+export function normalizeCheckoutCurrency(currency) {
+  const cur = typeof currency === "string" ? currency.trim().toLowerCase() : "";
+  return CHECKOUT_CURRENCIES.has(cur) ? cur : DEFAULT_CHECKOUT_CURRENCY;
+}
+
 /**
  * @param {string} planName - starter | growth | enterprise
  * @param {string} currency - lowercase Stripe currency (e.g. usd, aed)
@@ -224,15 +251,134 @@ export function getPriceIdForPlan(planName, currency) {
 }
 
 /**
+ * Reverse lookup: Stripe Price ID → plan key (starter | growth | enterprise).
+ * Uses configured STRIPE_PRICE_* env vars; falls back to billing minor-unit amounts.
+ * @param {string} priceId
+ * @returns {string|null}
+ */
+export function getPlanForPriceId(priceId) {
+  const id = priceId != null ? String(priceId).trim() : "";
+  if (!id) return null;
+
+  for (const planName of PAID_PLAN_KEYS) {
+    const ids = stripePriceIdsForPlan(planName);
+    if (ids) {
+      for (const val of Object.values(ids)) {
+        if (val && val === id) return planName;
+      }
+    }
+    const legacyUsd = legacyUsdStripePriceIdsForPlan(planName);
+    if (legacyUsd && legacyUsd === id) return planName;
+  }
+
+  return null;
+}
+
+/**
+ * All configured + legacy Stripe Price IDs → plan tier (for ops / 1B handoff).
+ * @returns {Record<string, string>}
+ */
+export function buildPriceIdToPlanMap() {
+  const map = {};
+  for (const planName of PAID_PLAN_KEYS) {
+    const ids = stripePriceIdsForPlan(planName);
+    if (ids) {
+      for (const [currency, priceId] of Object.entries(ids)) {
+        if (priceId) map[priceId] = planName;
+      }
+    }
+    const legacyUsd = legacyUsdStripePriceIdsForPlan(planName);
+    if (legacyUsd) map[legacyUsd] = planName;
+  }
+  return map;
+}
+
+/**
+ * Resolve plan from a Stripe Price object (id, unit_amount, metadata.plan).
+ * @param {import("stripe").Stripe.Price | null | undefined} price
+ * @returns {string|null}
+ */
+export function resolvePlanFromStripePrice(price) {
+  if (!price) return null;
+
+  const fromId = getPlanForPriceId(price.id);
+  if (fromId) return fromId;
+
+  const metaPlan =
+    typeof price.metadata?.plan === "string" ? price.metadata.plan.trim().toLowerCase() : "";
+  if (PLAN_KEYS.has(metaPlan) && metaPlan !== "none") return metaPlan;
+
+  const amount = typeof price.unit_amount === "number" ? price.unit_amount : null;
+  if (amount != null) {
+    for (const planName of PAID_PLAN_KEYS) {
+      const billing = PLANS[planName].billing;
+      if (!billing?.amounts) continue;
+      for (const minor of Object.values(billing.amounts)) {
+        if (minor === amount) return planName;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * @param {import("stripe").Stripe.Subscription | null | undefined} subscription
+ * @returns {string|null}
+ */
+export function resolvePlanFromStripeSubscription(subscription) {
+  if (!subscription) return null;
+
+  const metaPlan =
+    typeof subscription.metadata?.plan === "string"
+      ? subscription.metadata.plan.trim().toLowerCase()
+      : "";
+  if (PLAN_KEYS.has(metaPlan) && metaPlan !== "none") return metaPlan;
+
+  const item = subscription.items?.data?.[0];
+  return resolvePlanFromStripePrice(item?.price);
+}
+
+/**
+ * @param {import("stripe").Stripe.Subscription | null | undefined} subscription
+ * @returns {string|null} lowercase currency (cad | usd | aed)
+ */
+export function resolveCurrencyFromStripeSubscription(subscription) {
+  if (!subscription) return null;
+  const item = subscription.items?.data?.[0];
+  const cur =
+    typeof item?.price?.currency === "string" ? item.price.currency.trim().toLowerCase() : "";
+  return CHECKOUT_CURRENCIES.has(cur) ? cur : null;
+}
+
+/**
  * Stripe Checkout / subscription session: currency + Price ID from business + plan.
  * @param {object} business
  * @param {string} planName
  * @returns {{ currency: string, priceId: string }}
  */
-export function resolveSubscriptionPriceForBusiness(business, planName) {
-  const currency = getCurrencyForBusiness(business);
+export function resolveSubscriptionPriceForBusiness(business, planName, currencyOverride) {
+  const currency = currencyOverride
+    ? normalizeCheckoutCurrency(currencyOverride)
+    : getCurrencyForBusiness(business);
   const priceId = getPriceIdForPlan(planName, currency);
   return { currency, priceId };
+}
+
+/**
+ * Checkout price resolution for book8-ai (tier + currency only — never trust amounts).
+ * @param {string} planName
+ * @param {unknown} [currency]
+ * @returns {{ plan: string, currency: string, priceId: string }}
+ */
+export function resolveCheckoutPrice(planName, currency) {
+  const plan = typeof planName === "string" ? planName.trim().toLowerCase() : "";
+  if (!PAID_PLAN_KEYS.includes(plan)) {
+    throw new Error(`Unknown plan: ${planName}`);
+  }
+  const cur = normalizeCheckoutCurrency(currency);
+  const priceId = getPriceIdForPlan(plan, cur);
+  return { plan, currency: cur, priceId };
 }
 
 /**
