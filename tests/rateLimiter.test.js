@@ -107,10 +107,13 @@ describe("Mongo rate limiter (BOO-RATELIMIT-CORE-1A)", () => {
   });
 
   it("has TTL index on resetAt", async () => {
-    const indexes = await RateLimitBucket.collection.getIndexes();
-    const ttlIndex = Object.values(indexes).find(
-      (idx) => idx.key?.resetAt === 1 && idx.expireAfterSeconds === 0
-    );
+    let ttlIndex;
+    for await (const idx of RateLimitBucket.collection.listIndexes()) {
+      if (idx.key?.resetAt === 1 && idx.expireAfterSeconds === 0) {
+        ttlIndex = idx;
+        break;
+      }
+    }
     assert.ok(ttlIndex, "expected TTL index on resetAt with expireAfterSeconds: 0");
   });
 
