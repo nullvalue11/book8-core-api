@@ -129,7 +129,7 @@ describe("Reviews API (BOO-58A)", () => {
     });
 
     const expired = jwt.sign(
-      { bookingId, businessId: TEST_BIZ, typ: "review" },
+      { bookingId, bid: TEST_BIZ, reviewInvite: true },
       REVIEW_SECRET,
       { expiresIn: "-1h" }
     );

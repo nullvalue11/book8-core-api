@@ -18,7 +18,7 @@ export function signReviewToken(bookingId, businessId) {
   const secret = getReviewJwtSecret();
   if (!secret) throw new Error("REVIEW_JWT_SECRET or INTERNAL_API_SECRET required for review tokens");
   return jwt.sign(
-    { bookingId, businessId, typ: "review" },
+    { bookingId, bid: businessId, reviewInvite: true },
     secret,
     { expiresIn: "7d" }
   );
@@ -35,10 +35,10 @@ export function verifyReviewToken(token) {
   }
   try {
     const p = jwt.verify(token, secret);
-    if (p.typ !== "review" || !p.bookingId || !p.businessId) {
+    if (p.reviewInvite !== true || !p.bookingId || !p.bid) {
       return { ok: false, error: "Invalid token" };
     }
-    return { ok: true, bookingId: String(p.bookingId), businessId: String(p.businessId) };
+    return { ok: true, bookingId: String(p.bookingId), businessId: String(p.bid) };
   } catch (e) {
     if (e.name === "TokenExpiredError") return { ok: false, error: "Token expired" };
     return { ok: false, error: "Invalid token" };
