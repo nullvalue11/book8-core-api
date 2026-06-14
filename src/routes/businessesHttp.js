@@ -33,6 +33,7 @@ import { publicBookingLimiter } from "../middleware/publicBookingLimiter.js";
 import { trialDeniedDashboardWrite, buildTrialStatusPayload } from "../utils/trialLifecycle.js";
 import { resolveCountryIsoForBusiness, countryChannelBootstrap } from "../utils/businessCountry.js";
 import { resolveVoiceAllowedForBusiness } from "../config/voiceCountries.js";
+import { getEffectiveBusinessPhone } from "../utils/businessPhone.js";
 
 /** Dashboard / book8-ai list all services; public booking widget only sees active. */
 function hasServiceListManagementAuth(req) {
@@ -77,6 +78,30 @@ export default function createBusinessesHttpRouter(deps) {
       return res.json({ ok: true, ...payload });
     } catch (err) {
       console.error("Error in GET /api/businesses/:id/trial-status:", err);
+      return res.status(500).json({ ok: false, error: "Internal server error" });
+    }
+  });
+
+  /** BOO-PHASE4B-2A — effective inbound number (dedicated or shared demo line) for wizard/dashboard */
+  router.get("/:id/phone", strictLimiter, requireInternalSecretOrApiKey, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const resolved = await findBusinessByParam(id);
+      if (!resolved) {
+        return res.status(404).json({ ok: false, error: "Business not found" });
+      }
+      const { business, businessId } = resolved;
+      const phone = await getEffectiveBusinessPhone(business);
+      return res.json({
+        ok: true,
+        businessId,
+        phoneNumber: phone.phoneNumber,
+        source: phone.source,
+        hasDedicatedNumber: phone.hasDedicatedNumber,
+        twilioNumberStatus: phone.twilioNumberStatus
+      });
+    } catch (err) {
+      console.error("Error in GET /api/businesses/:id/phone:", err);
       return res.status(500).json({ ok: false, error: "Internal server error" });
     }
   });

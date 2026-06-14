@@ -2,11 +2,7 @@
 import express from "express";
 import { ensureTenant } from "../../services/tenantEnsure.js";
 import { Business } from "../../models/Business.js";
-import {
-  assignTwilioNumberFromPool,
-  businessLookupFilter
-} from "../../services/provisioningHelpers.js";
-import { maskPhone } from "../utils/maskPhone.js";
+import { businessLookupFilter } from "../../services/provisioningHelpers.js";
 import {
   getPlanForPriceId,
   resolveCurrencyFromStripeSubscription,
@@ -157,23 +153,11 @@ router.post("/", async (req, res) => {
       }
     }
 
-    // Auto-assign a Twilio number from the pool (best-effort; never crash provisioning)
-    try {
-      const twilioResult = await assignTwilioNumberFromPool(businessId);
-      if (twilioResult.skipped) {
-        console.log("[provisioning] Twilio assignment skipped:", twilioResult.detail);
-      } else if (twilioResult.ok) {
-        console.log("[provisioning] Assigned", maskPhone(twilioResult.phone), "to", businessId);
-      } else {
-        console.error("[provisioning] Number assignment:", twilioResult.detail);
-      }
-    } catch (numberErr) {
-      console.error("[provisioning] Number assignment failed:", numberErr);
-      await Business.findOneAndUpdate(
-        businessLookupFilter(businessId),
-        { $set: { numberSetupMethod: "pending" } }
-      ).catch(() => {});
-    }
+    // BOO-PHASE4B-2A Model B: trial uses shared demo line; dedicated number provisions on
+    // customer.subscription.updated when previous_attributes.status=trialing → active.
+    console.log(
+      `[provision-from-stripe] Skipping Twilio assign for ${businessId} — dedicated number provisions on paid conversion`
+    );
 
     console.log("[provision-from-stripe] Success:", {
       businessId: result.businessId,

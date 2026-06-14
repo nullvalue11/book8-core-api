@@ -1,6 +1,10 @@
 /**
  * BOO-97A — Internal endpoint for book8-ai (or jobs) to mirror Stripe subscription.state into core-api.
  * POST /internal/subscription-sync
+ *
+ * BOO-PHASE4B-2A: pass Stripe webhook context for trial→paid number provisioning:
+ *   previousSubscriptionStatus — event.data.previous_attributes.status (required for provision trigger)
+ *   stripeEventType — event.type (customer.subscription.updated)
  */
 import express from "express";
 import { Business } from "../../models/Business.js";
@@ -15,6 +19,10 @@ import {
   resolveCurrencyFromStripeSubscription,
   resolvePlanFromStripeSubscription
 } from "../config/plans.js";
+import {
+  provisionBusinessNumber,
+  shouldProvisionNumberOnPaidConversion
+} from "../../services/provisionBusinessNumber.js";
 
 const router = express.Router();
 
@@ -29,8 +37,18 @@ function normalizePlanInput(plan) {
 
 router.post("/", async (req, res) => {
   try {
-    const { businessId, stripeSubscriptionId, subscriptionStatus, plan, stripePriceId, currency } =
-      req.body || {};
+    const {
+      businessId,
+      stripeSubscriptionId,
+      subscriptionStatus,
+      plan,
+      stripePriceId,
+      currency,
+      previousSubscriptionStatus: previousStatusBody,
+      previousAttributes,
+      stripeEventType,
+      source
+    } = req.body || {};
     if (!businessId || typeof businessId !== "string") {
       return res.status(400).json({ ok: false, error: "businessId is required" });
     }
@@ -115,11 +133,75 @@ router.post("/", async (req, res) => {
       { new: true }
     );
 
-    return res.json({ ok: true, businessId: doc.id || doc.businessId });
+    const bid = doc.id || doc.businessId;
+    const previousSubscriptionStatus = normalizePreviousSubscriptionStatus(
+      previousStatusBody,
+      previousAttributes
+    );
+    const eventType =
+      typeof stripeEventType === "string" && stripeEventType.trim()
+        ? stripeEventType.trim()
+        : typeof source === "string" && source.trim()
+          ? source.trim()
+          : null;
+
+    let numberProvisioning = null;
+    if (
+      shouldProvisionNumberOnPaidConversion({
+        previousSubscriptionStatus,
+        newSubscriptionStatus: st,
+        business: doc,
+        stripeEventType: eventType
+      })
+    ) {
+      try {
+        numberProvisioning = await provisionBusinessNumber(bid);
+        if (numberProvisioning.skipped) {
+          console.log(
+            `[subscription-sync] number provisioning skipped for ${bid}: ${numberProvisioning.detail}`
+          );
+        } else if (numberProvisioning.ok) {
+          console.log(
+            `[subscription-sync] dedicated number provisioned for ${bid}: ${numberProvisioning.detail || "ok"}`
+          );
+        } else {
+          console.warn(
+            `[subscription-sync] number provisioning failed for ${bid}: ${numberProvisioning.detail}`
+          );
+        }
+      } catch (provErr) {
+        console.error(`[subscription-sync] number provisioning error for ${bid}:`, provErr?.message || provErr);
+        numberProvisioning = {
+          ok: false,
+          detail: provErr?.message || "provisioning_error",
+          retryable: true
+        };
+      }
+    }
+
+    return res.json({
+      ok: true,
+      businessId: bid,
+      ...(numberProvisioning ? { numberProvisioning } : {})
+    });
   } catch (err) {
     console.error("[internal/subscription-sync]", err);
     return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
+
+function normalizePreviousSubscriptionStatus(previousStatusBody, previousAttributes) {
+  if (typeof previousStatusBody === "string" && previousStatusBody.trim()) {
+    return previousStatusBody.trim().toLowerCase();
+  }
+  if (
+    previousAttributes &&
+    typeof previousAttributes.status === "string" &&
+    previousAttributes.status.trim()
+  ) {
+    return previousAttributes.status.trim().toLowerCase();
+  }
+  return null;
+}
 
 export default router;
